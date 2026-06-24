@@ -1,0 +1,102 @@
+// ---------------------------------------------------------------
+// TreeCulling.compute
+// GPU frustum-culling kernel for the indirect-draw tree renderer.
+//
+// Single kernel:
+//   CSFrustumCull – tests each instance against 6 camera frustum
+//                    planes. Visible instance indices are written
+//                    to _VisibleIndices via InterlockedAdd so each
+//                    bucket gets a tightly packed list.
+//
+// Billboard matrices are still computed on the CPU and uploaded
+// pre-oriented to the _TreeMatrices buffer.
+// ---------------------------------------------------------------
+
+#pragma kernel CSFrustumCull
+
+// ---- Input buffers (read-only) ----
+
+// All tree world matrices, indexed by global instance index.
+// Layout matches the CPU-side MatrixArena (contiguous, no gaps).
+StructuredBuffer<float4x4> _TreeMatrices;
+
+// One uint per global instance: the bucket key.
+// bucketKey = prototypeIndex * MAX_LODS_PER_PROTO + treeLOD
+// Used by the cull kernel to know which bucket's counter to increment.
+StructuredBuffer<uint> _PerInstanceBucketKeys;
+
+// Per-instance world-space center position (float4 for 16-byte alignment).
+StructuredBuffer<float4> _InstancePositions;
+
+// ---- Output buffers (read-write) ----
+
+// Flat visible-index output. Each bucket owns a contiguous slice.
+// The cull kernel writes the global instance index using InterlockedAdd.
+RWStructuredBuffer<uint> _VisibleIndices;
+
+// Per-bucket draw-args packed as uint5 per bucket:
+//   [indexCount, instanceCount, startIndex, baseVertex, startInstanceLocation]
+// indexCount/startIndex/baseVertex are written once by the CPU.
+// instanceCount is incremented by the cull kernel via InterlockedAdd.
+RWStructuredBuffer<uint> _ArgsBuffer;
+
+// ---- Constants ----
+
+// 6 frustum planes packed as float4 (normal.xyz + distance).
+// Set via SetVectorArray on the compute shader.
+float4 _FrustumPlanes[6];
+
+uint _TotalInstances; // total matrices currently in the arena
+uint _BucketCount;    // total number of bucket slots
+uint _BucketCapacity; // max indices per bucket (stride in _VisibleIndices)
+
+// ---- Helpers ----
+
+// Returns true if the given world-space position is inside the frustum.
+bool IsInsideFrustum(float3 worldPos)
+{
+    // Test against all 6 planes.
+    // plane = float4(normal.x, normal.y, normal.z, distance)
+    // A point is inside if dot(pos, normal) + distance >= 0
+    [unroll]
+    for (int i = 0; i < 6; i++)
+    {
+        float4 p = _FrustumPlanes[i];
+        if (dot(worldPos, p.xyz) + p.w < 0.0)
+            return false;
+    }
+    return true;
+}
+
+// ---- Kernel: Frustum cull ----
+
+[numthreads(64, 1, 1)]
+void CSFrustumCull(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    if (idx >= _TotalInstances) return;
+
+    // Extract world position from float4.
+    float3 worldPos = _InstancePositions[idx].xyz;
+
+    // Frustum test.
+    if (!IsInsideFrustum(worldPos))
+        return;
+
+    // Look up which bucket this instance belongs to.
+    uint bucketKey = _PerInstanceBucketKeys[idx];
+    if (bucketKey >= _BucketCount) return;
+
+    // Increment the instance count for this bucket (args[1]).
+    // args layout: [idxCount, instanceCount, startIdx, baseVtx, startInstLoc]
+    // so bucket's instanceCount is at _ArgsBuffer[bucketKey * 5 + 1].
+    uint prevCount;
+    InterlockedAdd(_ArgsBuffer[bucketKey * 5 + 1], 1, prevCount);
+
+    // Guard against overflow (should not happen with correct capacity).
+    if (prevCount >= _BucketCapacity) return;
+
+    // Write the global instance index into the visible-indices region for this bucket.
+    uint bucketBase = bucketKey * _BucketCapacity;
+    _VisibleIndices[bucketBase + prevCount] = idx;
+}

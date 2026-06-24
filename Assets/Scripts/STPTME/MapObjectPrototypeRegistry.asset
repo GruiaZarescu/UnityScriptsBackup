@@ -1,0 +1,202 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eb057f5ade1c52a49b6adf7023775983, type: 3}
+  m_Name: MapObjectPrototypeRegistry
+  m_EditorClassIdentifier: Assembly-CSharp::MapObjectPrototypeRegistry
+  entries:
+  - name: Tree05Rework
+    lodMeshes:
+    - {fileID: -5773737330183453750, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
+    - {fileID: 1888538026527166770, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
+    - {fileID: 1265545174104815782, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
+    - {fileID: -1378440656360446885, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
+    - {fileID: -3883382028593957998, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
+    - {fileID: 5784980255996254394, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 5135898459180354558, guid: b95e5c02f5e9dd248910ceaf0067a5f0, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Tree02Rework
+    lodMeshes:
+    - {fileID: -8135553595718028330, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
+    - {fileID: 5885204079855296585, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
+    - {fileID: -1887199746687701926, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
+    - {fileID: -3201062465679285610, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
+    - {fileID: 8100791097369614745, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
+    - {fileID: 3539699505251262783, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 7072333792751790876, guid: 7e7bdb28726b78446b5aab44d583b021, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Tree03Rework
+    lodMeshes:
+    - {fileID: 2478876932983402796, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
+    - {fileID: -944959908092971740, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
+    - {fileID: -1292921584618793837, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
+    - {fileID: -9048093199598547370, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
+    - {fileID: 7424987079902813675, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
+    - {fileID: -4610279647616300368, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 9211694676256713346, guid: ca6623be249b0d94b97444eeeb9ed753, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Tree01Rework
+    lodMeshes:
+    - {fileID: 811424468950150501, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: 4313033963400421524, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: -4027656428146962628, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: -2583985508249245190, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: 4614324947569104867, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 9110096357674635966, guid: 8461c8693afe4314c9bf41623849df30, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Tree04Rework
+    lodMeshes:
+    - {fileID: 7607211279866533359, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
+    - {fileID: -6183812469518319871, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
+    - {fileID: 6752287440664631223, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
+    - {fileID: -267597267566366184, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
+    - {fileID: -5198286234402889611, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 5203936471834951886, guid: 4ed7c84e484e88a41b797bc333f93337, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Tree01ReworkSavana
+    lodMeshes:
+    - {fileID: 811424468950150501, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: 4313033963400421524, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: -4027656428146962628, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: -2583985508249245190, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    - {fileID: 4614324947569104867, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 6cef9cacffd5c5b48bd180d574cfd808, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 9110096357674635966, guid: e597d91e5f8674b4abb1d4527cd68791, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Rock05Rework
+    lodMeshes:
+    - {fileID: 6998286298243074622, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
+    - {fileID: -2682071100695185198, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
+    - {fileID: 1081360476041732861, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
+    - {fileID: -3433263269455883675, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 7804057445970482410, guid: bead088d78dea2b43a43d9f3bdecb4ff, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Palm146
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 0
+    baseHeight: 0
+    heightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 0}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  densityPerLOD: 640000005a000000500000004b00000046000000
+  lodWidthMultipliers:
+  - 1
+  - 1.1
+  - 1.2
+  - 1.4
+  - 1.5
+  canopyPalette:
+  - {r: 0.18, g: 0.32, b: 0.12, a: 1}
+  - {r: 0.3, g: 0.42, b: 0.18, a: 1}
+  - {r: 0.38, g: 0.5, b: 0.22, a: 1}
+  - {r: 0.22, g: 0.3, b: 0.1, a: 1}
+  - {r: 0.4, g: 0.48, b: 0.28, a: 1}
+  canopyMaskAtlasSize: 512
