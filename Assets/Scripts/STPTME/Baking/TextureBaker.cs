@@ -534,5 +534,26 @@ public class TextureBaker
 
     private static void LogUniformSplatmapStats(ConcurrentDictionary<(sbyte mx, sbyte my), sbyte>[] faceClassifications) { /* ... */ }
 
-    // ... rest of existing methods unchanged for now (BakeCellSplatmapToStream, WriteSplatmapGroupFile, etc.)
+    // Helper methods that would exist in the full implementation:
+    private static float[,,] ExtractCellSplatmap(float[,,] fullAlphamap, int cx, int cy, int cellSize, 
+        int alphamapRes, int layerCount, int borderPixels) { return new float[0,0,0]; }
+    
+    private static int BakeCellSplatmapToStream(float[,,] cellSplatmap, int layerCount, sbyte mapX, sbyte mapY, 
+        FaceId face, TextureBakeSettings settings, MemoryStream ms) { return 0; }
+    
+    private static void WriteSplatmapGroupFile(string path, List<(sbyte mx, sbyte my, byte[] data)> entries) { }
+    
+    private static void BakeTerrainLayers(TerrainData td, string folder, TextureBakeSettings settings) { }
+    
+    private static void BuildFaceHeightGrid(List<TerrainInfo> terrains, out float[,] faceHeights, out float terrainSize, 
+        out int terrainGridSize, out int heightRes, out float bakedMaxHeight, FaceContainerOrientation orientation)
+    { faceHeights = null; terrainSize = 0; terrainGridSize = 0; heightRes = 0; bakedMaxHeight = 0; }
+    
+    private static void BakeFaceNormalsAsync(List<TerrainInfo> terrains, FaceId face, int subdivisionsPow2, sbyte minX,
+        TextureBakeSettings settings, string outputFolder, Vector3 sphereCenter, float sphereRadius,
+        FaceContainerOrientation orientation, ref int processed, int totalCells) { }
+    
+    private static void WriteNormalMeta(string folder, TextureBakeSettings settings) { }
+    
+    private static void WriteUniformClassificationFile(string path, ConcurrentDictionary<(sbyte mx, sbyte my), sbyte> classifications) { }
 }
