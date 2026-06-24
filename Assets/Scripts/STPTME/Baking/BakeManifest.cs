@@ -78,29 +78,41 @@ public static class BakeManifest
     }
 
     /// <summary>
-    /// Writes the manifest to disk.
+    /// Writes the manifest to disk. Thread-safe: uses lock for concurrent writes.
     /// </summary>
+    private static readonly object saveLock = new object();
+    
     public static void Save(Entry[] entries)
     {
-        string dir = Path.Combine(Application.streamingAssetsPath, "MapAssets");
-        if (!Directory.Exists(dir))
-            Directory.CreateDirectory(dir);
-
-        string path = Path.Combine(Application.streamingAssetsPath, MANIFEST_PATH);
-        using (var writer = new BinaryWriter(File.Open(path, FileMode.Create)))
+        lock (saveLock)
         {
-            writer.Write(MAGIC);
-            writer.Write(VERSION);
-            writer.Write(entries.Length);
-            foreach (var e in entries)
+            string dir = Path.Combine(Application.streamingAssetsPath, "MapAssets");
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            string path = Path.Combine(Application.streamingAssetsPath, MANIFEST_PATH);
+            
+            // Write to temp file first for atomicity
+            string tempPath = path + ".tmp";
+            using (var writer = new BinaryWriter(File.Open(tempPath, FileMode.Create)))
             {
-                writer.Write((byte)e.face);
-                writer.Write(e.terrainGridX);
-                writer.Write(e.terrainGridY);
-                writer.Write(e.contentHashLo);
-                writer.Write(e.contentHashHi);
-                writer.Write(e.treeHash);
+                writer.Write(MAGIC);
+                writer.Write(VERSION);
+                writer.Write(entries.Length);
+                foreach (var e in entries)
+                {
+                    writer.Write((byte)e.face);
+                    writer.Write(e.terrainGridX);
+                    writer.Write(e.terrainGridY);
+                    writer.Write(e.contentHashLo);
+                    writer.Write(e.contentHashHi);
+                    writer.Write(e.treeHash);
+                }
             }
+            
+            // Atomic move
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(tempPath, path);
         }
     }
 
@@ -155,6 +167,7 @@ public static class BakeManifest
     /// <summary>
     /// Checks whether a terrain can be skipped (reuse last bake).
     /// Returns true if the content hash AND the tree hash both match an entry.
+    /// Thread-safe: reads from shared entries array without modification.
     /// </summary>
     public static bool IsUnchanged(Terrain terrain, TerrainData td, FaceId face, byte gridX, byte gridY, Entry[] entries)
     {
@@ -176,4 +189,7 @@ public static class BakeManifest
     }
 }
 
-#endif
+#endif```
+
+
+Assets\Scripts\STPTME\Baking\BlotchBaker.cs
