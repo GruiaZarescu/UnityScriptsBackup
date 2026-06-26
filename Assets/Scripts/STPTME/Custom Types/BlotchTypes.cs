@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnityEngine;
@@ -151,6 +150,7 @@ namespace CustomTypes
         public float worldX;
         public float worldY;
         public float worldZ;
+        public float padding; // 4-byte padding for alignment (unused for now, flaot3 is 16 bytes on GPU)
 
         // Bit layout:
         //   bits  0-7:  prototypeIndex
@@ -161,20 +161,25 @@ namespace CustomTypes
 
         // Per-instance seed for deterministic wind phase / color variation.
         public uint seed;
+        public uint pad2;
+        public uint pad3; 
 
         // ===== Helpers =====
 
-        public InstanceData(Vector3 worldPos, byte prototypeIndex, byte chunkLOD, float rotationDeg, float scale, uint seed)
+        public InstanceData(Vector3 worldPos, byte prototypeIndex, byte chunkLOD, float rotationDeg, float scale, uint seed, float padding = 0f)
         {
             worldX = worldPos.x;
             worldY = worldPos.y;
             worldZ = worldPos.z;
+            this.padding = padding;
 
             uint r = (uint)Mathf.Clamp(Mathf.RoundToInt(rotationDeg / 360f * 255f), 0, 255);
             uint s = (uint)Mathf.Clamp(Mathf.RoundToInt(Mathf.InverseLerp(0.5f, 2.0f, scale) * 255f), 0, 255);
             packedMeta = prototypeIndex | ((uint)chunkLOD << 8) | (r << 16) | (s << 24);
 
             this.seed = seed;
+            this.pad2 = 0;
+            this.pad3 = 0;
         }
 
         public Vector3 WorldPosition => new Vector3(worldX, worldY, worldZ);
@@ -339,7 +344,7 @@ namespace CustomTypes
         /// Maximum number of chunks visible at once. Conservative estimate for the
         /// spherical planet with 8 LOD rings.
         /// </summary>
-        public const int MaxVisibleChunks = 1024;
+        public const int MaxVisibleChunks = 16384;
 
         /// <summary>
         /// Total arena buffer size in uint32s. Enough for MaxVisibleChunks slabs at

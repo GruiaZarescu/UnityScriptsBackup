@@ -4,11 +4,12 @@ using System;
 
 /// <summary>
 /// Runtime decoder for compact 6-byte tree instances.
-/// Mirrors TreeBaker.QuantizeTree encoding in reverse.
+/// Mirrors CellFileBaking.QuantizeTree encoding in reverse.
+/// NOTE: This file is #if false — kept for reference.
 /// </summary>
 public static class TreeDecoder
 {
-    // ===== CONSTANTS (must match TreeBaker) =====
+    // ===== CONSTANTS (must match CellFileBaking) =====
     public const float DEFAULT_SCALE_MIN = 0.5f;
     public const float DEFAULT_SCALE_MAX = 2.0f;
 
@@ -46,7 +47,7 @@ public static class TreeDecoder
 
     /// <summary>
     /// Computes chunk center on sphere and tangent vectors.
-    /// Must match TreeBaker.ComputeChunkCenterAndTangents exactly.
+    /// Must match CellFileBaking.ComputeChunkCenterAndTangents exactly.
     /// </summary>
     public static void ComputeChunkCenterAndTangents(
         Vector3 corner00, Vector3 corner10, Vector3 corner01, Vector3 corner11,
@@ -74,7 +75,7 @@ public static class TreeDecoder
 
     /// <summary>
     /// Computes the maximum polar distance for a chunk (half diagonal on tangent plane).
-    /// Must match TreeBaker.ComputeMaxPolarDistance exactly.
+    /// Must match CellFileBaking.ComputeMaxPolarDistance exactly.
     /// </summary>
     public static float ComputeMaxPolarDistance(
         Vector3 corner00, Vector3 corner10, Vector3 corner01, Vector3 corner11,
@@ -137,7 +138,7 @@ public static class TreeDecoder
 
     /// <summary>
     /// Decodes a compact 6-byte tree instance to world-space values.
-    /// Reverses TreeBaker.QuantizeTree encoding.
+    /// Reverses CellFileBaking.QuantizeTree encoding.
     /// </summary>
     /// <param name="tree">Compact tree instance</param>
     /// <param name="geometry">Pre-computed chunk geometry</param>

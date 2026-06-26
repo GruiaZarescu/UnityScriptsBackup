@@ -1,6 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
-using System;
+using System.Collections;
 using System.Collections.Generic;
 using CustomTypes;
 
@@ -72,7 +72,7 @@ public class ImpostorRenderer : MonoBehaviour
     private const int MAX_LODS_PER_BUCKET = 16;
     private const int MAX_INSTANCES_PER_BUCKET = 65536;
     private const int BLOTCH_STRIDE = 16; // BlotchData is 16 bytes
-    private const int INSTANCE_STRIDE = 20; // InstanceData is 20 bytes
+    private const int INSTANCE_STRIDE = 32; // InstanceData is 32 bytes on GPU
 
     // ===== COMPUTE SHADER KERNEL IDS =====
 
@@ -84,6 +84,7 @@ public class ImpostorRenderer : MonoBehaviour
 
     // -- Input (read-only on GPU, uploaded once at init) --
     private ComputeBuffer globalBlotchBuffer;           // StructuredBuffer<BlotchData>
+    private ComputeBuffer blotchOffsetBuffer;
     private ComputeBuffer chunkVisibilityBuffer;        // StructuredBuffer<ChunkVisibilityData>
 
     // -- CPU-side cache of chunk visibility data (for debug hash comparison) --
@@ -110,6 +111,14 @@ public class ImpostorRenderer : MonoBehaviour
     private int lastVisibleChunkCount;
     private int lastInstanceCount;
     private int lastBucketCount;
+
+    // Per chunk blotch buckets.
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    public struct BlotchRange {
+        public uint start;
+        public uint count;
+    }
 
     // Active indirect-draw buckets. Built once at init; args are zeroed each frame.
     private struct IndirectBucket
@@ -252,17 +261,62 @@ public class ImpostorRenderer : MonoBehaviour
             return;
         }
 
-        // ---- 1. Global blotch buffer ----
+        // ---- 1. Global blotch buffer & Offset Buffer ----
+        int totalStorageSlots = chunkData.Length; // chunkData is sized to totalStorageSlots
+
         if (allBlotches != null && allBlotches.Length > 0)
         {
+            // We must sort the blotches by their global storageSlot so they are contiguous per chunk!
+            int maxX = minX + mapsPerRow - 1;
+            var globalIndexCalculator = new STPTMEUtils.GlobalIndexCalculator((sbyte)minX, (sbyte)maxX, numberOfChunks);
+            
+            System.Array.Sort(allBlotches, (a, b) => {
+                int slotA = FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(a.chunkPacked), a.Face);
+                int slotB = FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(b.chunkPacked), b.Face);
+                return slotA.CompareTo(slotB);
+            });
+
+            // Build the offset lookup array
+            BlotchRange[] blotchOffsets = new BlotchRange[totalStorageSlots];
+            int currentSlot = -1;
+            int currentStart = 0;
+            int currentCount = 0;
+
+            for (int i = 0; i < allBlotches.Length; i++)
+            {
+                int slot = FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(allBlotches[i].chunkPacked), allBlotches[i].Face);
+                if (slot != currentSlot)
+                {
+                    if (currentSlot != -1)
+                    {
+                        blotchOffsets[currentSlot] = new BlotchRange { start = (uint)currentStart, count = (uint)currentCount };
+                    }
+                    currentSlot = slot;
+                    currentStart = i;
+                    currentCount = 1;
+                }
+                else
+                {
+                    currentCount++;
+                }
+            }
+            if (currentSlot != -1)
+            {
+                blotchOffsets[currentSlot] = new BlotchRange { start = (uint)currentStart, count = (uint)currentCount };
+            }
+
+            // Upload sorted blotches
             globalBlotchBuffer = new ComputeBuffer(allBlotches.Length, BLOTCH_STRIDE, ComputeBufferType.Structured);
             globalBlotchBuffer.SetData(allBlotches);
-            Debug.Log($"[ImpostorRenderer] GlobalBlotchBuffer uploaded with {globalBlotchBuffer.count} entries ({globalBlotchBuffer.count * BLOTCH_STRIDE} bytes)");
+
+            // Upload offset lookup map
+            blotchOffsetBuffer = new ComputeBuffer(totalStorageSlots, sizeof(uint) * 2, ComputeBufferType.Structured);
+            blotchOffsetBuffer.SetData(blotchOffsets);
         }
         else
         {
-            // Create a minimal buffer so SetBuffer doesn't fail.
             globalBlotchBuffer = new ComputeBuffer(1, BLOTCH_STRIDE, ComputeBufferType.Structured);
+            blotchOffsetBuffer = new ComputeBuffer(1, sizeof(uint) * 2, ComputeBufferType.Structured);
         }
 
         // ---- 2. Chunk visibility data ----
@@ -307,7 +361,6 @@ public class ImpostorRenderer : MonoBehaviour
 
         // ---- 6. Args buffer ----
         bucketCount = BuildBuckets();
-        Debug.Log($"[ImpostorRenderer] BUILT {bucketCount} buckets (total entries = {prototypeRegistry.entries?.Length ?? 0})");
         int instanceBufSize = Mathf.Max(bucketCount, 1) * MAX_INSTANCES_PER_BUCKET;
         instanceOutputBuffer = new ComputeBuffer(
         Mathf.Max(instanceBufSize, 1024), INSTANCE_STRIDE, ComputeBufferType.Structured);
@@ -332,9 +385,7 @@ public class ImpostorRenderer : MonoBehaviour
         // ---- 8. Upload per-LOD config ----
         UploadLODConfig();
 
-        Debug.Log($"[ImpostorRenderer] Initialized: {allBlotches?.Length ?? 0} blotches, "
-            + $"{chunkData?.Length ?? 0} chunks, {bucketCount} buckets, "
-            + $"arena={arenaSize * 4 / 1048576} MB");
+
         IsInitialized = true;
     }
 
@@ -342,14 +393,12 @@ public class ImpostorRenderer : MonoBehaviour
 
     private void LateUpdate()
     {
-        Debug.Log($"[ImpostorRenderer::LateUpdate] Frame {Time.frameCount} — ENTERED. systemEnabled={systemEnabled}, enableRendering={enableRendering}, IsInitialized={IsInitialized}");
-
-        if (!systemEnabled || !enableRendering) { Debug.Log("[ImpostorRenderer::LateUpdate] EXIT: systemEnabled or enableRendering is false"); return; }
-        if (!ValidateState()) { Debug.Log("[ImpostorRenderer::LateUpdate] EXIT: ValidateState returned false"); return; }
+        if (!systemEnabled || !enableRendering) return;
+        if (!ValidateState()) return;
 
         // Guard against double-fire via PrepareFrame + Unity LateUpdate event.
         int curFrame = Time.frameCount;
-        if (curFrame == lastFrameDrawn) { Debug.Log("[ImpostorRenderer::LateUpdate] EXIT: already drawn this frame via PrepareFrame"); return; }
+        if (curFrame == lastFrameDrawn) return;
         lastFrameDrawn = curFrame;
 
         // Step 0: Reset per-frame counters to 0
@@ -367,7 +416,7 @@ public class ImpostorRenderer : MonoBehaviour
         {
             int blotchCount = globalBlotchBuffer?.count ?? 0;
             int chunksCount = chunkVisibilityBuffer?.count ?? 0;
-            Debug.Log($"[ImpostorRenderer] Frame {Time.frameCount}: {blotchCount} blotches, {chunksCount} chunks, {bucketCount} buckets");
+            //Debug.Log($"[ImpostorRenderer] Frame {Time.frameCount}: {blotchCount} blotches, {chunksCount} chunks, {bucketCount} buckets");
         }
 
         // Upload time in milliseconds (used by compute shader for slab timestamping)
@@ -382,100 +431,17 @@ public class ImpostorRenderer : MonoBehaviour
         {
             int vGroups = (chunkCount + 63) / 64;
             impostorSolverCompute.Dispatch(kernelVisibility, vGroups, 1, 1);
-            if (debugLogStats)
-                Debug.Log($"[ImpostorRenderer] Dispatched CSVisibility: {vGroups} groups");
         }
 
-        // [DEBUG] Read back visibility count
+        // Read visibility count
         var visCountData = new uint[1];
         if (visibilityCountBuffer != null)
         {
             visibilityCountBuffer.GetData(visCountData);
-            Debug.Log($"[ImpostorRenderer::DEBUG] After CSVisibility: _VisibilityCount[0] = {visCountData[0]}");
         }
 
-        // [DEBUG] Compare GPU visible chunks vs CPU VisibilitySystem
-        if (visibilityCountBuffer != null && visibleChunkListBuffer != null && cpuChunkVisibilityCache != null)
-        {
-            int gpuCount = System.Math.Min((int)visCountData[0], ConflictGridDefines.MaxVisibleChunks);
-            if (gpuCount > 0)
-            {
-                var gpuVisible = new uint[System.Math.Min(gpuCount, 1024)];
-                visibleChunkListBuffer.GetData(gpuVisible, 0, 0, gpuVisible.Length);
-
-                // Hash: order-independent XOR sum, plus count
-                uint gpuHash = (uint)gpuCount;
-                for (int gi = 0; gi < gpuVisible.Length; gi++) gpuHash ^= gpuVisible[gi];
-
-                // CPU side: iterate all storage slots, call ClassifyChunk
-                int cpuCount = 0;
-                uint cpuHash = 0;
-                uint cpuFirstPacked = 0;
-                bool visReady = VisibilitySystem.IsReady;
-                var visInst = VisibilitySystem.Instance;
-                int maxCpuVisible = ConflictGridDefines.MaxVisibleChunks;
-                if (visReady && visInst != null)
-                {
-                    for (int si = 0; si < cpuChunkVisibilityCache.Length && cpuCount < maxCpuVisible; si++)
-                    {
-                        if (visInst.ClassifyChunk(si) == VisibilitySystem.ChunkVisibility.Visible)
-                        {
-                            uint packed = (uint)cpuChunkVisibilityCache[si].chunkPacked;
-                            cpuHash ^= packed;
-                            if (cpuCount == 0) cpuFirstPacked = packed;
-                            cpuCount++;
-                        }
-                    }
-                }
-
-                bool match = (gpuCount == cpuCount && gpuHash == cpuHash);
-
-                // [DEBUG] Count map regions in GPU visible list — blotches exist in maps -3..+1 on BOTH axes
-                int[] gpuMapCounts = new int[256];
-                int blotchableMapChunks = 0;
-                for (int gi = 0; gi < gpuVisible.Length; gi++)
-                {
-                    int mx = (sbyte)((gpuVisible[gi] >> 24) & 0xFF);
-                    int my = (sbyte)((gpuVisible[gi] >> 16) & 0xFF);
-                    gpuMapCounts[System.Math.Clamp(mx + 128, 0, 255)]++;
-                    if (mx >= -3 && mx <= 1 && my >= -3 && my <= 1) blotchableMapChunks++;
-                }
-                string gpuMapSummary = "maps: ";
-                for (int mi = 0; mi < 256; mi++)
-                    if (gpuMapCounts[mi] > 0) gpuMapSummary += $"{(sbyte)(mi-128)}({gpuMapCounts[mi]}) ";
-                Debug.Log($"[ImpostorRenderer::DEBUG] GPU map X-distribution — {gpuMapSummary}  blotchable={blotchableMapChunks}/{gpuVisible.Length}");
-
-                Debug.Log($"[ImpostorRenderer::DEBUG] Visibility hash — GPU: count={gpuCount} hash=0x{gpuHash:X8} first=0x{gpuVisible[0]:X8}  CPU: count={cpuCount} hash=0x{cpuHash:X8} first=0x{cpuFirstPacked:X8}  MATCH={(match ? "YES" : "NO")}");
-            }
-        }
-
-        // [DEBUG] Read back first 3 visible chunk packed values + first 3 blotch packed values
-        if (visibleChunkListBuffer != null && visCountData[0] > 0)
-        {
-            var chunkData = new uint[System.Math.Min(3, (int)visCountData[0])];
-            visibleChunkListBuffer.GetData(chunkData, 0, 0, chunkData.Length);
-            for (int di = 0; di < chunkData.Length; di++)
-                Debug.Log($"[ImpostorRenderer::DEBUG] VisibleChunk[{di}] = 0x{chunkData[di]:X8}");
-        }
-        if (globalBlotchBuffer != null)
-        {
-            // Sample blotches spread across the buffer to see map-coordinate range
-            var singleBlotch = new CustomTypes.BlotchData[1];
-            int[] samplePositions = { 0, 50000, 100000, 150000, 200000 };
-            for (int si = 0; si < 5; si++)
-            {
-                if (samplePositions[si] < globalBlotchBuffer.count)
-                {
-                    globalBlotchBuffer.GetData(singleBlotch, 0, samplePositions[si], 1);
-                    var b = singleBlotch[0];
-                    int mapX = (sbyte)((b.chunkPacked >> 24) & 0xFF);
-                    int mapY = (sbyte)((b.chunkPacked >> 16) & 0xFF);
-                    int ckX = (sbyte)((b.chunkPacked >> 8) & 0xFF);
-                    int ckY = (sbyte)(b.chunkPacked & 0xFF);
-                    Debug.Log($"[ImpostorRenderer::DEBUG] Blotch[sample={samplePositions[si]}] chunkPacked=0x{b.chunkPacked:X8} map=({mapX},{mapY}) chunk=({ckX},{ckY}) proto={(b.packedMeta >> 8) & 0xFF} face={b.packedMeta & 0xFF}");
-                }
-            }
-        }
+        // Compare GPU visible chunks vs CPU VisibilitySystem (debug comparison)
+        // (Visibility comparison code removed - debug-only)
 
         // Step 3: Dispatch blotch expansion.
         // Thread groups = number of visible chunks (capped by MaxVisibleChunks).
@@ -483,22 +449,6 @@ public class ImpostorRenderer : MonoBehaviour
         {
             impostorSolverCompute.Dispatch(kernelExpand,
                 ConflictGridDefines.MaxVisibleChunks, 1, 1);
-            if (debugLogStats)
-                Debug.Log($"[ImpostorRenderer] Dispatched CSExpandBlotches: {ConflictGridDefines.MaxVisibleChunks} groups");
-        }
-
-        // [DEBUG] Read back atomic counters after expand
-        if (atomicCounters != null && bucketCount > 0)
-        {
-            var counterData = new uint[1 + bucketCount];
-            atomicCounters.GetData(counterData);
-            uint totalInstances = 0;
-            for (int b = 0; b < bucketCount; b++)
-            {
-                totalInstances += counterData[1 + b];
-            }
-            uint firstBucketCount = bucketCount > 0 ? counterData[1] : 0;
-            Debug.Log($"[ImpostorRenderer::DEBUG] After CSExpandBlotches: totalInstances={totalInstances}, firstBucket={firstBucketCount}, atomic[0]={counterData[0]}");
         }
 
         // Step 4: Dispatch fill-args.
@@ -506,12 +456,9 @@ public class ImpostorRenderer : MonoBehaviour
         {
             int aGroups = (bucketCount + 63) / 64;
             impostorSolverCompute.Dispatch(kernelFillArgs, aGroups, 1, 1);
-            if (debugLogStats)
-                Debug.Log($"[ImpostorRenderer] Dispatched CSFillArgs: {aGroups} groups");
         }
 
         // Step 5: Issue indirect draw calls.
-        Debug.Log($"[ImpostorRenderer::LateUpdate] Frame {Time.frameCount} — dispatching draws, bucketCount={bucketCount}");
         DrawIndirect();
     }
 
@@ -549,32 +496,20 @@ public class ImpostorRenderer : MonoBehaviour
     private void DrawIndirect()
     {
         if (drawProps == null)
-        {
             drawProps = new MaterialPropertyBlock();
-            drawProps.SetBuffer(ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
-        }
+
+        drawProps.Clear();
+        drawProps.SetBuffer(ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
 
         var shadowMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
-
-        // [DEBUG] Log if DrawIndirect is reached at all
-        Debug.Log($"[ImpostorRenderer::DrawIndirect] bucketCount={bucketCount}, planetBounds=({planetBounds.center}, {planetBounds.extents})");
 
         for (int i = 0; i < bucketCount; i++)
         {
             ref var bucket = ref buckets[i];
-            if (bucket.mesh == null || bucket.material == null)
-            {
-                Debug.LogWarning($"[ImpostorRenderer::DrawIndirect] Bucket {i} skipped: mesh={(bucket.mesh==null?"null":"ok")}, material={(bucket.material==null?"null":"ok")}");
-                continue;
-            }
+            if (bucket.mesh == null || bucket.material == null) continue;
 
-            // [DEBUG] Read back the instance count from args buffer for the first 3 buckets only
-            if (i < 3)
-            {
-                var debugArgs = new uint[5];
-                argsBuffer.GetData(debugArgs, 0, bucket.argsBufferOffset / sizeof(uint), 5);
-                Debug.Log($"[ImpostorRenderer::DrawIndirect] Bucket {i}: mesh={bucket.mesh.name}, mat={bucket.material.name}, indexCount={debugArgs[0]}, instanceCount={debugArgs[1]}, startInstance={debugArgs[4]}");
-            }
+            // USE FLOAT INSTEAD OF INT!
+            drawProps.SetFloat("_InstanceOffset", i * MAX_INSTANCES_PER_BUCKET);
 
             Graphics.DrawMeshInstancedIndirect(
                 bucket.mesh, 0, bucket.material,
@@ -659,6 +594,7 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.VisibleChunkList, visibleChunkListBuffer);
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.ChunkLODBuffer, chunkLODBuffer);
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.VisibilityCount, visibilityCountBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BlotchOffsetBuffer, blotchOffsetBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -695,6 +631,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetInt(Shader.PropertyToID("_MaxInstancesPerBucket"), MAX_INSTANCES_PER_BUCKET);
         impostorSolverCompute.SetVector(ShaderIDs.SphereCenter, new Vector4(sphereCenter.x, sphereCenter.y, sphereCenter.z, 0f));
         impostorSolverCompute.SetFloat(ShaderIDs.SphereRadius, sphereRadius);
+        // In ImpostorRenderer.cs, right before Dispatching CSExpandBlotches:
+        impostorSolverCompute.SetFloat("_GlobalImpostorHeightOffset", 1700);
         impostorSolverCompute.SetFloat(ShaderIDs.HalfChunkLinearSize, halfChunkLinearSize);
         // SlabStride is the stride in uints for each slab (header + cells). Use ConflictGridDefines.SlabHeaderUints as base.
         int slabStrideUints = ConflictGridDefines.SlabHeaderUints +
@@ -743,6 +681,7 @@ public class ImpostorRenderer : MonoBehaviour
         chunkLODBuffer?.Release();            chunkLODBuffer = null;
         atomicCounters?.Release();            atomicCounters = null;
         bucketMapBuffer?.Release();           bucketMapBuffer = null;
+        blotchOffsetBuffer?.Release();         blotchOffsetBuffer = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
@@ -754,7 +693,164 @@ public class ImpostorRenderer : MonoBehaviour
         return Camera.main;
     }
 
+ 
+   public IEnumerator DebugInstancePositions()
+    {
+        if (instanceOutputBuffer == null || !IsInitialized) yield break;
+
+        yield return new WaitForEndOfFrame();
+
+        const int instancesToRead = 5;
+        int byteSize = instancesToRead * 32; // 32 bytes per instance
+        int bucket1ByteOffset = 1 * MAX_INSTANCES_PER_BUCKET * 32; // Read from Bucket 1
+
+        var request = AsyncGPUReadback.Request(instanceOutputBuffer, byteSize, bucket1ByteOffset, (req) =>
+        {
+            if (req.hasError) { Debug.LogError("Readback error"); return; }
+
+            var data = req.GetData<uint>();
+            for (int i = 0; i < instancesToRead; i++)
+            {
+                int offset = i * 8; // 32 bytes / 4 = 8 uints per instance
+
+                float x = System.BitConverter.Int32BitsToSingle((int)data[offset + 0]);
+                float y = System.BitConverter.Int32BitsToSingle((int)data[offset + 1]);
+                float z = System.BitConverter.Int32BitsToSingle((int)data[offset + 2]);
+                
+                uint protoAndLod = data[offset + 4];
+                uint seed = data[offset + 5];
+
+                Debug.Log($"<color=green>[GPU Debug] Bucket 1 Instance {i}: WorldPos ({x:F2}, {y:F2}, {z:F2}) | Proto/Lod: {protoAndLod}</color>");
+            }
+        });
+
+        while (!request.done) yield return null;
+    }
+
+    public IEnumerator DebugCounters()
+    {
+        if (atomicCounters == null) yield break;
+
+        yield return new WaitForEndOfFrame();
+
+        // Read the first 5 uints (Total count + 4 buckets)
+        int byteSize = sizeof(uint) * 5;
+        var request = AsyncGPUReadback.Request(atomicCounters, byteSize, 0, (req) =>
+        {
+            if (req.hasError)
+            {
+                Debug.LogError("[GPU Debug] Counter Readback error");
+                return;
+            }
+
+            var data = req.GetData<uint>();
+            uint totalInstances = data[0];
+            
+            Debug.Log($"<color=yellow>[GPU Debug] Total Instances generated: {totalInstances}</color>");
+            
+            for (int i = 1; i < 5; i++)
+            {
+                Debug.Log($"[GPU Debug] Bucket {i-1} count: {data[i]}");
+            }
+        });
+
+        while (!request.done) yield return null;
+    }
+
+    public IEnumerator DebugVisibilityAndBlotches()
+    {
+        if (visibilityCountBuffer == null || globalBlotchBuffer == null)
+        {
+            Debug.LogWarning("Buffers not ready.");
+            yield break;
+        }
+
+        yield return new WaitForEndOfFrame();
+
+        // 1. Read how many chunks passed visibility
+        var visRequest = AsyncGPUReadback.Request(visibilityCountBuffer, sizeof(uint), 0, (req) =>
+        {
+            if (req.hasError) return;
+            uint visibleChunks = req.GetData<uint>()[0];
+            Debug.Log($"<color=cyan>[GPU Debug] Visible Chunks count: {visibleChunks}</color>");
+        });
+        while (!visRequest.done) yield return null;
+
+        // 2. Read the first 5 visible chunks
+        if (visibleChunkListBuffer != null)
+        {
+            var chunkRequest = AsyncGPUReadback.Request(visibleChunkListBuffer, sizeof(uint) * 5, 0, (req) =>
+            {
+                if (req.hasError) return;
+                var data = req.GetData<uint>();
+                Debug.Log($"[GPU Debug] First 5 visible chunks packed: {data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}");
+            });
+            while (!chunkRequest.done) yield return null;
+        }
+
+        // 3. Read the first 5 blotches from the GlobalBlotchBuffer
+        if (globalBlotchBuffer != null)
+        {
+            // BlotchData is 16 bytes (4 uints)
+            var blotchRequest = AsyncGPUReadback.Request(globalBlotchBuffer, 16 * 5, 0, (req) =>
+            {
+                if (req.hasError) return;
+                var data = req.GetData<uint>();
+                for (int i = 0; i < 5; i++)
+                {
+                    int offset = i * 4;
+                    int chunkPacked = (int)data[offset + 0];
+                    uint packedMeta = data[offset + 1];
+                    
+                    // Extract face and prototype just to see what it is
+                    uint face = packedMeta & 0xFFu;
+                    uint proto = (packedMeta >> 8) & 0xFFu;
+
+                    Debug.Log($"[GPU Debug] Blotch {i}: chunkPacked={chunkPacked} | Face={face} | Proto={proto}");
+                }
+            });
+            while (!blotchRequest.done) yield return null;
+        }
+    }
+
+    public IEnumerator DebugArgsBuffer()
+    {
+        if (argsBuffer == null) yield break;
+        yield return new WaitForEndOfFrame();
+
+        // Args buffer is 5 uints per bucket: indexCount, instanceCount, startIndex, baseVertex, startInstance
+        uint[] args = new uint[5];
+        // Read the first bucket (bucket 0)
+        var request = AsyncGPUReadback.Request(argsBuffer, sizeof(uint) * 5, 20, (req) =>
+        {
+            if (req.hasError) return;
+            var data = req.GetData<uint>();
+            for (int i = 0; i < 5; i++) args[i] = data[i];
+
+            Debug.Log($"<color=orange>[GPU Debug] Args Buffer (Bucket this bucket):</color>");
+            Debug.Log($"  Index Count: {args[0]}");
+            Debug.Log($"  <b>Instance Count: {args[1]}</b>"); // THIS IS THE CRITICAL ONE
+            Debug.Log($"  Start Index: {args[2]}");
+            Debug.Log($"  Base Vertex: {args[3]}");
+            Debug.Log($"  Start Instance: {args[4]}");
+        });
+        while (!request.done) yield return null;
+    }
+
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.P))
+        {
+            StartCoroutine(DebugInstancePositions());
+            StartCoroutine(DebugArgsBuffer());
+            //StartCoroutine(DebugCounters());
+            //StartCoroutine(DebugVisibilityAndBlotches());
+        }
+    }
+
 }
+
 
 // =========================================================================
 // CHUNK VISIBILITY DATA — uploaded to GPU for the visibility pass.
@@ -829,4 +925,5 @@ public static class ShaderIDs
     public static readonly int MinX = Shader.PropertyToID("_MinX");
     public static readonly int NumberOfChunks = Shader.PropertyToID("_NumberOfChunks");
     public static readonly int MapsPerFace = Shader.PropertyToID("_MapsPerFace");
+    public static readonly int BlotchOffsetBuffer = Shader.PropertyToID("_BlotchOffsetBuffer");
 }

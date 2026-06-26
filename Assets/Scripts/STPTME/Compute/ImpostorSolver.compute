@@ -2,21 +2,6 @@
 // ImpostorSolver.compute
 // GPU-driven procedural instance solver for the LOD1+ impostor
 // rendering pipeline.
-//
-// Three kernels, dispatched in order each frame:
-//
-//   1. CSVisibility
-//      Replicates VisibilitySystem.ClassifyChunk on the GPU.
-//
-//   2. CSExpandBlotches
-//      For each visible chunk: expands matching blotches into
-//      individual instances via deterministic hash, competes
-//      for grid cells via InterlockedOr, writes winners.
-//
-//   3. CSFillArgs
-//      Reads per-bucket instance counts -> indirect draw args.
-//
-// All data structures must match BlotchTypes.cs, ImpostorRenderer.cs.
 // ---------------------------------------------------------------
 
 #pragma kernel CSVisibility
@@ -35,7 +20,7 @@
 #define BITS_PER_CELL    4
 #define CELLS_PER_UINT   8
 #define SLAB_HEADER      4
-#define MAX_VISIBLE 1024
+#define MAX_VISIBLE 16384
 #define MAX_BLOTCH_INST 4096
 #define MAX_BUCKET_LODS 16
 #define MAX_INSTANCES_PER_BUCKET 65536 
@@ -58,16 +43,28 @@ struct BlotchData
 };
 StructuredBuffer<BlotchData> _GlobalBlotchBuffer;
 
+struct BlotchRange {
+    uint start;
+    uint count;
+};
+StructuredBuffer<BlotchRange> _BlotchOffsetBuffer; // Indexed by storage slot
+
 RWStructuredBuffer<uint> _VisibleChunkList;
 RWStructuredBuffer<uint> _ChunkLODBuffer;
 RWStructuredBuffer<uint> _ConflictGridArena;
 StructuredBuffer<uint> _BucketMap;
 
-struct InstanceData { float3 worldPos; uint packedMeta; uint seed; };
+struct InstanceData { 
+    float3 worldPos; 
+    float pad1;       // 16 bytes
+    uint packedMeta; 
+    uint seed;
+    uint pad2; 
+    uint pad3;        // 16 bytes (Total = 32 bytes)
+};
 RWStructuredBuffer<InstanceData> _InstanceOutputBuffer;
 RWStructuredBuffer<uint> _ArgsBuffer;
 
-// AtomicCounters: [0] = instance count, [1+N] = per-bucket counts
 RWStructuredBuffer<uint> _AtomicCounters;
 
 float4 _FrustumPlanes[6];
@@ -83,6 +80,11 @@ uint _TotalBlotchCount; uint _SlabStride;
 RWStructuredBuffer<uint> _VisibilityCount;
 uint _TimeMS;
 uint _DefaultChunkLOD;
+
+// Global height offset to lift impostors out of the sea bed.
+// In the future, replace this with a StructuredBuffer<float> _PrototypeHeights
+// so each prototype can have its own height offset.
+float _GlobalImpostorHeightOffset; 
 
 // =================================================================
 // HELPERS
@@ -135,8 +137,6 @@ bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want, uin
     uint mask = 0xFu << (int)sh;
     uint oldVal = arena[addr];
     uint cellVal = (oldVal >> (int)sh) & 0xFu;
-    // If cell is occupied and the occupant's category is forbidden, reject
-    // forbid bits align with category values: bit0=Grass(1), bit1=Canopy(2), bit2=Trunk(4)
     if (cellVal != 0 && (forbid & cellVal) != 0) return false;
     uint newVal = (oldVal & ~mask) | ((want << (int)sh) & mask);
     uint original;
@@ -149,17 +149,26 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
                       float offsetAngle, float offsetDist)
 {
     uint face = packedMeta & 0xFFu;
-    // Unpack chunk coordinates — matches STPTMEUtils.WriteFourSBytesInInt:
-    //   (mapX << 24) | (mapY << 16) | (chunkX << 8) | chunkY
-    int mapX = (chunkPacked >> 24) & 0xFF;
-    int mapY = (chunkPacked >> 16) & 0xFF;
-    int chunkX = (chunkPacked >> 8) & 0xFF;
-    int chunkY = chunkPacked & 0xFF;
+    
+    // FIX: Properly extract signed bytes using uint masks to avoid arithmetic shift issues
+    uint raw = asuint(chunkPacked);
+    int mapX = (int)((raw >> 24) & 0xFFu); if (mapX > 127) mapX -= 256;
+    int mapY = (int)((raw >> 16) & 0xFFu); if (mapY > 127) mapY -= 256;
+    int chunkX = (int)((raw >> 8) & 0xFFu); if (chunkX > 127) chunkX -= 256;
+    int chunkY = (int)(raw & 0xFFu); if (chunkY > 127) chunkY -= 256;
 
+    int minX = (int)_MinX;
+    int numChunks = (int)_NumberOfChunks;
+    int mapsPerFace = (int)_MapsPerFace;
 
-    // Normalize to face UV space: total chunks per face edge = MapsPerFace * NumberOfChunks
-    float globalLX = ((mapX - _MinX) * _NumberOfChunks + chunkX + lx) / (float)(_MapsPerFace * _NumberOfChunks);
-    float globalLZ = ((mapY - _MinX) * _NumberOfChunks + chunkY + lz) / (float)(_MapsPerFace * _NumberOfChunks);
+    // Safety guard against uninitialized uniforms
+    if (mapsPerFace == 0 || numChunks == 0) return _SphereCenter;
+
+    float totalChunksX = (mapX - minX) * numChunks + chunkX + lx;
+    float totalChunksZ = (mapY - minX) * numChunks + chunkY + lz;
+
+    float globalLX = totalChunksX / (float)(mapsPerFace * numChunks);
+    float globalLZ = totalChunksZ / (float)(mapsPerFace * numChunks);
 
     float fx = globalLX - 0.5; 
     float fz = globalLZ - 0.5;
@@ -173,11 +182,15 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
     else cp = float3(fx, fz, -0.5);
 
     float3 dir = normalize(cp);
-    float3 bp = _SphereCenter + dir * _SphereRadius;
+    
+    float effectiveRadius = _SphereRadius + _GlobalImpostorHeightOffset;
+    
+    float3 bp = _SphereCenter + dir * effectiveRadius;
     float3 rt = normalize(cross(dir, abs(dir.y) < 0.99 ? float3(0,1,0) : float3(1,0,0)));
     float3 ut = cross(dir, rt);
     float3 wp = bp + rt * cos(offsetAngle) * offsetDist + ut * sin(offsetAngle) * offsetDist;
-    return _SphereCenter + normalize(wp - _SphereCenter) * _SphereRadius;
+    
+    return _SphereCenter + normalize(wp - _SphereCenter) * effectiveRadius;
 }
 
 // =================================================================
@@ -186,7 +199,7 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
 [numthreads(64, 1, 1)]
 void CSVisibility(uint3 id : SV_DispatchThreadID)
 {
-    uint idx = id.x;
+    uint idx = id.x; // idx is the storageSlot!
     uint count, stride;
     _ChunkVisibilityBuffer.GetDimensions(count, stride);
     if (idx >= count) return;
@@ -206,7 +219,9 @@ void CSVisibility(uint3 id : SV_DispatchThreadID)
     InterlockedAdd(_VisibilityCount[0], 1, vi);
     if (vi < MAX_VISIBLE)
     {
-        _VisibleChunkList[vi] = asuint(c.chunkPacked);
+        // CRITICAL FIX: Store the storageSlot (idx), not chunkPacked!
+        // chunkPacked doesn't contain the Face, storageSlot does.
+        _VisibleChunkList[vi] = idx; 
         _ChunkLODBuffer[vi] = _DefaultChunkLOD;
     }
 }
@@ -214,52 +229,48 @@ void CSVisibility(uint3 id : SV_DispatchThreadID)
 // =================================================================
 // KERNEL 2: CSExpandBlotches
 // =================================================================
-groupshared int gs_chunk; groupshared uint gs_slab;
+groupshared uint gs_slab;
 
 [numthreads(256, 1, 1)]
 void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 {
     uint t = gtid.x;
-    if (t == 0)
-    {
-        gs_chunk = gid.x < _VisibilityCount[0] ? (int)_VisibleChunkList[gid.x] : -1;
-        gs_slab = gid.x * _SlabStride;
-    }
-    GroupMemoryBarrierWithGroupSync();
-    if (gs_chunk < 0) return;
+    
+    // Read the storage slot
+    uint storageSlot = gid.x < _VisibilityCount[0] ? _VisibleChunkList[gid.x] : 0xFFFFFFFF;
+    if (storageSlot == 0xFFFFFFFF) return;
+
+    // O(1) Lookup: Get the exact start and count of blotches for this chunk!
+    BlotchRange range = _BlotchOffsetBuffer[storageSlot];
+    if (range.count == 0) return; // No trees in this chunk, bail out instantly!
 
     uint chunkLOD = _ChunkLODBuffer[gid.x];
     uint res = _ResolutionPerLOD[min(chunkLOD, 7)];
     uint cellsUints = (res * res + CELLS_PER_UINT - 1) / CELLS_PER_UINT;
     
+    gs_slab = gid.x * _SlabStride;
+    
     if (t == 0)
     {
         _ConflictGridArena[gs_slab + 0] = _TimeMS;
-        _ConflictGridArena[gs_slab + 1] = asuint(gs_chunk);
+        _ConflictGridArena[gs_slab + 1] = storageSlot;
         _ConflictGridArena[gs_slab + 2] = cellsUints;
         _ConflictGridArena[gs_slab + 3] = 0;
     }
     GroupMemoryBarrierWithGroupSync();
 
-    // FIX: All threads must cooperate to zero out the grid cells for this slab!
     for (uint i = t; i < cellsUints; i += 256)
     {
         _ConflictGridArena[gs_slab + SLAB_HEADER + i] = 0;
     }
     GroupMemoryBarrierWithGroupSync();
 
-    uint bpc = max(1u, (_TotalBlotchCount + 255) / 256);
-    uint bs = t * bpc; uint be = min(bs + bpc, _TotalBlotchCount);
-
-    [loop] for (uint bi = bs; bi < be; bi++)
+    // Iterate ONLY over the blotches that belong to this chunk!
+    // No brute-force searching.
+    for (uint bi = range.start + t; bi < range.start + range.count; bi += 256)
     {
         BlotchData bl = _GlobalBlotchBuffer[bi];
-        // Compare ONLY the map-level portion (bits 16-31): blotch chunkPacked was baked with
-        // chunkX=0/chunkY=0 (cell-level), while the visible chunk has full coordinates.
-        // Mask: 0xFFFF0000 isolates (mapX << 24) | (mapY << 16)
-        uint blotchMapPart = asuint(bl.chunkPacked) & 0xFFFF0000u;
-        uint chunkMapPart  = asuint(gs_chunk) & 0xFFFF0000u;
-        if (blotchMapPart != chunkMapPart) continue;
+        
         if (chunkLOD == 0 && !UnpackAlwaysInst(bl.packedMeta)) continue;
 
         float density = ((bl.seedAndDensity >> 16) & 0xFFu) * 0.5;
@@ -279,20 +290,19 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             float ang = (h1 / 4294967296.0) * 6.283185;
             float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
 
-            // Extract the 0.0 to 1.0 local UV coordinates baked into the blotch
             float lx = (bl.packedPos & 0xFFFFu) / 65535.0;
             float lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
-            float3 wp = BlotchWorldPos(gs_chunk, bl.packedMeta, bl.packedPos, lx, lz, ang, dst);
+            // Pass bl.chunkPacked and bl.packedMeta so BlotchWorldPos has the correct face and coordinates!
+            float3 wp = BlotchWorldPos(bl.chunkPacked, bl.packedMeta, bl.packedPos, lx, lz, ang, dst);
 
-            // Map local UV to conflict grid resolution
             float cx = lx * res;
             float cy = lz * res;
 
             uint cxi = min((uint)max((int)cx, 0), res - 1);
             uint cyi = min((uint)max((int)cy, 0), res - 1);
 
-            if (TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict, forb))
+             if (TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict, forb))
             {
                 uint rotQ = (h1 >> 24) & 0xFFu;
                 uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + chunkLOD];
@@ -301,11 +311,14 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                     uint perBucketSlot;
                     InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
 
-                    // Per-bucket region: bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot
-                    uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
-                    _InstanceOutputBuffer[globalSlot].worldPos = wp;
-                    _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, chunkLOD, rotQ, 128);
-                    _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
+                    // FIX: Check perBucketSlot instead of a hardcoded global limit!
+                    if (perBucketSlot < MAX_INSTANCES_PER_BUCKET)
+                    {
+                        uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
+                        _InstanceOutputBuffer[globalSlot].worldPos = wp;
+                        _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, chunkLOD, rotQ, 128);
+                        _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
+                    }
                 }
             }
         }
@@ -321,5 +334,5 @@ void CSFillArgs(uint3 id : SV_DispatchThreadID)
     uint b = id.x;
     if (b >= _NumBuckets) return;
     _ArgsBuffer[b * 5 + 1] = _AtomicCounters[1 + b];                    // instance count
-    _ArgsBuffer[b * 5 + 4] = b * MAX_INSTANCES_PER_BUCKET;              // startInstance
+    _ArgsBuffer[b * 5 + 4] = 0;              // startInstance
 }

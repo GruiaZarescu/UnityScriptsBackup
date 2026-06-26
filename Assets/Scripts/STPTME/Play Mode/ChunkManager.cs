@@ -535,6 +535,8 @@ public class ChunkManager : MonoBehaviour
         ChunkKey currentChunk = GetCurrentProjectedChunk(position);
         packedCurrentIndices = currentChunk.packed;
         packedCurrentFace = currentChunk.face;
+        
+        //Debug.Log($"[ChunkManager::SetHeightmapsToLoad] Current chunk: {FormatChunkKey(currentChunk)} (packed=0x{currentChunk.packed:X8}), pos={position}");
 
         chunkRegistry.SetCurrentCenter(packedCurrentIndices, packedCurrentFace);
 
@@ -543,6 +545,7 @@ public class ChunkManager : MonoBehaviour
             packedPreviousIndices = previousChunk.packed;
             packedPreviousFace = previousChunk.face;
 
+            Debug.Log($"[ChunkManager] CHUNK CHANGE: {FormatChunkKey(previousChunk)} → {FormatChunkKey(currentChunk)}");
 
             ringPositions = STPTMEUtils.GenerateRings(packedCurrentIndices, numberOfChunks, minX, maxX, packedCurrentFace);
 
@@ -1466,6 +1469,81 @@ public class ChunkManager : MonoBehaviour
             chunkRegistry.SetCanopyUVCache(newCache);
             Debug.Log("[CanopyUVCache] Cache hot-reloaded into ChunkRegistry.");
         }
+    }
+
+    public Vector3 GetBlotchWorldPosition(BlotchData blob, float faceWorldSize)
+    {
+        STPTMEUtils.ReadFourSBytesFromInt(blob.chunkPacked, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
+        Vector2SByte map = new Vector2SByte(mapX, mapY);
+
+        // Ensure the heightmap data for this cell is loaded
+        if (!cellReader.IsCached(map, blob.Face))
+            cellReader.GetOrLoadSync(map, blob.Face);
+
+        // Use LOD 0 heightmap for exact surface placement
+        ushort[,] heights = cellReader.GetHeights(map, 0, blob.Face, sync: true);
+        if (heights == null) return default;
+
+        // Get the exact scaling parameters for this face and cell
+        byte cellDsSteps = GetCellDsSteps(map, blob.Face);
+        int faceChunkStepFull = GetFaceChunkStep(blob.Face);
+        int faceChunkStep = Mathf.Max(1, faceChunkStepFull >> cellDsSteps);
+        float facePixelDistanceFull = GetFacePixelDistance(blob.Face);
+        float facePixelDistance = facePixelDistanceFull * (1 << cellDsSteps);
+        float faceHeightScale = GetFaceMaxHeight(blob.Face) / 65535f;
+
+        int xOffset = faceChunkStep * chunkX;
+        int yOffset = faceChunkStep * chunkY;
+
+        // Unpack local position using the standard chunk size
+        float chunkSize = terrainSize / tilingFactor;
+        blob.GetLocalPosition(chunkSize, out float localX, out float localZ);
+
+        // Convert local meters to continuous heightmap pixel indices
+        float contX = localX / facePixelDistance + xOffset;
+        float contY = localZ / facePixelDistance + yOffset;
+
+        int x0 = Mathf.FloorToInt(contX);
+        int y0 = Mathf.FloorToInt(contY);
+        int x1 = x0 + 1;
+        int y1 = y0 + 1;
+
+        // Clamp to heightmap bounds
+        int maxX = heights.GetLength(1) - 1;
+        int maxY = heights.GetLength(0) - 1;
+        x0 = Mathf.Clamp(x0, 0, maxX);
+        x1 = Mathf.Clamp(x1, 0, maxX);
+        y0 = Mathf.Clamp(y0, 0, maxY);
+        y1 = Mathf.Clamp(y1, 0, maxY);
+
+        float fracX = contX - x0;
+        float fracY = contY - y0;
+
+        // Bilinear interpolation of height
+        float h00 = heights[y0, x0] * faceHeightScale;
+        float h10 = heights[y0, x1] * faceHeightScale;
+        float h01 = heights[y1, x0] * faceHeightScale;
+        float h11 = heights[y1, x1] * faceHeightScale;
+
+        float h0 = Mathf.Lerp(h00, h10, fracX);
+        float h1 = Mathf.Lerp(h01, h11, fracX);
+        float h = Mathf.Lerp(h0, h1, fracY);
+
+        // Calculate absolute face plane coordinates
+        float cellSize = terrainSize / subdivisionsPowerOf2;
+        float worldPlaneX = (mapX - minX) * cellSize + chunkX * chunkSize + localX;
+        float worldPlaneZ = (mapY - minX) * cellSize + chunkY * chunkSize + localZ;
+
+        // Project to sphere with height
+        FaceIdUtility.GetFaceAxes(blob.Face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
+        float percentX = faceWorldSize > 0f ? worldPlaneX / faceWorldSize : 0f;
+        float percentY = faceWorldSize > 0f ? worldPlaneZ / faceWorldSize : 0f;
+
+        Vector3 pointOnUnitCube = localUp
+            + (percentX - 0.5f) * 2f * axisA
+            + (percentY - 0.5f) * 2f * axisB;
+
+        return sphereCenter + pointOnUnitCube.normalized * (sphereRadius + h);
     }
 
     private void OnDestroy()

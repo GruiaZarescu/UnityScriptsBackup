@@ -8,7 +8,7 @@ using CustomTypes;
 
 /// <summary>
 /// Runtime reader for combined cell files (heightmaps + tree data).
-/// Mirrors the format written by TreeBaker.WriteCellFile.
+/// Mirrors the format written by CellFileBaking.WriteCellFile.
 /// 
 /// File layout:
 ///   [CellHeader 64 bytes]
@@ -18,11 +18,14 @@ using CustomTypes;
 /// </summary>
 public class CellReader
 {
-    // ===== CONSTANTS (must match TreeBaker) =====
+    // ===== CONSTANTS (must match CellFileBaking) =====
     public const ulong CELL_MAGIC = 0x314C4C4543505453; // "STPCELL1"
     public const int CELL_HEADER_SIZE = 64;
     public const int TREE_INDEX_ENTRY_SIZE = 8;
     public const int TREE_INSTANCE_SIZE = 8;
+    // Group file constants (mirror CellFileBaking)
+    public const ulong GROUP_MAGIC = 0x3250524754505453; // "STPGRP02"
+    public const int GROUP_HEADER_SIZE = 64;
 
     // ===== RUNTIME DATA STRUCTURES =====
 
@@ -68,7 +71,7 @@ public class CellReader
     }
 
     /// <summary>
-    /// Compact 8-byte tree instance (matches TreeBaker.STPTMETreeInstance).
+    /// Compact 8-byte tree instance (matches CellFileBaking.STPTMETreeInstance).
     /// </summary>
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 1)]
     public struct STPTMETreeInstance
@@ -451,7 +454,7 @@ public class CellReader
             {
                 // Read group header
                 ulong magic = br.ReadUInt64();
-                if (magic != TreeBaker.GROUP_MAGIC)
+                if (magic != GROUP_MAGIC)
                 {
                     Debug.LogError($"[CellReader] Invalid group magic in {filePath}");
                     return null;
@@ -466,7 +469,7 @@ public class CellReader
                 ushort subCellCount = br.ReadUInt16();
                 ushort chunksPerCellAxis = br.ReadUInt16();
                 // Skip remaining header padding
-                fs.Seek(TreeBaker.GROUP_HEADER_SIZE, SeekOrigin.Begin);
+                fs.Seek(GROUP_HEADER_SIZE, SeekOrigin.Begin);
 
                 int totalChunks = chunksPerCellAxis * chunksPerCellAxis;
 

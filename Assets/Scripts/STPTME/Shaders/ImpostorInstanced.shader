@@ -1,50 +1,68 @@
-Shader "Custom/ImpostorInstanced"
+Shader "Custom/ImpostorInstanced_URP"
 {
     Properties
     {
         _Color ("Color", Color) = (1,1,1,1)
         _MainTex ("Texture", 2D) = "white" {}
-        _LODWidthMultipliers ("LOD Width Multipliers", Vector) = (1,1.15,1.35,1.6)
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" }
-        LOD 200
+        Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" "DisableBatching"="True" }
+        LOD 100
 
         Pass
         {
-            Tags { "LightMode"="ForwardBase" }
-            CGPROGRAM
+            Name "ForwardLit"
+            Tags { "LightMode" = "UniversalForward" }
+
+            HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 4.5
-            #pragma multi_compile_fwdbase
-            #include "UnityCG.cginc"
 
-            sampler2D _MainTex;
-            fixed4 _Color;
-            float4 _LODWidthMultipliers[8];
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
-            // Instance data buffer (filled by CSExpandBlotches kernel)
+            struct Attributes
+            {
+                float4 positionOS   : POSITION;
+                float2 uv           : TEXCOORD0;
+            };
+
+            struct Varyings
+            {
+                float4 positionHCS  : SV_POSITION;
+                float2 uv           : TEXCOORD0;
+                float3 worldPos     : TEXCOORD1;
+            };
+
+            TEXTURE2D(_MainTex);
+            SAMPLER(sampler_MainTex);
+
+              CBUFFER_START(UnityPerMaterial)
+                float4 _MainTex_ST;
+                float4 _Color;
+                float _InstanceOffset;
+                float3 _Padding; // Pad to 16 bytes so URP doesn't strip it!
+            CBUFFER_END
+
             struct InstanceData
             {
                 float3 worldPos;
-                uint packedMeta; // bits: 0-7=protoIndex, 8-15=chunkLOD, 16-23=rotQ, 24-31=scaleQ
+                float pad1;
+                uint packedMeta;
                 uint seed;
+                uint pad2;
+                uint pad3;
             };
             StructuredBuffer<InstanceData> _InstanceOutputBuffer;
 
-            struct v2f
+            Varyings vert(Attributes IN, uint instanceID : SV_InstanceID)
             {
-                float4 pos : SV_POSITION;
-                float3 worldPos : TEXCOORD0;
-                float2 uv : TEXCOORD1;
-            };
-
-            v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
-            {
-                v2f o;
-                InstanceData inst = _InstanceOutputBuffer[instanceID];
+                Varyings OUT;
+                
+                uint actualInstanceID = instanceID + (uint)_InstanceOffset;
+                InstanceData inst = _InstanceOutputBuffer[actualInstanceID];
 
                 uint chunkLOD = (inst.packedMeta >> 8) & 0xFF;
                 uint rotQ = (inst.packedMeta >> 16) & 0xFF;
@@ -52,34 +70,29 @@ Shader "Custom/ImpostorInstanced"
 
                 float rotation = rotQ / 255.0 * 6.283185;
                 float scale = lerp(0.5, 2.0, scaleQ / 255.0);
-                float widthMult = _LODWidthMultipliers[min(chunkLOD, 7)];
 
-                // Build rotation matrix around Y (local up on sphere = radial)
                 float s, c; sincos(rotation, s, c);
-                float3 localPos = v.vertex.xyz;
-                localPos.xz *= widthMult * scale;
+                float3 localPos = IN.positionOS.xyz;
+                localPos.xz *= scale;
                 float3 rotatedPos;
                 rotatedPos.x = localPos.x * c - localPos.z * s;
                 rotatedPos.z = localPos.x * s + localPos.z * c;
                 rotatedPos.y = localPos.y * scale;
+                
                 float3 worldPos = inst.worldPos + rotatedPos;
 
-                o.pos = UnityWorldToClipPos(worldPos);
-                o.worldPos = worldPos;
-                o.uv = v.texcoord;
-                return o;
+                OUT.positionHCS = TransformWorldToHClip(worldPos);
+                OUT.uv = TRANSFORM_TEX(IN.uv, _MainTex);
+                OUT.worldPos = worldPos;
+                return OUT;
             }
 
-            fixed4 frag(v2f i) : SV_Target
+            half4 frag(Varyings IN) : SV_Target
             {
-                float3 faceNormal = normalize(cross(ddy(i.worldPos), ddx(i.worldPos)));
-                float3 lightDir = normalize(_WorldSpaceLightPos0.xyz);
-                float diff = max(0, dot(faceNormal, lightDir));
-                fixed4 tex = tex2D(_MainTex, i.uv);
-                return tex * _Color * diff;
+                half4 texColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv);
+                return half4(1, 0, 1, 1); // Magenta debug
             }
-            ENDCG
+            ENDHLSL
         }
     }
-    FallBack "Diffuse"
 }

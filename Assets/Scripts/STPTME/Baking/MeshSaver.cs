@@ -432,7 +432,7 @@ public class MeshSaver : MonoBehaviour
 
         // Write density stats for the collider pool manager
         string statsPath = Path.Combine(Application.streamingAssetsPath, "MapAssets/TreeColliderStats.bytes");
-        TreeBaker.WriteColliderStats(_bakeTreesPerPrototype, _bakeValidChunkCount, statsPath);
+        CellFileBaking.WriteColliderStats(_bakeTreesPerPrototype, _bakeValidChunkCount, statsPath);
 
         // Only bake textures if at least one face changed (otherwise they're still correct).
         bool anyFaceDirty = false;
@@ -622,7 +622,7 @@ public class MeshSaver : MonoBehaviour
         Dictionary<Vector2SByte, ushort[]> chunkMaxHeightPerMap = new Dictionary<Vector2SByte, ushort[]>();
         Dictionary<Vector2SByte, ushort[]> chunkMinHeightPerMap = new Dictionary<Vector2SByte, ushort[]>();
         Dictionary<Vector2SByte, Vector3> heightmapsStartingPositions = new Dictionary<Vector2SByte, Vector3>();
-        Dictionary<Vector2SByte, TreeBaker.CellBuildBuffer> cellBuffers = new Dictionary<Vector2SByte, TreeBaker.CellBuildBuffer>();
+        Dictionary<Vector2SByte, CellFileBaking.CellBuildBuffer> cellBuffers = new Dictionary<Vector2SByte, CellFileBaking.CellBuildBuffer>();
         Dictionary<Vector2SByte, byte> cellDsStepsPerMap = new Dictionary<Vector2SByte, byte>();
         // Per-cell blotch data: each tree flagged as a blotch is serialized here.
         Dictionary<Vector2SByte, List<BlotchData>> blotchBuffers = new Dictionary<Vector2SByte, List<BlotchData>>();
@@ -869,7 +869,7 @@ public class MeshSaver : MonoBehaviour
                     cellDsStepsPerMap[cell] = cellDsSteps;
 
                     // Create CellBuildBuffer for this cell
-                    var cellBuffer = new TreeBaker.CellBuildBuffer(cell, face, numberOfChunks);
+                    var cellBuffer = new CellFileBaking.CellBuildBuffer(cell, face, numberOfChunks);
                     cellBuffer.heightResX = (ushort)heightmapResX;
                     cellBuffer.heightResY = (ushort)heightmapResZ;
                     cellBuffer.heights = currentHeightmapHeights;
@@ -892,23 +892,8 @@ public class MeshSaver : MonoBehaviour
                 sbyte cellKeyBaseX = (sbyte)(settings.minX + terrain.terrainGridX * subPow2);
                 sbyte cellKeyBaseZ = (sbyte)(settings.minX + terrain.terrainGridY * subPow2);
 
-                TreeBaker.ExtractTreesFromTerrain(
-                    terrain.terrain,
-                    face,
-                    orientation,
-                    cellBuffers,
-                    subdivisionsPowerOf2,
-                    numberOfChunks,
-                    tilingFactor,
-                    sphereCenter,
-                    sphereRadius,
-                    bakedMaxHeight,
-                    treeFaceWorldSize,
-                    planeTerrainOriginX,
-                    planeTerrainOriginZ,
-                    cellKeyBaseX,
-                    cellKeyBaseZ
-                );
+                // Phase 2 was removed: legacy TreeBaker.ExtractTreesFromTerrain was deleted.
+                // Trees are no longer extracted at bake time (legacy system).
             }
         }
 
@@ -920,6 +905,8 @@ public class MeshSaver : MonoBehaviour
             float faceWorldSizeForBlotch = terrainGridSize * ts;
             int subPow2 = (int)Mathf.Pow(2, heightmapSubdivisions);
             float cellSizeForBlotch = ts / subPow2;
+
+            float chunkSizeForBlotch = cellSizeForBlotch / numberOfChunks;
 
             foreach (var terrain in terrains)
             {
@@ -945,7 +932,7 @@ public class MeshSaver : MonoBehaviour
                     cellKeyBaseX,
                     cellKeyBaseZ,
                     prototypeRegistryForBake,
-                    cellSizeForBlotch
+                    chunkSizeForBlotch
                 );
             }
         }
@@ -953,7 +940,7 @@ public class MeshSaver : MonoBehaviour
         // Phase 3: Write grouped cell files (one file per original unsubdivided terrain).
         // Group cells by original terrain grid position. Each terrain contributes
         // subdivisionsPowerOf2² subcells, all written into a single group file.
-        var cellsByTerrain = new Dictionary<(int tgX, int tgY), List<TreeBaker.SubCellData>>();
+        var cellsByTerrain = new Dictionary<(int tgX, int tgY), List<CellFileBaking.SubCellData>>();
         foreach (var kvp in cellBuffers)
         {
             Vector2SByte cell = kvp.Key;
@@ -963,12 +950,12 @@ public class MeshSaver : MonoBehaviour
             var key = (tgX, tgY);
             if (!cellsByTerrain.TryGetValue(key, out var list))
             {
-                list = new List<TreeBaker.SubCellData>();
+                list = new List<CellFileBaking.SubCellData>();
                 cellsByTerrain[key] = list;
             }
             byte ds = cellDsStepsPerMap.TryGetValue(cell, out byte dsv) ? dsv : (byte)0;
             List<BlotchData> cellBlotches = blotchBuffers.TryGetValue(cell, out var blist) ? blist : null;
-            list.Add(new TreeBaker.SubCellData
+            list.Add(new CellFileBaking.SubCellData
             {
                 buffer = kvp.Value,
                 validChunks = validChunksPerMap[cell],
@@ -986,7 +973,7 @@ public class MeshSaver : MonoBehaviour
             string fileName = $"CellGroup_{prefix}_{tgX}_{tgY}.bytes";
             string filePath = Path.Combine(cellFolderPath, fileName);
 
-            TreeBaker.WriteGroupCellFile(
+            CellFileBaking.WriteGroupCellFile(
                 filePath, subcells,
                 (byte)face, (byte)tgX, (byte)tgY,
                 (byte)subdivisionsPowerOf2, (ushort)numberOfChunks);

@@ -11,7 +11,7 @@ using CustomTypes;
 /// blotch data at once during scene initialization. The resulting array
 /// is uploaded to the GPU as the permanent GlobalBlotchBuffer.
 ///
-/// Group cell file layout (from TreeBaker.WriteGroupCellFile):
+/// Group cell file layout (from CellFileBaking.WriteGroupCellFile):
 ///   [GroupHeader 64 bytes]
 ///   [SubCellEntry × subCellCount: 32 bytes each]
 ///   For each subcell:
@@ -23,7 +23,7 @@ using CustomTypes;
 /// </summary>
 public static class CellBlotchReader
 {
-    // Must match TreeBaker group file constants
+    // Must match CellFileBaking group file constants
     private const ulong GROUP_MAGIC = 0x3250524754505453; // "STPGRP02"
     private const ushort GROUP_FORMAT_VERSION = 1;
     private const int GROUP_HEADER_SIZE = 64;
@@ -133,18 +133,30 @@ public static class CellBlotchReader
 
                 // Seek to blotch count position (immediately after tree data).
                 // If the seek position is at or past the end of the stream, the file
-                // was written by an older version of TreeBaker that doesn't include
+                // was written by an older version of CellFileBaking that doesn't include
                 // the blotch section — skip silently.
                 if (off.treeDataOff >= (ulong)reader.BaseStream.Length)
+                {
+                    Debug.LogWarning($"[CellBlotchReader] SubCell {si}: blotch offset 0x{off.treeDataOff:X8} >= file length 0x{reader.BaseStream.Length:X8} (old file format?)");
                     continue;
+                }
                 reader.BaseStream.Seek((long)off.treeDataOff, SeekOrigin.Begin);
 
                 // Guard: need at least 4 bytes for the blotch count.
                 if (reader.BaseStream.Length - reader.BaseStream.Position < 4)
+                {
+                    Debug.LogWarning($"[CellBlotchReader] SubCell {si}: not enough bytes for blotch count at position 0x{reader.BaseStream.Position:X8}");
                     continue;
+                }
 
                 int blotchCount = reader.ReadInt32();
-                if (blotchCount <= 0) continue;
+                if (blotchCount <= 0)
+                {
+                    if (blotchCount < 0)
+                        Debug.LogWarning($"[CellBlotchReader] SubCell {si}: negative blotch count {blotchCount}");
+                    continue;
+                }
+                //Debug.Log($"[CellBlotchReader] SubCell {si}: reading {blotchCount} blotches from offset 0x{off.treeDataOff:X8}");
 
                 for (int bi = 0; bi < blotchCount; bi++)
                 {
@@ -170,9 +182,134 @@ public static class CellBlotchReader
                         cullLODOverride: (packedMeta & (1u << 24)) != 0,
                         instanceAlways: (packedMeta & (1u << 25)) != 0
                     );
+                    
+                    // Debug: log first few blobs from each subcell to verify packing
+                    if (bi < 3)
+                    {
+                        STPTMEUtils.ReadFourSBytesFromInt(chunkPacked, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
+                        //Debug.Log($"[CellBlotchReader] SubCell {si} blob {bi}: chunkPacked=0x{chunkPacked:X8} unpacked=({mapX},{mapY},{chunkX},{chunkY}) face={bd.Face} proto={bd.PrototypeIndex}");
+                    }
+                    
                     result.Add(bd);
                 }
             }
         }
     }
+}
+
+/// <summary>
+/// Runtime blotch query system. Caches loaded blotches and provides per-chunk queries.
+/// Designed to work alongside CellObjectReader for the unified ChunkObjectLoader pipeline.
+/// </summary>
+public class CellBlotchQueryCache
+{
+    private BlotchData[] _allBlotches;
+    private Dictionary<int, List<int>> _blobIndicesByChunk;
+    private bool _initialized = false;
+
+    /// <summary>
+    /// Loads all blotches from files and builds query indices.
+    /// Call once at scene startup.
+    /// </summary>
+    public void Initialize(string cellsFolder, int heightmapSubdivisionsPowerOf2, sbyte minX)
+    {
+        if (_initialized) return;
+
+        _allBlotches = CellBlotchReader.LoadAllBlotches(cellsFolder);
+        _blobIndicesByChunk = new Dictionary<int, List<int>>();
+
+        for (int i = 0; i < _allBlotches.Length; i++)
+        {
+            var blob = _allBlotches[i];
+            
+            if (!_blobIndicesByChunk.TryGetValue(blob.chunkPacked, out var list))
+            {
+                list = new List<int>();
+                _blobIndicesByChunk[blob.chunkPacked] = list;
+            }
+            list.Add(i);
+        }
+
+        _initialized = true;
+    }
+
+    /// <summary>
+    /// Gets all blobs for a specific chunk (identified by packed int, face, and LOD).
+    /// Note: Blobs don't store explicit LOD info, so this returns all blobs in the chunk.
+    /// Filtering by LOD should be done by the caller based on registry rules.
+    /// </summary>
+    public List<BlotchData> GetBlobsForChunk(int chunkPacked)
+    {
+        if (!_initialized)
+        {
+            Debug.LogWarning("[CellBlotchQueryCache] Not initialized. Call Initialize() first.");
+            return new List<BlotchData>();
+        }
+
+        var result = new List<BlotchData>();
+        if (_blobIndicesByChunk.TryGetValue(chunkPacked, out var indices))
+        {
+            foreach (int idx in indices)
+                result.Add(_allBlotches[idx]);
+        }
+        return result;
+    }
+
+ 
+    /// <summary>
+    /// Gets all blobs (the full global buffer).
+    /// </summary>
+    public BlotchData[] GetAllBlotches() => _allBlotches;
+
+    public bool IsInitialized => _initialized;
+    public int BlobCount => _allBlotches?.Length ?? 0;
+}
+
+/// <summary>
+/// Static manager for global blotch query cache.
+/// Since CellBlotchReader is static, we can't use extension methods.
+/// Use these static methods directly instead.
+/// </summary>
+public static class CellBlotchQuery
+{
+    private static CellBlotchQueryCache _globalCache;
+
+    /// <summary>
+    /// Initialize the global blotch query cache (call once at startup).
+    /// </summary>
+    public static void Initialize(string cellsFolder, int heightmapSubdivisionsPowerOf2, sbyte minX)
+    {
+        if (_globalCache != null) return;
+        _globalCache = new CellBlotchQueryCache();
+        _globalCache.Initialize(cellsFolder, heightmapSubdivisionsPowerOf2, minX);
+    }
+
+    /// <summary>
+    /// Query blobs for a specific chunk using the global cache.
+    /// </summary>
+    public static List<BlotchData> GetBlobsForChunk(int chunkPacked)
+    {
+        if (_globalCache == null)
+        {
+            Debug.LogError("[CellBlotchQuery] Global cache not initialized. Call Initialize() first.");
+            return new List<BlotchData>();
+        }
+        return _globalCache.GetBlobsForChunk(chunkPacked);
+    }
+
+    /// <summary>
+    /// Get the full global blotch array.
+    /// </summary>
+    public static BlotchData[] GetAllBlotches()
+    {
+        if (_globalCache == null) return Array.Empty<BlotchData>();
+        return _globalCache.GetAllBlotches();
+    }
+
+    public static int TotalBlobCount()
+    {
+        if (_globalCache == null) return 0;
+        return _globalCache.BlobCount;
+    }
+
 }

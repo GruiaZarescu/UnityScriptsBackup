@@ -8,7 +8,7 @@ using CustomTypes;
 
 /// <summary>
 /// Editor tool that reads a root container transform and writes one CellObjectGroup
-/// binary file per original terrain group, mirroring the MeshSaver / TreeBaker pattern.
+/// binary file per original terrain group, mirroring the MeshSaver / CellFileBaking pattern.
 ///
 /// File naming: StreamingAssets/MapAssets/CellObjects/CellObjectGroup_{prefix}_{tgX}_{tgY}.bytes
 ///

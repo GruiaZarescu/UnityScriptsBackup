@@ -22,7 +22,7 @@ MonoBehaviour:
     - {fileID: -3883382028593957998, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
     - {fileID: 5784980255996254394, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
     lodGameObjects: []
-    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -45,9 +45,9 @@ MonoBehaviour:
     - {fileID: 8100791097369614745, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
     - {fileID: 3539699505251262783, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
     lodGameObjects: []
-    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 1
-    baseHeight: 1
+    baseHeight: 2
     heightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
@@ -68,7 +68,7 @@ MonoBehaviour:
     - {fileID: 7424987079902813675, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
     - {fileID: -4610279647616300368, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
     lodGameObjects: []
-    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -90,7 +90,7 @@ MonoBehaviour:
     - {fileID: -2583985508249245190, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     - {fileID: 4614324947569104867, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     lodGameObjects: []
-    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -112,7 +112,7 @@ MonoBehaviour:
     - {fileID: -267597267566366184, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
     - {fileID: -5198286234402889611, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
     lodGameObjects: []
-    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -134,7 +134,7 @@ MonoBehaviour:
     - {fileID: -2583985508249245190, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     - {fileID: 4614324947569104867, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     lodGameObjects: []
-    material: {fileID: 2100000, guid: 6cef9cacffd5c5b48bd180d574cfd808, type: 2}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -155,7 +155,7 @@ MonoBehaviour:
     - {fileID: 1081360476041732861, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
     - {fileID: -3433263269455883675, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
     lodGameObjects: []
-    material: {fileID: 2100000, guid: 93caadf4359ae8143aad35b3145d31af, type: 2}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -172,7 +172,7 @@ MonoBehaviour:
   - name: Palm146
     lodMeshes: []
     lodGameObjects: []
-    material: {fileID: 0}
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     baseWidth: 0
     baseHeight: 0
     heightOffset: 0

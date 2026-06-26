@@ -24,7 +24,7 @@ public static class BlotchBaker
     /// Extracts blotches from all trees in the given terrain, writing them into
     /// the per-cell blotch lists on the provided dictionaries.
     ///
-    /// Must be called AFTER TreeBaker.ExtractTreesFromTerrain has already
+    /// Called after cell buffers are set up (no longer needs legacy TreeBaker ordering).
     /// processed trees into cellBuffers, because we piggyback on the same
     /// cell/chunk indexing logic.
     ///
@@ -77,7 +77,7 @@ public static class BlotchBaker
             if (string.IsNullOrEmpty(proto.name))
                 continue;
 
-            // Re-orient tree position into plane space (same as TreeBaker).
+            // Re-orient tree position into plane space (matches cell/chunk indexing).
             FaceContainerOrientations.NormalizedWorldToPlane(orientation,
                 tree.position.x, tree.position.z,
                 out float npx, out float npz);
@@ -90,6 +90,14 @@ public static class BlotchBaker
             // Cell coordinate.
             int cellLocalX = Mathf.Clamp(Mathf.FloorToInt(treePlaneRelX / cellSize), 0, subdivisionsPowerOf2 - 1);
             int cellLocalZ = Mathf.Clamp(Mathf.FloorToInt(treePlaneRelZ / cellSize), 0, subdivisionsPowerOf2 - 1);
+
+            float chunkSize = cellSize / numberOfChunks;
+            float cellRelX = treePlaneRelX - (cellLocalX * cellSize);
+            float cellRelZ = treePlaneRelZ - (cellLocalZ * cellSize);
+
+            int chunkLocalX = Mathf.Clamp(Mathf.FloorToInt(cellRelX / chunkSize), 0, numberOfChunks - 1);
+            int chunkLocalZ = Mathf.Clamp(Mathf.FloorToInt(cellRelZ / chunkSize), 0, numberOfChunks - 1);
+
 
             Vector2SByte cellKey = new Vector2SByte(
                 (sbyte)(cellKeyBaseX + cellLocalX),
@@ -106,22 +114,24 @@ public static class BlotchBaker
             // We're at the cell level here; the chunkX/chunkY will be resolved
             // at GPU time based on the blotch's local position.
             // For now, store map coordinates from the cell key.
-            int cellPacked = STPTMEUtils.WriteFourSBytesInInt(cellKey.x, cellKey.y, 0, 0);
+            int cellPacked = STPTMEUtils.WriteFourSBytesInInt(cellKey.x, cellKey.y, (sbyte)chunkLocalX, (sbyte)chunkLocalZ);
 
             // Generate a deterministic seed from the tree instance index.
             // Since TreeInstance doesn't have a stable ID, we use position
             // hash so the blotch is stable across re-bakes.
             uint seed = (uint)(tree.position.x * 73856093f + tree.position.z * 19349663f + tree.prototypeIndex * 83492791f);
 
-            // Quantize blotch center position relative to cell origin.
-            float cellOriginX = planeTerrainOriginX + cellLocalX * cellSize;
-            float cellOriginZ = planeTerrainOriginZ + cellLocalZ * cellSize;
-            float localX = treePlaneFaceX - cellOriginX;
-            float localZ = treePlaneFaceZ - cellOriginZ;
+             // Compute chunk origin in face-plane space (cell origin + chunk offset inside the cell)
+            float chunkOriginX = planeTerrainOriginX + cellLocalX * cellSize + chunkLocalX * chunkSize;
+            float chunkOriginZ = planeTerrainOriginZ + cellLocalZ * cellSize + chunkLocalZ * chunkSize;
 
-            // Clamp to cell bounds.
-            localX = Mathf.Clamp(localX, 0f, cellSize);
-            localZ = Mathf.Clamp(localZ, 0f, cellSize);
+            // Quantize blotch center position relative to CHUNK origin (not cell)
+            float localX = treePlaneFaceX - chunkOriginX;
+            float localZ = treePlaneFaceZ - chunkOriginZ;
+
+            // Clamp to CHUNK bounds — matches BlotchData's 16-bit / 75 m encoding.
+            localX = Mathf.Clamp(localX, 0f, chunkSize);
+            localZ = Mathf.Clamp(localZ, 0f, chunkSize);
 
             // Read blotch parameters from the prototype entry.
             // These blotch parameters are read from MapObjectPrototypeEntry fields.

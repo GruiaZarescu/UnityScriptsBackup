@@ -90,4 +90,5 @@ public class TerrainManagementSettings : ScriptableObject
            + "close range are not hidden. Default: 1 (overlay on LOD1-maxLOD).")]
     [Range(0, 7)]
     public byte canopyStartLOD = 1;
+    public float faceWorldSize => Mathf.Sqrt(numberOfTerrains) * terrainSize;
 }

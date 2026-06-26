@@ -1,17 +1,20 @@
-using UnityEngine;
+#if UNITY_EDITOR
+using System;
 using System.Collections.Generic;
 using System.IO;
+using UnityEngine;
 using CustomTypes;
-
-#if UNITY_EDITOR
 using UnityEditor;
-#endif
 
 /// <summary>
-/// Editor-only: Extracts tree instances from Unity terrains, quantizes to 6-byte polar format,
-/// and provides data for combined cell file serialization.
+/// Editor-only: Shared types and serialization for the cell group file format.
+/// Replaces the old TreeBaker after the legacy tree-instancing system was removed.
+///
+/// Provides CellBuildBuffer (heightmap accumulator), SubCellData, WriteGroupCellFile,
+/// WriteColliderStats, and the file-format constants. The runtime CellReader mirrors
+/// these constants independently.
 /// </summary>
-public static class TreeBaker
+public static class CellFileBaking
 {
     // ===== FORMAT CONSTANTS =====
     public const ushort CELL_FORMAT_VERSION = 1;
@@ -19,11 +22,33 @@ public static class TreeBaker
     public const int TREE_INDEX_ENTRY_SIZE = 8;
     public const int TREE_INSTANCE_SIZE = 8;
 
+    // ===== GROUP CELL FILE FORMAT =====
+    // Groups multiple subcells (from one original pre-subdivision terrain) into a single file.
+    // Reduces I/O overhead when heightmapSubdivisions is high.
+    //
+    // Layout:
+    //   [GroupHeader: 64 bytes]
+    //   [SubCellEntry × subCellCount: 32 bytes each]
+    //   [SubCell 0 data: heights, treeIndex, treeData, blotchData]
+    //   [SubCell 1 data: ...]
+    //   ...
+
+    public const ulong GROUP_MAGIC = 0x3250524754505453; // "STPGRP02" little-endian
+    public const ushort GROUP_FORMAT_VERSION = 1;
+    public const int GROUP_HEADER_SIZE = 64;
+    public const int SUBCELL_ENTRY_SIZE = 32;
+
+    // ===== COLLIDER STATS =====
+    public const uint COLLIDER_STATS_MAGIC = 0x54435354; // "TSCT"
+    public const ushort COLLIDER_STATS_VERSION = 1;
+
     // ===== DATA STRUCTURES =====
 
     /// <summary>
     /// Compact 8-byte tree instance stored per chunk.
     /// Position is polar relative to chunk center on sphere tangent plane.
+    /// Retained for file-format backward compatibility; trees are no longer
+    /// populated at bake time (legacy system).
     /// </summary>
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 1)]
     public struct STPTMETreeInstance
@@ -100,8 +125,6 @@ public static class TreeBaker
         public uint treeIndexSize;
         public uint treeDataOffset;
         public uint treeDataSize;
-        // Remaining bytes to reach 64: 64 - 8 - 2 - 2 - 4 - 1 - 1 - 1 - 1 - 2 - 2 - 2 - 2 - 4 - 4 - 4 - 4 - 4 - 4 - 4 = 8 bytes reserved
-        // Actually let me recalculate: 8+2+2+4+1+1+1+1+2+2+2+2+4+4+4+4+4+4+4 = 56, so 8 bytes reserved
 
         public const ulong MAGIC = 0x314C4C4543505453; // "STPCELL1" little-endian
 
@@ -178,9 +201,9 @@ public static class TreeBaker
                 int chunkY = chunkIdx / numberOfChunks;
                 int seed = (cell.x * 31337 + cell.y * 137) ^ (chunkX * 7919 + chunkY * 6271);
                 seed ^= ((int)face + 1) * 0x11111111;
-                
+
                 System.Random rng = new System.Random(seed);
-                
+
                 // Fisher-Yates shuffle
                 for (int i = list.Count - 1; i > 0; i--)
                 {
@@ -201,22 +224,6 @@ public static class TreeBaker
         }
     }
 
-    // ===== GROUP CELL FILE FORMAT =====
-    // Groups multiple subcells (from one original pre-subdivision terrain) into a single file.
-    // Reduces I/O overhead when heightmapSubdivisions is high (e.g. 13,824 files → 216).
-    //
-    // Layout:
-    //   [GroupHeader: 64 bytes]
-    //   [SubCellEntry × subCellCount: 32 bytes each]
-    //   [SubCell 0 data: heights, treeIndex, treeData]
-    //   [SubCell 1 data: ...]
-    //   ...
-
-    public const ulong GROUP_MAGIC = 0x3250524754505453; // "STPGRP02" little-endian
-    public const ushort GROUP_FORMAT_VERSION = 1;
-    public const int GROUP_HEADER_SIZE = 64;
-    public const int SUBCELL_ENTRY_SIZE = 32;
-
     /// <summary>
     /// Data for a single subcell within a group, used during bake.
     /// </summary>
@@ -228,12 +235,11 @@ public static class TreeBaker
         public List<BlotchData> blotches; // null = no blotches
     }
 
-#if UNITY_EDITOR
-
-    // ===== QUANTIZATION =====
+    // ===== QUANTIZATION (legacy, retained for format completeness) =====
 
     /// <summary>
     /// Quantizes a Unity TreeInstance to our compact 7-byte format.
+    /// Legacy — trees are no longer populated at bake time.
     /// </summary>
     public static STPTMETreeInstance QuantizeTree(
         Vector3 treeWorldPos,
@@ -250,34 +256,28 @@ public static class TreeBaker
         float scaleMin = 0.5f,
         float scaleMax = 2.0f)
     {
-        // Project tree position onto chunk's tangent plane
         Vector3 offset = treeWorldPos - chunkCenter;
         float eastComponent = Vector3.Dot(offset, tangentEast);
         float northComponent = Vector3.Dot(offset, tangentNorth);
 
-        // Convert to polar
         float radius = Mathf.Sqrt(eastComponent * eastComponent + northComponent * northComponent);
-        float angle = Mathf.Atan2(eastComponent, northComponent); // Angle from north, clockwise
+        float angle = Mathf.Atan2(eastComponent, northComponent);
         if (angle < 0) angle += Mathf.PI * 2f;
 
-        // Quantize
         byte spin = (byte)Mathf.Clamp(Mathf.RoundToInt(angle / (Mathf.PI * 2f) * 255f), 0, 255);
         byte distance = (byte)Mathf.Clamp(Mathf.RoundToInt(radius / maxPolarDistance * 255f), 0, 255);
-        
-        // Scale quantization: map [scaleMin, scaleMax] to [0, 255]
+
         float widthNorm = Mathf.InverseLerp(scaleMin, scaleMax, treeWidthScale);
         float heightNorm = Mathf.InverseLerp(scaleMin, scaleMax, treeHeightScale);
         byte widthScale = (byte)Mathf.Clamp(Mathf.RoundToInt(widthNorm * 255f), 0, 255);
         byte heightScale = (byte)Mathf.Clamp(Mathf.RoundToInt(heightNorm * 255f), 0, 255);
 
-        // Rotation: Unity's rotation is in radians, convert to 0-255
         float rotNorm = treeRotation / (Mathf.PI * 2f);
         if (rotNorm < 0) rotNorm += 1f;
         byte rotation = (byte)Mathf.Clamp(Mathf.RoundToInt(rotNorm * 255f), 0, 255);
 
         byte protoIdx = (byte)Mathf.Clamp(prototypeIndex, 0, 255);
-        
-        // Height: normalize terrain height to 0-65535 (16-bit precision)
+
         ushort heightOffset = (ushort)Mathf.Clamp(Mathf.RoundToInt(terrainHeight / maxHeight * 65535f), 0, 65535);
 
         return new STPTMETreeInstance(spin, distance, widthScale, heightScale, rotation, protoIdx, heightOffset);
@@ -285,34 +285,27 @@ public static class TreeBaker
 
     /// <summary>
     /// Computes chunk center on sphere and tangent vectors.
-    /// Must match runtime decoding exactly.
+    /// Must match TreeDecoder.ComputeChunkCenterAndTangents exactly.
     /// </summary>
     public static void ComputeChunkCenterAndTangents(
         Vector3 corner00, Vector3 corner10, Vector3 corner01, Vector3 corner11,
         Vector3 sphereCenter, float sphereRadius,
         out Vector3 chunkCenter, out Vector3 tangentNorth, out Vector3 tangentEast)
     {
-        // Bilinear interpolation at center (u=0.5, v=0.5)
         Vector3 centerFlat = 0.25f * (corner00 + corner10 + corner01 + corner11);
-        
-        // Project onto sphere
         Vector3 dir = (centerFlat - sphereCenter).normalized;
         chunkCenter = sphereCenter + dir * sphereRadius;
 
-        // Compute tangent plane basis
-        // North: roughly towards +Y in world, but orthogonal to sphere normal
         Vector3 up = Vector3.up;
         tangentEast = Vector3.Cross(up, dir).normalized;
         if (tangentEast.sqrMagnitude < 0.001f)
-        {
-            // Handle pole case
             tangentEast = Vector3.Cross(Vector3.forward, dir).normalized;
-        }
         tangentNorth = Vector3.Cross(dir, tangentEast).normalized;
     }
 
     /// <summary>
-    /// Computes the maximum polar distance for a chunk (half diagonal).
+    /// Computes the maximum polar distance for a chunk (half diagonal on tangent plane).
+    /// Must match TreeDecoder.ComputeMaxPolarDistance exactly.
     /// </summary>
     public static float ComputeMaxPolarDistance(
         Vector3 corner00, Vector3 corner10, Vector3 corner01, Vector3 corner11,
@@ -320,7 +313,6 @@ public static class TreeBaker
     {
         float maxDist = 0f;
         Vector3[] corners = { corner00, corner10, corner01, corner11 };
-        
         foreach (var corner in corners)
         {
             Vector3 offset = corner - chunkCenter;
@@ -329,131 +321,10 @@ public static class TreeBaker
             float dist = Mathf.Sqrt(east * east + north * north);
             if (dist > maxDist) maxDist = dist;
         }
-        
         return maxDist;
     }
 
-    /// <summary>
-    /// Extracts and quantizes all trees from a terrain into the appropriate cell buffers.
-    ///
-    /// All cell/chunk indices and ProjectFacePlanePoint inputs operate in face-plane space.
-    /// The caller passes in:
-    ///  - <paramref name="orientation"/>: rotation that converts the source terrain's
-    ///    container/world XZ axes into the face's plane (axisA, axisB) axes.
-    ///  - <paramref name="planeTerrainOriginX"/>/<paramref name="planeTerrainOriginZ"/>:
-    ///    plane-space coordinates of the terrain corner that maps to plane (0, 0).
-    ///  - <paramref name="cellKeyBaseZ"/>: the sbyte cell-key
-    ///    base for this terrain (= settings.minX + planeTerrainGridY * subdivisionsPowerOf2).
-    /// </summary>
-    public static void ExtractTreesFromTerrain(
-        Terrain terrain,
-        FaceId face,
-        FaceContainerOrientation orientation,
-        Dictionary<Vector2SByte, CellBuildBuffer> cellBuffers,
-        int subdivisionsPowerOf2,
-        int numberOfChunks,
-        int tilingFactor,
-        Vector3 sphereCenter,
-        float sphereRadius,
-        float maxHeight,
-        float faceWorldSize,
-        float planeTerrainOriginX,
-        float planeTerrainOriginZ,
-        sbyte cellKeyBaseX,
-        sbyte cellKeyBaseZ)
-    {
-        TerrainData td = terrain.terrainData;
-        float terrainSize = td.size.x;
-        TreeInstance[] trees = td.treeInstances;
-
-        if (trees == null || trees.Length == 0) return;
-
-        float cellSize = terrainSize / subdivisionsPowerOf2;
-        int chunksPerCell = numberOfChunks; // chunks per axis within a cell
-
-        foreach (var tree in trees)
-        {
-            // Re-orient the tree's normalized container-space position into normalized plane-space.
-            // After this point everything is in plane coordinates.
-            FaceContainerOrientations.NormalizedWorldToPlane(orientation,
-                tree.position.x, tree.position.z,
-                out float npx, out float npz);
-
-            // Plane-space tree position relative to the terrain's plane origin, then absolute on the face plane.
-            float treePlaneRelX = npx * terrainSize;
-            float treePlaneRelZ = npz * terrainSize;
-            float treePlaneFaceX = planeTerrainOriginX + treePlaneRelX;
-            float treePlaneFaceZ = planeTerrainOriginZ + treePlaneRelZ;
-
-            // Cell coordinate (plane sub-cell within this terrain).
-            int cellLocalX = Mathf.Clamp(Mathf.FloorToInt(treePlaneRelX / cellSize), 0, subdivisionsPowerOf2 - 1);
-            int cellLocalZ = Mathf.Clamp(Mathf.FloorToInt(treePlaneRelZ / cellSize), 0, subdivisionsPowerOf2 - 1);
-
-            Vector2SByte cellKey = new Vector2SByte(
-                (sbyte)(cellKeyBaseX + cellLocalX),
-                (sbyte)(cellKeyBaseZ + cellLocalZ)
-            );
-
-            if (!cellBuffers.TryGetValue(cellKey, out var cellBuffer))
-            {
-                continue; // Cell not valid (no valid chunks)
-            }
-
-            // Chunk within the cell (plane space).
-            float cellPlaneStartX = planeTerrainOriginX + cellLocalX * cellSize;
-            float cellPlaneStartZ = planeTerrainOriginZ + cellLocalZ * cellSize;
-            float relToCellX = treePlaneFaceX - cellPlaneStartX;
-            float relToCellZ = treePlaneFaceZ - cellPlaneStartZ;
-
-            int chunkX = Mathf.Clamp(Mathf.FloorToInt(relToCellX * chunksPerCell / cellSize), 0, chunksPerCell - 1);
-            int chunkZ = Mathf.Clamp(Mathf.FloorToInt(relToCellZ * chunksPerCell / cellSize), 0, chunksPerCell - 1);
-            int chunkFlatIndex = chunkZ * chunksPerCell + chunkX;
-
-            float chunkSize = cellSize / chunksPerCell;
-            float chunkPlaneStartX = cellPlaneStartX + chunkX * chunkSize;
-            float chunkPlaneStartZ = cellPlaneStartZ + chunkZ * chunkSize;
-
-            // Chunk corners on sphere from plane coords (must match runtime's ProjectFacePlanePoint).
-            Vector3[] corners = new Vector3[4];
-            float[,] offsets = { {0,0}, {1,0}, {0,1}, {1,1} };
-            for (int c = 0; c < 4; c++)
-            {
-                float cx = chunkPlaneStartX + offsets[c,0] * chunkSize;
-                float cz = chunkPlaneStartZ + offsets[c,1] * chunkSize;
-                corners[c] = FaceIdUtility.ProjectFacePlanePoint(face, cx, cz, faceWorldSize, sphereCenter, sphereRadius);
-            }
-
-            ComputeChunkCenterAndTangents(
-                corners[0], corners[1], corners[2], corners[3],
-                sphereCenter, sphereRadius,
-                out Vector3 chunkCenter, out Vector3 tangentNorth, out Vector3 tangentEast);
-
-            float maxPolarDist = ComputeMaxPolarDistance(
-                corners[0], corners[1], corners[2], corners[3],
-                chunkCenter, tangentNorth, tangentEast);
-
-            Vector3 treeOnSphere = FaceIdUtility.ProjectFacePlanePoint(
-                face, treePlaneFaceX, treePlaneFaceZ, faceWorldSize, sphereCenter, sphereRadius);
-
-            float terrainHeight = tree.position.y * td.size.y;
-
-            STPTMETreeInstance quantized = QuantizeTree(
-                treeOnSphere,
-                chunkCenter,
-                tangentNorth,
-                tangentEast,
-                maxPolarDist,
-                tree.widthScale,
-                tree.heightScale,
-                tree.rotation,
-                tree.prototypeIndex,
-                terrainHeight,
-                maxHeight
-            );
-
-            cellBuffer.AddTree(chunkFlatIndex, quantized);
-        }
-    }
+    // ===== GROUP FILE WRITING =====
 
     /// <summary>
     /// Writes a combined cell file with height and tree data.
@@ -464,34 +335,31 @@ public static class TreeBaker
         bool[] validChunks)
     {
         string tempPath = outputPath + ".tmp";
-        
+
         try
         {
             using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(fs))
             {
-                // Shuffle trees before writing
                 buffer.ShuffleAllChunks();
-                
+
                 int totalTrees = buffer.GetTotalTreeCount();
                 int totalChunks = buffer.numberOfChunks * buffer.numberOfChunks;
-                
-                // Calculate offsets
+
                 uint heightOffset = (uint)CELL_HEADER_SIZE;
-                uint heightSize = (uint)(buffer.heightResX * buffer.heightResY * 2); // ushort = 2 bytes
-                
+                uint heightSize = (uint)(buffer.heightResX * buffer.heightResY * 2);
+
                 uint treeIndexOffset = heightOffset + heightSize;
                 uint treeIndexSize = (uint)(totalChunks * TREE_INDEX_ENTRY_SIZE);
-                
+
                 uint treeDataOffset = treeIndexOffset + treeIndexSize;
                 uint treeDataSize = (uint)(totalTrees * TREE_INSTANCE_SIZE);
 
-                // Build and write header
                 CellHeader header = new CellHeader
                 {
                     formatVersion = CELL_FORMAT_VERSION,
                     headerSize = CELL_HEADER_SIZE,
-                    flags = totalTrees > 0 ? 1u : 0u, // Bit 0 = has trees
+                    flags = totalTrees > 0 ? 1u : 0u,
                     mapX = buffer.cell.x,
                     mapY = buffer.cell.y,
                     isTop = (byte)buffer.face,
@@ -508,19 +376,13 @@ public static class TreeBaker
                     treeDataOffset = treeDataOffset,
                     treeDataSize = treeDataSize
                 };
-                
+
                 header.Write(writer);
 
-                // Write height section
                 for (int z = 0; z < buffer.heightResY; z++)
-                {
                     for (int x = 0; x < buffer.heightResX; x++)
-                    {
                         writer.Write(buffer.heights[z, x]);
-                    }
-                }
 
-                // Write tree index section
                 uint currentStartIndex = 0;
                 for (int chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++)
                 {
@@ -534,17 +396,11 @@ public static class TreeBaker
                     currentStartIndex += (uint)buffer.treesPerChunk[chunkIdx].Count;
                 }
 
-                // Write tree data section (concatenated, pre-shuffled)
                 for (int chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++)
-                {
                     foreach (var tree in buffer.treesPerChunk[chunkIdx])
-                    {
                         tree.Write(writer);
-                    }
-                }
             }
 
-            // Atomic replace
             if (File.Exists(outputPath))
                 File.Delete(outputPath);
             File.Move(tempPath, outputPath);
@@ -579,11 +435,9 @@ public static class TreeBaker
                 ushort subCellCount = (ushort)subcells.Length;
                 int totalChunks = chunksPerCellAxis * chunksPerCellAxis;
 
-                // Shuffle trees in all subcells before writing.
                 foreach (var sc in subcells)
                     sc.buffer.ShuffleAllChunks();
 
-                // --- Compute data layout ---
                 uint dataStart = (uint)(GROUP_HEADER_SIZE + subCellCount * SUBCELL_ENTRY_SIZE);
                 uint cursor = dataStart;
 
@@ -611,7 +465,6 @@ public static class TreeBaker
                     treeDataOffsets[i] = cursor;
                     cursor += tdSize;
 
-                    // Blotch data: count (int) + 16 bytes per BlotchData.
                     int blotchCount = subcells[i].blotches?.Count ?? 0;
                     cursor += (uint)(4 + blotchCount * 16);
 
@@ -619,36 +472,34 @@ public static class TreeBaker
                 }
 
                 // --- Write group header (64 bytes) ---
-                writer.Write(GROUP_MAGIC);                      // 8
-                writer.Write(GROUP_FORMAT_VERSION);              // 2
-                writer.Write((ushort)GROUP_HEADER_SIZE);         // 2
-                writer.Write(0u);                                // flags: 4
-                writer.Write(face);                              // 1
-                writer.Write(origTerrainX);                      // 1
-                writer.Write(origTerrainY);                      // 1
-                writer.Write(subdPow2);                          // 1
-                writer.Write(subCellCount);                      // 2
-                writer.Write(chunksPerCellAxis);                 // 2
-                // 24 bytes written, pad to 64
-                for (int p = 0; p < 5; p++) writer.Write(0uL);  // 40
+                writer.Write(GROUP_MAGIC);
+                writer.Write(GROUP_FORMAT_VERSION);
+                writer.Write((ushort)GROUP_HEADER_SIZE);
+                writer.Write(0u);                                // flags
+                writer.Write(face);
+                writer.Write(origTerrainX);
+                writer.Write(origTerrainY);
+                writer.Write(subdPow2);
+                writer.Write(subCellCount);
+                writer.Write(chunksPerCellAxis);
+                for (int p = 0; p < 5; p++) writer.Write(0uL);  // pad to 64
 
                 // --- Write subcell index (32 bytes each) ---
                 for (int i = 0; i < subCellCount; i++)
                 {
                     var buf = subcells[i].buffer;
-                    writer.Write(buf.cell.x);                    // 1
-                    writer.Write(buf.cell.y);                    // 1
-                    writer.Write(subcells[i].dsSteps);           // 1
-                    writer.Write((byte)0);                       // reserved: 1
-                    writer.Write(buf.heightResX);                // 2
-                    writer.Write(buf.heightResY);                // 2
-                    writer.Write(treeCounts[i]);                  // 4
-                    writer.Write(heightOffsets[i]);               // 4
-                    writer.Write(heightSizes[i]);                 // 4
-                    writer.Write(treeIndexOffsets[i]);            // 4
-                    writer.Write(treeDataOffsets[i]);             // 4
-                    writer.Write(0u);                             // reserved2: 4
-                    // 32 bytes total
+                    writer.Write(buf.cell.x);
+                    writer.Write(buf.cell.y);
+                    writer.Write(subcells[i].dsSteps);
+                    writer.Write((byte)0);                       // reserved
+                    writer.Write(buf.heightResX);
+                    writer.Write(buf.heightResY);
+                    writer.Write(treeCounts[i]);
+                    writer.Write(heightOffsets[i]);
+                    writer.Write(heightSizes[i]);
+                    writer.Write(treeIndexOffsets[i]);
+                    writer.Write(treeDataOffsets[i]);
+                    writer.Write(0u);                             // reserved2
                 }
 
                 // --- Write data sections per subcell ---
@@ -697,7 +548,6 @@ public static class TreeBaker
                 }
             }
 
-            // Atomic replace
             if (File.Exists(outputPath))
                 File.Delete(outputPath);
             File.Move(tempPath, outputPath);
@@ -716,13 +566,12 @@ public static class TreeBaker
     public static bool ValidateCellFile(string path, out string error)
     {
         error = null;
-        
+
         try
         {
             using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
             using (var reader = new BinaryReader(fs))
             {
-                // Check magic
                 ulong magic = reader.ReadUInt64();
                 if (magic != CellHeader.MAGIC)
                 {
@@ -739,10 +588,10 @@ public static class TreeBaker
 
                 ushort headerSize = reader.ReadUInt16();
                 reader.ReadUInt32(); // flags
-                reader.ReadSByte(); // mapX
-                reader.ReadSByte(); // mapY
-                reader.ReadByte(); // isTop
-                reader.ReadByte(); // reserved0
+                reader.ReadSByte();  // mapX
+                reader.ReadSByte();  // mapY
+                reader.ReadByte();   // isTop
+                reader.ReadByte();   // reserved0
                 ushort heightResX = reader.ReadUInt16();
                 ushort heightResY = reader.ReadUInt16();
                 reader.ReadUInt16(); // chunkCountPerAxis
@@ -755,7 +604,6 @@ public static class TreeBaker
                 uint treeDataOffset = reader.ReadUInt32();
                 uint treeDataSize = reader.ReadUInt32();
 
-                // Validate sizes
                 uint expectedHeightSize = (uint)(heightResX * heightResY * 2);
                 if (heightSize != expectedHeightSize)
                 {
@@ -777,7 +625,6 @@ public static class TreeBaker
                     return false;
                 }
 
-                // Validate file length
                 long expectedLength = treeDataOffset + treeDataSize;
                 if (fs.Length < expectedLength)
                 {
@@ -795,41 +642,28 @@ public static class TreeBaker
         }
     }
 
-    // ===== COLLIDER STATS =====
-
-    /// <summary>File written to StreamingAssets/MapAssets/TreeColliderStats.bytes at bake time.
-    /// Consumed at runtime by TreeColliderManager to size the capsule collider pool.</summary>
-    public const uint COLLIDER_STATS_MAGIC = 0x54435354; // "TSCT"
-    public const ushort COLLIDER_STATS_VERSION = 1;
-
     /// <summary>
     /// Writes per-prototype tree density stats used to size the runtime collider pool.
-    /// For each prototype, records: total tree count across all valid chunks,
-    /// and the derived averageTreesPer9Chunks = (total / validChunks) * 9.
-    /// The pool manager multiplies averageTreesPer9Chunks by a headroom factor
-    /// to obtain its initial target capacity.
+    /// Legacy — trees are no longer extracted at bake time, but retained for
+    /// projects still using the collider stats file.
     /// </summary>
-    /// <param name="totalTreesPerPrototype">Summed tree count per prototypeIndex across all cells and hemispheres.</param>
-    /// <param name="totalValidChunks">Total number of valid (on-sphere) chunks across all cells / hemispheres.</param>
-    /// <param name="outputPath">Absolute path to write the .bytes file.</param>
     public static void WriteColliderStats(int[] totalTreesPerPrototype, int totalValidChunks, string outputPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
         using var writer = new BinaryWriter(File.Open(outputPath, FileMode.Create));
 
-        writer.Write(COLLIDER_STATS_MAGIC);          // uint  4
-        writer.Write(COLLIDER_STATS_VERSION);        // ushort 2
-        writer.Write((ushort)totalTreesPerPrototype.Length); // ushort 2
-        writer.Write(totalValidChunks);              // int   4
+        writer.Write(COLLIDER_STATS_MAGIC);
+        writer.Write(COLLIDER_STATS_VERSION);
+        writer.Write((ushort)totalTreesPerPrototype.Length);
+        writer.Write(totalValidChunks);
 
         for (int i = 0; i < totalTreesPerPrototype.Length; i++)
         {
             int total = totalTreesPerPrototype[i];
             float avg = totalValidChunks > 0 ? (total / (float)totalValidChunks) * 9f : 0f;
-            writer.Write(total); // int   4
-            writer.Write(avg);   // float 4
+            writer.Write(total);
+            writer.Write(avg);
         }
     }
-
-#endif
 }
+#endif

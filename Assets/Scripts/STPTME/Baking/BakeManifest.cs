@@ -189,7 +189,4 @@ public static class BakeManifest
     }
 }
 
-#endif```
-
-
-Assets\Scripts\STPTME\Baking\BlotchBaker.cs
+#endif

@@ -4,6 +4,7 @@ using System.Collections;
 using UnityEngine;
 using CustomTypes;
 using Unity.Collections;
+using Unity.VisualScripting;
 /// <summary>
 /// Tracks a single chunk instance: LOD, GameObject reference, and splatmap binding.
 /// Collider presence is derived from LOD (LOD 0 always has a collider).
@@ -200,7 +201,7 @@ public class ChunkRegistry : MonoBehaviour
 {
 
     //Tracking
-    private ChunkSlot[] chunks;
+    private ChunkSlot[] chunks;//Aim to have only one chunk in one spot at once, removing duplicates would simplify logic a lot. When replacing a chunk, say LOD1 to LOD0, prepare the new one and replace atomically, so no duplicates. To consider implementing. ChunkRegistry needs many other simplifiactions, huge redundant boilerplate.
     private Dictionary<GameObject,List<PoolEntry>>chunksByPool = new Dictionary<GameObject, List<PoolEntry>>();
 
     //Config
@@ -518,6 +519,23 @@ public class ChunkRegistry : MonoBehaviour
         return chunks[storageIdx].HasLod(lod, out _);
     }
 
+    /// <summary>
+    /// Returns the chunk's GameObject for a given (packed, face, lod), or false if it doesn't exist.
+    /// This lets consumers (e.g. MapPrefabStreamer) parent objects directly to the chunk's terrain mesh,
+    /// without maintaining a separate parent dictionary.
+    /// </summary>
+    public bool TryGetChunkGameObject(int packed, FaceId face, byte lod, out GameObject chunkGO)
+    {
+        int storageIdx = GetStorageIndex(packed, face);
+        if (chunks[storageIdx].HasLod(lod, out ChunkRecord record))
+        {
+            chunkGO = record.gameObject;
+            return chunkGO != null;
+        }
+        chunkGO = null;
+        return false;
+    }
+
     private int GetStorageIndex(int packed, FaceId face)
     {
         return FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(packed), face);
@@ -694,6 +712,7 @@ public class ChunkRegistry : MonoBehaviour
     /// <summary>
     /// Creates a chunk GameObject from MeshData. Disposes the MeshData after use.
     /// </summary>
+
     public void CreateChunk(int packed, FaceId face, byte lod,
         ref ChunkManager.MeshData meshData)
     {
@@ -849,7 +868,7 @@ public class ChunkRegistry : MonoBehaviour
             int flatIdx = flatGridBFS.ChunkKeyToFlat(packed, face);
             int treeDist = flatGridBFS.GetBFSDepth(flatIdx);
             bool isInPriorityRing = ringPositions != null && ringPositions.Contains(new ChunkKey(packed, face));
-            TreeRenderer.Instance.RegisterChunk(packed, face, lod, treeDist, isInPriorityRing);
+            TreeRenderer.Instance.RegisterChunk(packed, face, lod, treeDist, isInPriorityRing);//All TreeRenderer logic is obsolete, no more TreeRenderer in use. Can be removed in future versions.
         }
         // Legacy tree collider path removed — use ImpostorRenderer.
 
