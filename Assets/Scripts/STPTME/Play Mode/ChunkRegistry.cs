@@ -883,6 +883,8 @@ public class ChunkRegistry : MonoBehaviour
         var scratch = EnsureBatchScratch(1);
         scratch[0] = slotIdx;
         RegisterRendererBatch(obj, renderer, scratch, 1);
+        if (ImpostorRenderer.Instance != null)
+        ImpostorRenderer.Instance.SetChunkLOD(slotIdx, lod);
     }
 
     // ========= REMOVAL ===========
@@ -1005,6 +1007,11 @@ public class ChunkRegistry : MonoBehaviour
         // Update chunk records
         int chunkSlotIdx = GetStorageIndex(packed, face);
         chunks[chunkSlotIdx].Remove(chunk);
+        if (chunks[chunkSlotIdx].Count == 0) // If this is the last record for this slot
+        {
+            if (ImpostorRenderer.Instance != null)
+                ImpostorRenderer.Instance.SetChunkLOD(chunkSlotIdx, 255);
+        }
     }
 
     /// <summary>
@@ -1218,6 +1225,11 @@ if (TreeRenderer.HasActiveSystem &&
                 // Update chunk records
                 int removeSlotIdx = GetStorageIndex(packed, face);
                 chunks[removeSlotIdx].Remove(record);
+                if (chunks[removeSlotIdx].Count == 0) // If this is the last record for this slot
+                {
+                    if (ImpostorRenderer.Instance != null)
+                        ImpostorRenderer.Instance.SetChunkLOD(removeSlotIdx, 255);
+                }
             }
 
             // Apply patched triangles to mesh once per batch
@@ -1381,6 +1393,14 @@ if (TreeRenderer.HasActiveSystem &&
         for (int i = 0; i < entryCount; i++)
             scratch[i] = batchEdgeSaveIndices[i]; // already-computed storage indices
         RegisterRendererBatch(obj, renderer, scratch, entryCount);
+
+        if (ImpostorRenderer.Instance != null)
+        {
+            for (int i = 0; i < entryCount; i++)
+            {
+                ImpostorRenderer.Instance.SetChunkLOD(batchEdgeSaveIndices[i], entries[i].lod);
+            }
+        }
     }
 
     /// <summary>
@@ -2560,6 +2580,8 @@ if (TreeRenderer.HasActiveSystem &&
         for (int i = 0; i < chunks.Length; i++)
         {
             chunks[i].Clear();
+            if (ImpostorRenderer.Instance != null)
+            ImpostorRenderer.Instance.SetChunkLOD(i, 255);
         }
         chunksByPool.Clear();
         batchesBeingRebuilt.Clear();

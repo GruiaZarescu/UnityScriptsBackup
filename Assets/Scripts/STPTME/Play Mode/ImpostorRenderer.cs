@@ -106,6 +106,10 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer visibleChunkListBuffer;       // RWStructuredBuffer<uint>
     private ComputeBuffer visibilityCountBuffer;        // RWStructuredBuffer<uint> — single counter for visible chunks
 
+    private ComputeBuffer globalChunkLODBuffer;
+    private uint[] cpuChunkLODs;
+    private bool lodsDirty = false;
+
     // ===== PER-FRAME STATE =====
 
     // Debug counters
@@ -336,6 +340,12 @@ public class ImpostorRenderer : MonoBehaviour
             chunkVisibilityBuffer = new ComputeBuffer(1, ChunkVisibilityData.Stride, ComputeBufferType.Structured);
         }
 
+        // ---- 2b. Global Chunk LOD Buffer ----
+        cpuChunkLODs = new uint[chunkData.Length];
+        for (int i = 0; i < cpuChunkLODs.Length; i++) cpuChunkLODs[i] = 255; // 255 = no chunk
+        globalChunkLODBuffer = new ComputeBuffer(chunkData.Length, sizeof(uint), ComputeBufferType.Structured);
+        globalChunkLODBuffer.SetData(cpuChunkLODs);
+
         // ---- 3. Conflict grid arena ----
         int arenaSize = ConflictGridDefines.ArenaUints;
         conflictGridArena = new ComputeBuffer(arenaSize, sizeof(uint),
@@ -412,12 +422,10 @@ public class ImpostorRenderer : MonoBehaviour
         if (!systemEnabled || !enableRendering) return;
         if (!ValidateState()) return;
 
-        // Guard against double-fire via PrepareFrame + Unity LateUpdate event.
         int curFrame = Time.frameCount;
         if (curFrame == lastFrameDrawn) return;
         lastFrameDrawn = curFrame;
 
-        // Step 0: Reset per-frame counters to 0
         if (visibilityCountBuffer != null)
             visibilityCountBuffer.SetData(new uint[] { 0 });
         if (atomicCounters != null)
@@ -427,21 +435,16 @@ public class ImpostorRenderer : MonoBehaviour
         }
         ResetArgsBuffer();
 
-        // DEBUG: Log buffer sizes
-        if (debugLogStats)
+        // FIX: Force upload LODs every frame to guarantee perfect sync with the GPU
+        if (globalChunkLODBuffer != null && cpuChunkLODs != null)
         {
-            int blotchCount = globalBlotchBuffer?.count ?? 0;
-            int chunksCount = chunkVisibilityBuffer?.count ?? 0;
-            //Debug.Log($"[ImpostorRenderer] Frame {Time.frameCount}: {blotchCount} blotches, {chunksCount} chunks, {bucketCount} buckets");
+            globalChunkLODBuffer.SetData(cpuChunkLODs);
+            lodsDirty = false;
         }
 
-        // Upload time in milliseconds (used by compute shader for slab timestamping)
         impostorSolverCompute.SetInt(ShaderIDs.TimeMS, (int)(Time.time * 1000f));
-
-        // Step 1: Upload per-frame camera data (~112 bytes total).
         UploadCameraData();
 
-        // Step 2: Dispatch visibility pass.
         int chunkCount = chunkVisibilityBuffer?.count ?? 0;
         if (chunkCount > 0)
         {
@@ -449,32 +452,18 @@ public class ImpostorRenderer : MonoBehaviour
             impostorSolverCompute.Dispatch(kernelVisibility, vGroups, 1, 1);
         }
 
-        // Read visibility count
-        var visCountData = new uint[1];
-        if (visibilityCountBuffer != null)
-        {
-            visibilityCountBuffer.GetData(visCountData);
-        }
-
-        // Compare GPU visible chunks vs CPU VisibilitySystem (debug comparison)
-        // (Visibility comparison code removed - debug-only)
-
-        // Step 3: Dispatch blotch expansion.
-        // Thread groups = number of visible chunks (capped by MaxVisibleChunks).
         if (globalBlotchBuffer != null)
         {
             impostorSolverCompute.Dispatch(kernelExpand,
                 ConflictGridDefines.MaxVisibleChunks, 1, 1);
         }
 
-        // Step 4: Dispatch fill-args.
         if (bucketCount > 0)
         {
             int aGroups = (bucketCount + 63) / 64;
             impostorSolverCompute.Dispatch(kernelFillArgs, aGroups, 1, 1);
         }
 
-        // Step 5: Issue indirect draw calls.
         DrawIndirect();
     }
 
@@ -517,9 +506,11 @@ public class ImpostorRenderer : MonoBehaviour
         drawProps.Clear();
         drawProps.SetBuffer(ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
         
-        // Bind the prototype scales!
         if (prototypeScalesBuffer != null)
             drawProps.SetBuffer("_PrototypeScales", prototypeScalesBuffer);
+
+        // FIX: Set _SphereCenter BEFORE the loop so the vertex shader receives it!
+        drawProps.SetVector("_SphereCenter", sphereCenter);
 
         var shadowMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
 
@@ -536,13 +527,28 @@ public class ImpostorRenderer : MonoBehaviour
                 argsBuffer, bucket.argsBufferOffset,
                 drawProps, shadowMode, bucket.receiveShadows, 0, null);
         }
-        drawProps.SetVector("_SphereCenter", sphereCenter);
     }
 
     public void SetGlobalHeightmap(Texture2DArray heightmapArray, int gridSize)
     {
         this.globalHeightmapArray = heightmapArray;
         this.terrainGridSize = gridSize;
+    }
+
+    public void SetChunkLOD(int storageSlot, byte lod)
+    {
+        if (storageSlot >= 0 && storageSlot < cpuChunkLODs.Length)
+        {
+            if (cpuChunkLODs[storageSlot] != lod)
+            {
+                cpuChunkLODs[storageSlot] = lod;
+                lodsDirty = true;
+            }
+        }
+        else
+        {
+            Debug.LogError($"[ImpostorRenderer] SetChunkLOD out of bounds! Slot: {storageSlot}, Length: {cpuChunkLODs.Length}");
+        }
     }
 
 
@@ -614,14 +620,17 @@ public class ImpostorRenderer : MonoBehaviour
 
     // ===== SHADER BINDING =====
 
-    private void BindComputeBuffers()
+        private void BindComputeBuffers()
     {
         // Visibility kernel.
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.ChunkVisibilityBuffer, chunkVisibilityBuffer);
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.VisibleChunkList, visibleChunkListBuffer);
-        impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.ChunkLODBuffer, chunkLODBuffer);
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.VisibilityCount, visibilityCountBuffer);
-        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BlotchOffsetBuffer, blotchOffsetBuffer);
+        
+        // Bind LOD buffer to BOTH kernels!
+        impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
+
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -629,10 +638,10 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.GlobalBlotchBuffer, globalBlotchBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ConflictGridArena, conflictGridArena);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.VisibleChunkList, visibleChunkListBuffer);
+         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.VisibilityCount, visibilityCountBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
-        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ChunkLODBuffer, chunkLODBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BlotchOffsetBuffer, blotchOffsetBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.AtomicCounters, atomicCounters);
-        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.VisibilityCount, visibilityCountBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -653,20 +662,17 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetInt(ShaderIDs.MinX, minX);
         impostorSolverCompute.SetInt(ShaderIDs.NumberOfChunks, numberOfChunks);
         impostorSolverCompute.SetInt(ShaderIDs.MapsPerFace, mapsPerRow);
-        impostorSolverCompute.SetInt(ShaderIDs.DefaultChunkLOD, 1);
         impostorSolverCompute.SetInt(ShaderIDs.TotalBlotchCount, globalBlotchBuffer?.count ?? 0);
         impostorSolverCompute.SetInt(Shader.PropertyToID("_MaxInstancesPerBucket"), MAX_INSTANCES_PER_BUCKET);
         impostorSolverCompute.SetVector(ShaderIDs.SphereCenter, new Vector4(sphereCenter.x, sphereCenter.y, sphereCenter.z, 0f));
         impostorSolverCompute.SetFloat(ShaderIDs.SphereRadius, sphereRadius);
-        // In ImpostorRenderer.cs, right before Dispatching CSExpandBlotches:
         impostorSolverCompute.SetFloat(ShaderIDs.HalfChunkLinearSize, halfChunkLinearSize);
-        // SlabStride is the stride in uints for each slab (header + cells). Use ConflictGridDefines.SlabHeaderUints as base.
+        
         int slabStrideUints = ConflictGridDefines.SlabHeaderUints +
             (ConflictGridDefines.ResolutionPerLOD[0] * ConflictGridDefines.ResolutionPerLOD[0] + ConflictGridDefines.CellsPerUint - 1) / ConflictGridDefines.CellsPerUint;
         impostorSolverCompute.SetInt(ShaderIDs.SlabStride, slabStrideUints);
         impostorSolverCompute.SetInt(ShaderIDs.NumBuckets, bucketCount);
 
-        // Resolution per LOD array (up to 8 entries)
         var resArray = ConflictGridDefines.ResolutionPerLOD;
         impostorSolverCompute.SetInts(ShaderIDs.ResolutionPerLOD, resArray);
 
@@ -715,6 +721,7 @@ public class ImpostorRenderer : MonoBehaviour
         bucketMapBuffer?.Release();           bucketMapBuffer = null;
         blotchOffsetBuffer?.Release();        blotchOffsetBuffer = null;
         prototypeScalesBuffer?.Release();     prototypeScalesBuffer = null;
+        globalChunkLODBuffer?.Release();      globalChunkLODBuffer = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
@@ -727,17 +734,18 @@ public class ImpostorRenderer : MonoBehaviour
     }
 
  
-   public IEnumerator DebugInstancePositions()
+    public IEnumerator DebugInstancePositions()
     {
         if (instanceOutputBuffer == null || !IsInitialized) yield break;
 
         yield return new WaitForEndOfFrame();
 
+        // Read first 5 instances from Bucket 0
         const int instancesToRead = 5;
         int byteSize = instancesToRead * 32; // 32 bytes per instance
-        int bucket1ByteOffset = 1 * MAX_INSTANCES_PER_BUCKET * 32; // Read from Bucket 1
+        int bucket0ByteOffset = 0; 
 
-        var request = AsyncGPUReadback.Request(instanceOutputBuffer, byteSize, bucket1ByteOffset, (req) =>
+        var request = AsyncGPUReadback.Request(instanceOutputBuffer, byteSize, bucket0ByteOffset, (req) =>
         {
             if (req.hasError) { Debug.LogError("Readback error"); return; }
 
@@ -753,11 +761,23 @@ public class ImpostorRenderer : MonoBehaviour
                 uint protoAndLod = data[offset + 4];
                 uint seed = data[offset + 5];
 
-                Debug.Log($"<color=green>[GPU Debug] Bucket 1 Instance {i}: WorldPos ({x:F2}, {y:F2}, {z:F2}) | Proto/Lod: {protoAndLod}</color>");
+                Debug.Log($"<color=green>[GPU Debug] Bucket 0 Instance {i}: WorldPos ({x:F2}, {y:F2}, {z:F2}) | Proto/Lod: {protoAndLod}</color>");
             }
         });
 
         while (!request.done) yield return null;
+        
+        // Also check the counters
+        if (atomicCounters != null)
+        {
+            var counterReq = AsyncGPUReadback.Request(atomicCounters, sizeof(uint) * 5, 0, (req) =>
+            {
+                if (req.hasError) return;
+                var data = req.GetData<uint>();
+                Debug.Log($"<color=yellow>[GPU Debug] Total Instances: {data[0]} | Bucket 0: {data[1]} | Bucket 1: {data[2]}</color>");
+            });
+            while (!counterReq.done) yield return null;
+        }
     }
 
     public IEnumerator DebugCounters()
@@ -766,28 +786,23 @@ public class ImpostorRenderer : MonoBehaviour
 
         yield return new WaitForEndOfFrame();
 
-        // Read the first 5 uints (Total count + 4 buckets)
-        int byteSize = sizeof(uint) * 5;
-        var request = AsyncGPUReadback.Request(atomicCounters, byteSize, 0, (req) =>
+        // Read standard counters (Total, B0, B1)
+        var request = AsyncGPUReadback.Request(atomicCounters, sizeof(uint) * 5, 0, (req) =>
         {
-            if (req.hasError)
-            {
-                Debug.LogError("[GPU Debug] Counter Readback error");
-                return;
-            }
-
+            if (req.hasError) { Debug.LogError("Counter Readback error"); return; }
             var data = req.GetData<uint>();
-            uint totalInstances = data[0];
-            
-            Debug.Log($"<color=yellow>[GPU Debug] Total Instances generated: {totalInstances}</color>");
-            
-            for (int i = 1; i < 5; i++)
-            {
-                Debug.Log($"[GPU Debug] Bucket {i-1} count: {data[i]}");
-            }
+            Debug.Log($"<color=yellow>[GPU Debug] Total: {data[0]} | B0: {data[1]} | B1: {data[2]}</color>");
         });
-
         while (!request.done) yield return null;
+
+        // Read debug counters at index 4000
+        var debugReq = AsyncGPUReadback.Request(atomicCounters, sizeof(uint) * 4, 4000 * 4, (req) =>
+        {
+            if (req.hasError) { Debug.LogError("Debug Counter Readback error"); return; }
+            var data = req.GetData<uint>();
+            Debug.Log($"<color=cyan>[GPU Debug] Blotches Processed: {data[0]} | Passed LOD: {data[1]} | Valid Bucket: {data[2]} | Won Claim: {data[3]}</color>");
+        });
+        while (!debugReq.done) yield return null;
     }
 
     public IEnumerator DebugVisibilityAndBlotches()
@@ -877,8 +892,8 @@ public class ImpostorRenderer : MonoBehaviour
         {
             StartCoroutine(DebugInstancePositions());
             StartCoroutine(DebugArgsBuffer());
-            //StartCoroutine(DebugCounters());
-            //StartCoroutine(DebugVisibilityAndBlotches());
+            StartCoroutine(DebugCounters());
+            StartCoroutine(DebugVisibilityAndBlotches());
         }
     }
 
@@ -919,7 +934,7 @@ public static class ShaderIDs
     public static readonly int ConflictGridArena = Shader.PropertyToID("_ConflictGridArena");
     public static readonly int InstanceOutputBuffer = Shader.PropertyToID("_InstanceOutputBuffer");
     public static readonly int ArgsBuffer = Shader.PropertyToID("_ArgsBuffer");
-    public static readonly int ChunkLODBuffer = Shader.PropertyToID("_ChunkLODBuffer");
+    public static readonly int GlobalChunkLODBuffer = Shader.PropertyToID("_GlobalChunkLODBuffer");
     public static readonly int AtomicCounters = Shader.PropertyToID("_AtomicCounters");
     // New buffer IDs
     public static readonly int BucketMapBuffer = Shader.PropertyToID("_BucketMap");
@@ -931,7 +946,6 @@ public static class ShaderIDs
     public static readonly int PlayerAltitude = Shader.PropertyToID("_PlayerAltitude");
     public static readonly int SphereCenter = Shader.PropertyToID("_SphereCenter");
     public static readonly int SphereRadius = Shader.PropertyToID("_SphereRadius");
-    public static readonly int DefaultChunkLOD = Shader.PropertyToID("_DefaultChunkLOD");
 
     // LOD config
     public static readonly int DensityMultiplierPerLOD = Shader.PropertyToID("_DensityMultiplierPerLOD");

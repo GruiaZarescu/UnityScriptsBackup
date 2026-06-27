@@ -50,7 +50,7 @@ struct BlotchRange {
 StructuredBuffer<BlotchRange> _BlotchOffsetBuffer; // Indexed by storage slot
 
 RWStructuredBuffer<uint> _VisibleChunkList;
-RWStructuredBuffer<uint> _ChunkLODBuffer;
+StructuredBuffer<uint> _GlobalChunkLODBuffer;
 RWStructuredBuffer<uint> _ConflictGridArena;
 StructuredBuffer<uint> _BucketMap;
 
@@ -231,6 +231,10 @@ void CSVisibility(uint3 id : SV_DispatchThreadID)
     uint count, stride;
     _ChunkVisibilityBuffer.GetDimensions(count, stride);
     if (idx >= count) return;
+    
+    // If the CPU says there is no chunk here, bail out instantly!
+    if (_GlobalChunkLODBuffer[idx] == 255) return;
+
     ChunkVisibilityData c = _ChunkVisibilityBuffer[idx];
 
     float h = max(_PlayerAltitude, 0.0);
@@ -247,10 +251,8 @@ void CSVisibility(uint3 id : SV_DispatchThreadID)
     InterlockedAdd(_VisibilityCount[0], 1, vi);
     if (vi < MAX_VISIBLE)
     {
-        // CRITICAL FIX: Store the storageSlot (idx), not chunkPacked!
-        // chunkPacked doesn't contain the Face, storageSlot does.
         _VisibleChunkList[vi] = idx; 
-        _ChunkLODBuffer[vi] = _DefaultChunkLOD;
+        // No need to write LOD here, we read it directly in CSExpandBlotches
     }
 }
 
@@ -264,15 +266,16 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 {
     uint t = gtid.x;
     
-    // Read the storage slot
     uint storageSlot = gid.x < _VisibilityCount[0] ? _VisibleChunkList[gid.x] : 0xFFFFFFFF;
     if (storageSlot == 0xFFFFFFFF) return;
 
-    // O(1) Lookup: Get the exact start and count of blotches for this chunk!
-    BlotchRange range = _BlotchOffsetBuffer[storageSlot];
-    if (range.count == 0) return; // No trees in this chunk, bail out instantly!
+    // READ THE ACTUAL CHUNK LOD FROM THE CPU!
+    uint chunkLOD = _GlobalChunkLODBuffer[storageSlot];
+    if (chunkLOD == 255) return; // Safety
 
-    uint chunkLOD = _ChunkLODBuffer[gid.x];
+    BlotchRange range = _BlotchOffsetBuffer[storageSlot];
+    if (range.count == 0) return; 
+
     uint res = _ResolutionPerLOD[min(chunkLOD, 7)];
     uint cellsUints = (res * res + CELLS_PER_UINT - 1) / CELLS_PER_UINT;
     
@@ -293,13 +296,18 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     }
     GroupMemoryBarrierWithGroupSync();
 
-    // Iterate ONLY over the blotches that belong to this chunk!
-    // No brute-force searching.
     for (uint bi = range.start + t; bi < range.start + range.count; bi += 256)
     {
         BlotchData bl = _GlobalBlotchBuffer[bi];
         
+        // DEBUG: Count how many blotches the GPU is actually attempting to process
+        InterlockedAdd(_AtomicCounters[4000], 1);
+        
+        // If chunk is LOD0, and the prototype is NOT "Instance Always", SKIP IT!
         if (chunkLOD == 0 && !UnpackAlwaysInst(bl.packedMeta)) continue;
+
+        // DEBUG: Count how many passed the LOD check
+        InterlockedAdd(_AtomicCounters[4001], 1);
 
         float density = ((bl.seedAndDensity >> 16) & 0xFFu) * 0.5;
         float radius  = ((bl.seedAndDensity >> 24) & 0xFFu) * 0.25;
@@ -321,7 +329,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             float lx = (bl.packedPos & 0xFFFFu) / 65535.0;
             float lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
-            // Pass bl.chunkPacked and bl.packedMeta so BlotchWorldPos has the correct face and coordinates!
             float3 wp = BlotchWorldPos(bl.chunkPacked, bl.packedMeta, bl.packedPos, lx, lz, ang, dst);
 
             float cx = lx * res;
@@ -330,16 +337,21 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             uint cxi = min((uint)max((int)cx, 0), res - 1);
             uint cyi = min((uint)max((int)cy, 0), res - 1);
 
-             if (TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict, forb))
+            if (TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict, forb))
             {
+                // DEBUG: Count how many won the conflict grid
+                InterlockedAdd(_AtomicCounters[4003], 1);
+                
                 uint rotQ = (h1 >> 24) & 0xFFu;
                 uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + chunkLOD];
                 if (bucketIdx != 0xFFFFFFFF)
                 {
+                    // DEBUG: Count how many found a valid bucket
+                    InterlockedAdd(_AtomicCounters[4002], 1);
+                    
                     uint perBucketSlot;
                     InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
 
-                    // FIX: Check perBucketSlot instead of a hardcoded global limit!
                     if (perBucketSlot < MAX_INSTANCES_PER_BUCKET)
                     {
                         uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
