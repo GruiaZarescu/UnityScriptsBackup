@@ -79,6 +79,7 @@ public class ImpostorRenderer : MonoBehaviour
     private int kernelVisibility;
     private int kernelExpand;
     private int kernelFillArgs;
+    private int kernelClear;
 
     // ===== GPU BUFFERS (permanent, allocated once) =====
 
@@ -257,6 +258,7 @@ public class ImpostorRenderer : MonoBehaviour
         kernelVisibility = impostorSolverCompute.FindKernel("CSVisibility");
         kernelExpand = impostorSolverCompute.FindKernel("CSExpandBlotches");
         kernelFillArgs = impostorSolverCompute.FindKernel("CSFillArgs");
+        kernelClear = impostorSolverCompute.FindKernel("CSClearCounters");
 
         bool hasVisibility = kernelVisibility >= 0;
         bool hasExpand = kernelExpand >= 0;
@@ -426,24 +428,20 @@ public class ImpostorRenderer : MonoBehaviour
         if (curFrame == lastFrameDrawn) return;
         lastFrameDrawn = curFrame;
 
-        if (visibilityCountBuffer != null)
-            visibilityCountBuffer.SetData(new uint[] { 0 });
-        if (atomicCounters != null)
-        {
-            var zeroArray = new uint[1 + ConflictGridDefines.MaxBuckets * MAX_LODS_PER_BUCKET];
-            atomicCounters.SetData(zeroArray);
-        }
-        ResetArgsBuffer();
+        // Upload camera data first (needed by all kernels)
+        impostorSolverCompute.SetInt(ShaderIDs.TimeMS, (int)(Time.time * 1000f));
+        UploadCameraData();
 
-        // FIX: Force upload LODs every frame to guarantee perfect sync with the GPU
+        // Upload LODs (CPU → GPU, once per frame)
         if (globalChunkLODBuffer != null && cpuChunkLODs != null)
         {
             globalChunkLODBuffer.SetData(cpuChunkLODs);
             lodsDirty = false;
         }
 
-        impostorSolverCompute.SetInt(ShaderIDs.TimeMS, (int)(Time.time * 1000f));
-        UploadCameraData();
+        // NOW dispatch in order: Clear → Visibility → Expand → FillArgs
+        int clearGroups = (bucketCount + 1 + 63) / 64;
+        impostorSolverCompute.Dispatch(kernelClear, clearGroups, 1, 1);
 
         int chunkCount = chunkVisibilityBuffer?.count ?? 0;
         if (chunkCount > 0)
@@ -454,8 +452,7 @@ public class ImpostorRenderer : MonoBehaviour
 
         if (globalBlotchBuffer != null)
         {
-            impostorSolverCompute.Dispatch(kernelExpand,
-                ConflictGridDefines.MaxVisibleChunks, 1, 1);
+            impostorSolverCompute.Dispatch(kernelExpand, ConflictGridDefines.MaxVisibleChunks, 1, 1);
         }
 
         if (bucketCount > 0)
@@ -651,6 +648,10 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelFillArgs, ShaderIDs.AtomicCounters, atomicCounters);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelFillArgs, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
+
+        //Clear kernel.
+        impostorSolverCompute.SetBuffer(kernelClear, ShaderIDs.AtomicCounters, atomicCounters);
+        impostorSolverCompute.SetBuffer(kernelClear, ShaderIDs.VisibilityCount, visibilityCountBuffer);
 
         // Global constants.
         impostorSolverCompute.SetInt(ShaderIDs.BucketCount, bucketCount);

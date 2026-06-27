@@ -7,6 +7,7 @@
 #pragma kernel CSVisibility
 #pragma kernel CSExpandBlotches
 #pragma kernel CSFillArgs
+#pragma kernel CSClearCounters
 
 // =================================================================
 // CONSTANTS
@@ -129,19 +130,29 @@ uint PackMeta(uint p, uint l, uint r, uint s)
 
 uint CellIdx(uint x, uint y, uint res) { return y * res + x; }
 
-bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want, uint forbid)
+bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want)
 {
     uint off = SLAB_HEADER + ci / CELLS_PER_UINT;
-    uint sh = (ci % CELLS_PER_UINT) * BITS_PER_CELL;
+    uint sh  = (ci % CELLS_PER_UINT) * BITS_PER_CELL;
     uint addr = slab + off;
     uint mask = 0xFu << (int)sh;
-    uint oldVal = arena[addr];
-    uint cellVal = (oldVal >> (int)sh) & 0xFu;
-    if (cellVal != 0 && (forbid & cellVal) != 0) return false;
-    uint newVal = (oldVal & ~mask) | ((want << (int)sh) & mask);
+
     uint original;
-    InterlockedCompareExchange(arena[addr], oldVal, newVal, original);
-    return (original == oldVal);
+    uint oldVal = arena[addr];
+
+    [loop] for (int iter = 0; iter < 8; iter++)
+    {
+        uint cellVal = (oldVal >> (int)sh) & 0xFu;
+        if (cellVal >= want) return false;          // genuinely lower priority
+
+        uint newVal = (oldVal & ~mask) | ((want << (int)sh) & mask);
+        InterlockedCompareExchange(arena[addr], oldVal, newVal, original);
+
+        if (original == oldVal) return true;        // we won the CAS
+
+        oldVal = original;                          // lost — retry with the value that beat us
+    }
+    return false;
 }
 
 float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
@@ -265,6 +276,8 @@ groupshared uint gs_slab;
 void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 {
     uint t = gtid.x;
+
+    if (gid.x >= _VisibilityCount[0]) return;
     
     uint storageSlot = gid.x < _VisibilityCount[0] ? _VisibleChunkList[gid.x] : 0xFFFFFFFF;
     if (storageSlot == 0xFFFFFFFF) return;
@@ -337,7 +350,16 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             uint cxi = min((uint)max((int)cx, 0), res - 1);
             uint cyi = min((uint)max((int)cy, 0), res - 1);
 
-            if (TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict, forb))
+            // FIX: Only use the conflict grid for procedural clusters (grass/bushes).
+            // Single-instance trees (radius < 0.001) always draw to prevent strobing!
+            bool wonClaim = false;
+            if (radius < 0.001) {
+                wonClaim = true;
+            } else {
+                wonClaim = TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict);
+            }
+
+            if (wonClaim)
             {
                 // DEBUG: Count how many won the conflict grid
                 InterlockedAdd(_AtomicCounters[4003], 1);
@@ -375,4 +397,19 @@ void CSFillArgs(uint3 id : SV_DispatchThreadID)
     if (b >= _NumBuckets) return;
     _ArgsBuffer[b * 5 + 1] = _AtomicCounters[1 + b];                    // instance count
     _ArgsBuffer[b * 5 + 4] = 0;              // startInstance
+}
+
+// =================================================================
+// KERNEL 4: CSClearCounters
+// =================================================================
+[numthreads(64, 1, 1)]
+void CSClearCounters(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    // Clear per-bucket counters (offset by 1, bucket 0 is at index 1)
+    if (i < _NumBuckets)
+        _AtomicCounters[1 + i] = 0;
+    // Clear total visible chunk count
+    if (i == 0)
+        _VisibilityCount[0] = 0;
 }
