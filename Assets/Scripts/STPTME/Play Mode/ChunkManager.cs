@@ -157,6 +157,7 @@ public class ChunkManager : MonoBehaviour
     // Reusable buffers for ManageLoadedHeightmaps to avoid per-call GC
     private readonly List<MapFaceKey> hmKeysToRemove = new List<MapFaceKey>();
     private readonly int[] hmCornerChunks = new int[4];
+    private Texture2DArray globalHeightmapArray;
 
     void Awake()
     {
@@ -208,6 +209,9 @@ public class ChunkManager : MonoBehaviour
         {
             InitializeAdjacentData((FaceId)f);
         }
+
+        
+
         globalIndexCalculator = new STPTMEUtils.GlobalIndexCalculator(minX,maxX,numberOfChunks);
 
         // Initialize the global VisibilitySystem now that AdjacentData has been read for
@@ -231,6 +235,7 @@ public class ChunkManager : MonoBehaviour
 
         cellReader = new CellReader();
         cellReader.Init(subdivisionsPowerOf2, minX);
+        BuildGlobalHeightmapArray();
         
         originalResolution = GetFaceOriginalResolution(FaceId.Up);
         maxHeight = GetFaceMaxHeight(FaceId.Up);
@@ -311,6 +316,7 @@ public class ChunkManager : MonoBehaviour
             chunkRegistry.SetCanopyUVCache(uvCache);
     }
 
+
     private void Update()
     {
         // Keep altitude current for HUD / diagnostics. Visibility prep itself is invoked
@@ -344,6 +350,130 @@ public class ChunkManager : MonoBehaviour
         var impostor = GetComponent<ImpostorRenderer>();
         if (impostor != null && impostor.SystemEnabled)
             impostor.PrepareFrame(pos, PlayerAltitude);
+    }
+
+    private void BuildGlobalHeightmapArray()
+    {
+        int terrainGridSize = (int)Mathf.Sqrt(numberOfTerrains);
+        int slicesPerFace = terrainGridSize * terrainGridSize;
+        int totalSlices = slicesPerFace * FaceIdUtility.StorageFaceCount;
+        
+        // Determine the LOD1 cell resolution from the face with the highest original resolution.
+        int lod1CellRes = 0;
+        for (int f = 0; f < FaceIdUtility.StorageFaceCount; f++)
+        {
+            int terrainRes = GetFaceOriginalResolution((FaceId)f); // e.g., 2049
+            if (terrainRes <= 0) continue;
+            
+            // Cell base res before bake downsampling (e.g., 1025)
+            int cellBaseRes = ((terrainRes - 1) / subdivisionsPowerOf2) + 1;
+            
+            // We want the texture to match the LOD1 chunk mesh.
+            // The mesh generator applies the bake dsSteps AND the runtime LOD1.
+            // So the cell resolution we want is cellBaseRes >> (dsSteps + 1).
+            // Assuming a uniform bake dsSteps of 1: 1025 >> 2 = 256.
+            // Let's just use a safe uniform assumption (adjust if you have variable dsSteps per face)
+            int maxDsSteps = 1; // Assuming your standard bake downsampling is 1 step
+            int targetCellRes = ((cellBaseRes - 1) >> (maxDsSteps + 1)) + 1; 
+            
+            if (targetCellRes > lod1CellRes) lod1CellRes = targetCellRes;
+        }
+        if (lod1CellRes == 0) lod1CellRes = 256;
+
+        // Multiply by subPow2 to get the full slice resolution for the entire original terrain
+        // e.g., 256 * 2 = 512.
+        int sliceResolution = lod1CellRes * subdivisionsPowerOf2; 
+
+        // Optional: clamp to a maximum of 1024 for VRAM safety
+        sliceResolution = Mathf.Min(sliceResolution, 1024);
+
+        Debug.Log($"[ChunkManager] Building global heightmap array: sliceResolution={sliceResolution}, totalSlices={totalSlices}");
+                
+        globalHeightmapArray = new Texture2DArray(
+            sliceResolution, sliceResolution, totalSlices,
+            TextureFormat.RFloat, false, true);
+        globalHeightmapArray.filterMode = FilterMode.Bilinear;
+        globalHeightmapArray.wrapMode = TextureWrapMode.Clamp;
+
+        int subPow2 = subdivisionsPowerOf2;
+        float cellWorldSize = terrainSize / subPow2;
+
+        for (int f = 0; f < FaceIdUtility.StorageFaceCount; f++)
+        {
+            FaceId face = (FaceId)f;
+            float fMaxHeight = GetFaceMaxHeight(face);
+            float facePixelDistanceFull = GetFacePixelDistance(face);
+
+            for (int tgY = 0; tgY < terrainGridSize; tgY++)
+            {
+                for (int tgX = 0; tgX < terrainGridSize; tgX++)
+                {
+                    int sliceIndex = f * slicesPerFace + tgY * terrainGridSize + tgX;
+                    float[] sliceData = new float[sliceResolution * sliceResolution];
+
+                    for (int scY = 0; scY < subPow2; scY++)
+                    {
+                        for (int scX = 0; scX < subPow2; scX++)
+                        {
+                            sbyte mapX = (sbyte)(minX + tgX * subPow2 + scX);
+                            sbyte mapY = (sbyte)(minX + tgY * subPow2 + scY);
+
+                            CellReader.CellData data = cellReader.GetOrLoadSync(new Vector2SByte(mapX, mapY), face);
+                            if (data?.heights == null) continue;
+
+                            // CRITICAL: Get the actual downsampling steps for this specific cell!
+                            byte dsSteps = GetCellDsSteps(new Vector2SByte(mapX, mapY), face);
+                            float facePixelDistance = facePixelDistanceFull * (1 << dsSteps);
+
+                            float cellOriginX = scX * cellWorldSize;
+                            float cellOriginY = scY * cellWorldSize;
+
+                            int blockBaseX = scX * (sliceResolution / subPow2);
+                            int blockBaseY = scY * (sliceResolution / subPow2);
+                            int blockW = sliceResolution / subPow2;
+                            int blockH = sliceResolution / subPow2;
+
+                            for (int ly = 0; ly < blockH; ly++)
+                            {
+                                int sliceY = blockBaseY + ly;
+                                if (sliceY >= sliceResolution) break;
+
+                                // Map UV to plane coordinates, exactly like GenerateMeshData!
+                                float v = (float)sliceY / (sliceResolution - 1);
+                                float planeY = v * terrainSize;
+                                float localPlaneY = planeY - cellOriginY;
+                                float contY = localPlaneY / facePixelDistance;
+                                
+                                int hmY = Mathf.Clamp(Mathf.FloorToInt(contY), 0, data.heights.GetLength(0) - 1);
+
+                                for (int lx = 0; lx < blockW; lx++)
+                                {
+                                    int sliceX = blockBaseX + lx;
+                                    if (sliceX >= sliceResolution) break;
+
+                                    float u = (float)sliceX / (sliceResolution - 1);
+                                    float planeX = u * terrainSize;
+                                    float localPlaneX = planeX - cellOriginX;
+                                    float contX = localPlaneX / facePixelDistance;
+                                    
+                                    int hmX = Mathf.Clamp(Mathf.FloorToInt(contX), 0, data.heights.GetLength(1) - 1);
+
+                                    sliceData[sliceY * sliceResolution + sliceX] = (data.heights[hmY, hmX] / 65535f) * fMaxHeight;
+                                }
+                            }
+                        }
+                    }
+                    globalHeightmapArray.SetPixelData(sliceData, 0, sliceIndex);
+                }
+            }
+        }
+        globalHeightmapArray.Apply();
+
+        var impostor = GetComponent<ImpostorRenderer>();
+        if (impostor != null)
+        {
+            impostor.SetGlobalHeightmap(globalHeightmapArray, terrainGridSize);
+        }
     }
 
     private IEnumerator ChunkManagementLoop()

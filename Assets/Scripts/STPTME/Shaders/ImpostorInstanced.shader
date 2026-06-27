@@ -26,6 +26,7 @@ Shader "Custom/ImpostorInstanced_URP"
             struct Attributes
             {
                 float4 positionOS   : POSITION;
+                float3 normalOS     : NORMAL;
                 float2 uv           : TEXCOORD0;
             };
 
@@ -33,13 +34,13 @@ Shader "Custom/ImpostorInstanced_URP"
             {
                 float4 positionHCS  : SV_POSITION;
                 float2 uv           : TEXCOORD0;
-                float3 worldPos     : TEXCOORD1;
+                float3 worldNormal  : TEXCOORD1;
             };
 
             TEXTURE2D(_MainTex);
             SAMPLER(sampler_MainTex);
 
-              CBUFFER_START(UnityPerMaterial)
+            CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST;
                 float4 _Color;
                 float _InstanceOffset;
@@ -71,6 +72,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 float rotation = rotQ / 255.0 * 6.283185;
                 float scale = lerp(0.5, 2.0, scaleQ / 255.0);
 
+                // Build rotation matrix around Y (local up on sphere = radial)
                 float s, c; sincos(rotation, s, c);
                 float3 localPos = IN.positionOS.xyz;
                 localPos.xz *= scale;
@@ -83,14 +85,34 @@ Shader "Custom/ImpostorInstanced_URP"
 
                 OUT.positionHCS = TransformWorldToHClip(worldPos);
                 OUT.uv = TRANSFORM_TEX(IN.uv, _MainTex);
-                OUT.worldPos = worldPos;
+                
+                // Rotate the normal exactly the same way as the position
+                float3 rotatedNormal;
+                rotatedNormal.x = IN.normalOS.x * c - IN.normalOS.z * s;
+                rotatedNormal.z = IN.normalOS.x * s + IN.normalOS.z * c;
+                rotatedNormal.y = IN.normalOS.y;
+                OUT.worldNormal = TransformObjectToWorldDir(rotatedNormal);
+
                 return OUT;
             }
 
             half4 frag(Varyings IN) : SV_Target
             {
                 half4 texColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv);
-                return half4(1, 0, 1, 1); // Magenta debug
+                
+                // URP Lighting
+                float3 normalWS = normalize(IN.worldNormal);
+                Light mainLight = GetMainLight();
+                
+                // Diffuse lighting
+                float NdotL = saturate(dot(normalWS, mainLight.direction));
+                
+                // Ambient lighting (environment probes)
+                float3 ambient = SampleSH(normalWS);
+                
+                half3 finalColor = texColor.rgb * _Color.rgb * (mainLight.color * NdotL + ambient);
+                
+                return half4(finalColor, 1.0);
             }
             ENDHLSL
         }

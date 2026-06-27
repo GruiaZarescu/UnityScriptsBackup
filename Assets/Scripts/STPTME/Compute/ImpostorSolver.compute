@@ -54,6 +54,7 @@ RWStructuredBuffer<uint> _ChunkLODBuffer;
 RWStructuredBuffer<uint> _ConflictGridArena;
 StructuredBuffer<uint> _BucketMap;
 
+
 struct InstanceData { 
     float3 worldPos; 
     float pad1;       // 16 bytes
@@ -80,11 +81,10 @@ uint _TotalBlotchCount; uint _SlabStride;
 RWStructuredBuffer<uint> _VisibilityCount;
 uint _TimeMS;
 uint _DefaultChunkLOD;
+Texture2DArray<float> _GlobalHeightmapArray;
+SamplerState sampler_GlobalHeightmapArray;
+uint _TerrainGridSize;
 
-// Global height offset to lift impostors out of the sea bed.
-// In the future, replace this with a StructuredBuffer<float> _PrototypeHeights
-// so each prototype can have its own height offset.
-float _GlobalImpostorHeightOffset; 
 
 // =================================================================
 // HELPERS
@@ -150,7 +150,6 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
 {
     uint face = packedMeta & 0xFFu;
     
-    // FIX: Properly extract signed bytes using uint masks to avoid arithmetic shift issues
     uint raw = asuint(chunkPacked);
     int mapX = (int)((raw >> 24) & 0xFFu); if (mapX > 127) mapX -= 256;
     int mapY = (int)((raw >> 16) & 0xFFu); if (mapY > 127) mapY -= 256;
@@ -161,15 +160,43 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
     int numChunks = (int)_NumberOfChunks;
     int mapsPerFace = (int)_MapsPerFace;
 
-    // Safety guard against uninitialized uniforms
     if (mapsPerFace == 0 || numChunks == 0) return _SphereCenter;
 
+    // 1. Calculate global chunk position across the entire face
     float totalChunksX = (mapX - minX) * numChunks + chunkX + lx;
     float totalChunksZ = (mapY - minX) * numChunks + chunkY + lz;
 
+    // 2. Calculate which terrain (slice) this belongs to
+    // terrainGridSize = mapsPerFace (since mapsPerFace = terrainGridSize * subdivisionsPowerOf2)
+    // Wait, mapsPerFace is the number of SUBDIVIDED cells. 
+    // The original terrain grid size is mapsPerFace / subdivisionsPowerOf2.
+    // Assuming you pass the correct original terrain grid size as _TerrainGridSize:
+    
+    // To find the terrain local UV, we can use modulo math:
+    float chunksPerTerrain = (float)numChunks; // assuming subdivisionsPowerOf2 is handled by mapX/mapY
+    
+    // Actually, the simplest way is:
+    // Global UV on the face:
     float globalLX = totalChunksX / (float)(mapsPerFace * numChunks);
     float globalLZ = totalChunksZ / (float)(mapsPerFace * numChunks);
 
+    // Map global face UV to terrain grid coordinates
+    float terrainX_f = globalLX * _TerrainGridSize;
+    float terrainY_f = globalLZ * _TerrainGridSize;
+    
+    uint terrainX = (uint)floor(terrainX_f);
+    uint terrainY = (uint)floor(terrainY_f);
+    
+    // Local UV inside this specific terrain slice
+    float2 terrainUV = float2(terrainX_f - terrainX, terrainY_f - terrainY);
+
+    // Calculate the slice index for the Texture2DArray
+    uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize) + (terrainY * _TerrainGridSize) + terrainX;
+
+    // 3. Sample the heightmap!
+    float terrainHeight = _GlobalHeightmapArray.SampleLevel(sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
+
+    // 4. Project to sphere with the EXACT terrain height
     float fx = globalLX - 0.5; 
     float fz = globalLZ - 0.5;
 
@@ -183,7 +210,8 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
 
     float3 dir = normalize(cp);
     
-    float effectiveRadius = _SphereRadius + _GlobalImpostorHeightOffset;
+    // No more _GlobalImpostorHeightOffset! We use the real height.
+    float effectiveRadius = _SphereRadius + terrainHeight;
     
     float3 bp = _SphereCenter + dir * effectiveRadius;
     float3 rt = normalize(cross(dir, abs(dir.y) < 0.99 ? float3(0,1,0) : float3(1,0,0)));

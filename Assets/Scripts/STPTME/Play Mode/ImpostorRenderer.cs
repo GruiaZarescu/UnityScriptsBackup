@@ -174,6 +174,9 @@ public class ImpostorRenderer : MonoBehaviour
     private Vector3 lastPlayerPosition;
     private float lastPlayerAltitude;
 
+    private Texture2DArray globalHeightmapArray;
+    private int terrainGridSize;
+
     public void PrepareFrame(Vector3 playerPosition, float playerAltitude)
     {
         if (!systemEnabled || !IsInitialized) return;
@@ -519,6 +522,13 @@ public class ImpostorRenderer : MonoBehaviour
         }
     }
 
+    public void SetGlobalHeightmap(Texture2DArray heightmapArray, int gridSize)
+    {
+        this.globalHeightmapArray = heightmapArray;
+        this.terrainGridSize = gridSize;
+    }
+
+
     // ===== BUCKET BUILDING =====
 
     /// <summary>
@@ -632,7 +642,6 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetVector(ShaderIDs.SphereCenter, new Vector4(sphereCenter.x, sphereCenter.y, sphereCenter.z, 0f));
         impostorSolverCompute.SetFloat(ShaderIDs.SphereRadius, sphereRadius);
         // In ImpostorRenderer.cs, right before Dispatching CSExpandBlotches:
-        impostorSolverCompute.SetFloat("_GlobalImpostorHeightOffset", 1700);
         impostorSolverCompute.SetFloat(ShaderIDs.HalfChunkLinearSize, halfChunkLinearSize);
         // SlabStride is the stride in uints for each slab (header + cells). Use ConflictGridDefines.SlabHeaderUints as base.
         int slabStrideUints = ConflictGridDefines.SlabHeaderUints +
@@ -643,6 +652,12 @@ public class ImpostorRenderer : MonoBehaviour
         // Resolution per LOD array (up to 8 entries)
         var resArray = ConflictGridDefines.ResolutionPerLOD;
         impostorSolverCompute.SetInts(ShaderIDs.ResolutionPerLOD, resArray);
+
+        if (globalHeightmapArray != null)
+        {
+            impostorSolverCompute.SetTexture(kernelExpand, "_GlobalHeightmapArray", globalHeightmapArray);
+            impostorSolverCompute.SetInt("_TerrainGridSize", terrainGridSize);
+        }
     }
 
     private void UploadLODConfig()
