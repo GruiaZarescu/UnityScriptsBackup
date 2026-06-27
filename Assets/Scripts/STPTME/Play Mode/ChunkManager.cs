@@ -357,41 +357,26 @@ public class ChunkManager : MonoBehaviour
         int terrainGridSize = (int)Mathf.Sqrt(numberOfTerrains);
         int slicesPerFace = terrainGridSize * terrainGridSize;
         int totalSlices = slicesPerFace * FaceIdUtility.StorageFaceCount;
-        
+
         // Determine the LOD1 cell resolution from the face with the highest original resolution.
         int lod1CellRes = 0;
         for (int f = 0; f < FaceIdUtility.StorageFaceCount; f++)
         {
-            int terrainRes = GetFaceOriginalResolution((FaceId)f); // e.g., 2049
-            if (terrainRes <= 0) continue;
-            
-            // Cell base res before bake downsampling (e.g., 1025)
-            int cellBaseRes = ((terrainRes - 1) / subdivisionsPowerOf2) + 1;
-            
-            // We want the texture to match the LOD1 chunk mesh.
-            // The mesh generator applies the bake dsSteps AND the runtime LOD1.
-            // So the cell resolution we want is cellBaseRes >> (dsSteps + 1).
-            // Assuming a uniform bake dsSteps of 1: 1025 >> 2 = 256.
-            // Let's just use a safe uniform assumption (adjust if you have variable dsSteps per face)
-            int maxDsSteps = 1; // Assuming your standard bake downsampling is 1 step
-            int targetCellRes = ((cellBaseRes - 1) >> (maxDsSteps + 1)) + 1; 
-            
-            if (targetCellRes > lod1CellRes) lod1CellRes = targetCellRes;
+            int faceRes = GetFaceOriginalResolution((FaceId)f);
+            if (faceRes <= 0) continue;
+            int cellBaseRes = ((faceRes - 1) / subdivisionsPowerOf2) + 1;
+            int cellLod1Res = ((cellBaseRes - 1) >> 1) + 1;
+            if (cellLod1Res > lod1CellRes) lod1CellRes = cellLod1Res;
         }
         if (lod1CellRes == 0) lod1CellRes = 256;
 
-        // Multiply by subPow2 to get the full slice resolution for the entire original terrain
-        // e.g., 256 * 2 = 512.
-        int sliceResolution = lod1CellRes * subdivisionsPowerOf2; 
+        int sliceResolution = lod1CellRes * subdivisionsPowerOf2;
+        sliceResolution = Mathf.Min(sliceResolution, 1024); 
 
-        // Optional: clamp to a maximum of 1024 for VRAM safety
-        sliceResolution = Mathf.Min(sliceResolution, 1024);
-
-        Debug.Log($"[ChunkManager] Building global heightmap array: sliceResolution={sliceResolution}, totalSlices={totalSlices}");
-                
+        // 1. Change TextureFormat to RHalf
         globalHeightmapArray = new Texture2DArray(
             sliceResolution, sliceResolution, totalSlices,
-            TextureFormat.RFloat, false, true);
+            TextureFormat.RHalf, false, true);
         globalHeightmapArray.filterMode = FilterMode.Bilinear;
         globalHeightmapArray.wrapMode = TextureWrapMode.Clamp;
 
@@ -409,7 +394,9 @@ public class ChunkManager : MonoBehaviour
                 for (int tgX = 0; tgX < terrainGridSize; tgX++)
                 {
                     int sliceIndex = f * slicesPerFace + tgY * terrainGridSize + tgX;
-                    float[] sliceData = new float[sliceResolution * sliceResolution];
+                    
+                    // 2. Change array type to ushort (16-bit)
+                    ushort[] sliceData = new ushort[sliceResolution * sliceResolution];
 
                     for (int scY = 0; scY < subPow2; scY++)
                     {
@@ -421,7 +408,6 @@ public class ChunkManager : MonoBehaviour
                             CellReader.CellData data = cellReader.GetOrLoadSync(new Vector2SByte(mapX, mapY), face);
                             if (data?.heights == null) continue;
 
-                            // CRITICAL: Get the actual downsampling steps for this specific cell!
                             byte dsSteps = GetCellDsSteps(new Vector2SByte(mapX, mapY), face);
                             float facePixelDistance = facePixelDistanceFull * (1 << dsSteps);
 
@@ -438,7 +424,6 @@ public class ChunkManager : MonoBehaviour
                                 int sliceY = blockBaseY + ly;
                                 if (sliceY >= sliceResolution) break;
 
-                                // Map UV to plane coordinates, exactly like GenerateMeshData!
                                 float v = (float)sliceY / (sliceResolution - 1);
                                 float planeY = v * terrainSize;
                                 float localPlaneY = planeY - cellOriginY;
@@ -458,7 +443,10 @@ public class ChunkManager : MonoBehaviour
                                     
                                     int hmX = Mathf.Clamp(Mathf.FloorToInt(contX), 0, data.heights.GetLength(1) - 1);
 
-                                    sliceData[sliceY * sliceResolution + sliceX] = (data.heights[hmY, hmX] / 65535f) * fMaxHeight;
+                                    float heightMeters = (data.heights[hmY, hmX] / 65535f) * fMaxHeight;
+                                    
+                                    // 3. Convert 32-bit float to 16-bit half (ushort)
+                                    sliceData[sliceY * sliceResolution + sliceX] = Mathf.FloatToHalf(heightMeters);
                                 }
                             }
                         }

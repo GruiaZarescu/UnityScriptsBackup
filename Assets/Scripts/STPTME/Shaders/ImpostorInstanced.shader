@@ -44,7 +44,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 float4 _MainTex_ST;
                 float4 _Color;
                 float _InstanceOffset;
-                float3 _Padding; // Pad to 16 bytes so URP doesn't strip it!
+                float3 _Padding;
             CBUFFER_END
 
             struct InstanceData
@@ -57,6 +57,12 @@ Shader "Custom/ImpostorInstanced_URP"
                 uint pad3;
             };
             StructuredBuffer<InstanceData> _InstanceOutputBuffer;
+            
+            // Prototype scales buffer
+            StructuredBuffer<float3> _PrototypeScales;
+
+            // Sphere constants (needed for orientation)
+            float3 _SphereCenter;
 
             Varyings vert(Attributes IN, uint instanceID : SV_InstanceID)
             {
@@ -65,33 +71,46 @@ Shader "Custom/ImpostorInstanced_URP"
                 uint actualInstanceID = instanceID + (uint)_InstanceOffset;
                 InstanceData inst = _InstanceOutputBuffer[actualInstanceID];
 
+                uint protoIdx = inst.packedMeta & 0xFF;
                 uint chunkLOD = (inst.packedMeta >> 8) & 0xFF;
                 uint rotQ = (inst.packedMeta >> 16) & 0xFF;
                 uint scaleQ = (inst.packedMeta >> 24) & 0xFF;
 
                 float rotation = rotQ / 255.0 * 6.283185;
-                float scale = lerp(0.5, 2.0, scaleQ / 255.0);
+                
+                // Get the prefab's base scale (e.g. 2, 4, 2) and multiply by procedural scale
+                float3 baseScale = _PrototypeScales[protoIdx];
+                float proceduralScale = lerp(0.5, 2.0, scaleQ / 255.0);
+                float3 finalScale = baseScale * proceduralScale;
 
-                // Build rotation matrix around Y (local up on sphere = radial)
+                // 1. Orient the tree to the sphere surface!
+                float3 dir = normalize(inst.worldPos - _SphereCenter);
+                float3 localUp = abs(dir.y) < 0.99 ? float3(0,1,0) : float3(1,0,0);
+                float3 binormal = normalize(cross(localUp, dir));
+                float3 tangent = cross(dir, binormal);
+
+                // 2. Apply scale and Y-axis rotation in local space
                 float s, c; sincos(rotation, s, c);
-                float3 localPos = IN.positionOS.xyz;
-                localPos.xz *= scale;
+                float3 localPos = IN.positionOS.xyz * finalScale;
                 float3 rotatedPos;
                 rotatedPos.x = localPos.x * c - localPos.z * s;
                 rotatedPos.z = localPos.x * s + localPos.z * c;
-                rotatedPos.y = localPos.y * scale;
-                
-                float3 worldPos = inst.worldPos + rotatedPos;
+                rotatedPos.y = localPos.y;
+
+                // 3. Transform local position to oriented world space
+                float3 worldOffset = tangent * rotatedPos.x + dir * rotatedPos.y + binormal * rotatedPos.z;
+                float3 worldPos = inst.worldPos + worldOffset;
 
                 OUT.positionHCS = TransformWorldToHClip(worldPos);
                 OUT.uv = TRANSFORM_TEX(IN.uv, _MainTex);
                 
-                // Rotate the normal exactly the same way as the position
+                // Rotate and orient the normal as well
                 float3 rotatedNormal;
                 rotatedNormal.x = IN.normalOS.x * c - IN.normalOS.z * s;
                 rotatedNormal.z = IN.normalOS.x * s + IN.normalOS.z * c;
                 rotatedNormal.y = IN.normalOS.y;
-                OUT.worldNormal = TransformObjectToWorldDir(rotatedNormal);
+                
+                OUT.worldNormal = normalize(tangent * rotatedNormal.x + dir * rotatedNormal.y + binormal * rotatedNormal.z);
 
                 return OUT;
             }
@@ -100,18 +119,12 @@ Shader "Custom/ImpostorInstanced_URP"
             {
                 half4 texColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv);
                 
-                // URP Lighting
                 float3 normalWS = normalize(IN.worldNormal);
                 Light mainLight = GetMainLight();
-                
-                // Diffuse lighting
                 float NdotL = saturate(dot(normalWS, mainLight.direction));
-                
-                // Ambient lighting (environment probes)
                 float3 ambient = SampleSH(normalWS);
                 
                 half3 finalColor = texColor.rgb * _Color.rgb * (mainLight.color * NdotL + ambient);
-                
                 return half4(finalColor, 1.0);
             }
             ENDHLSL

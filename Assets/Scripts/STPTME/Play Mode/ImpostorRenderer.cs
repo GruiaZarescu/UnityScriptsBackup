@@ -86,6 +86,7 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer globalBlotchBuffer;           // StructuredBuffer<BlotchData>
     private ComputeBuffer blotchOffsetBuffer;
     private ComputeBuffer chunkVisibilityBuffer;        // StructuredBuffer<ChunkVisibilityData>
+    private ComputeBuffer prototypeScalesBuffer;
 
     // -- CPU-side cache of chunk visibility data (for debug hash comparison) --
     private ChunkVisibilityData[] cpuChunkVisibilityCache;
@@ -382,6 +383,18 @@ public class ImpostorRenderer : MonoBehaviour
         bucketMapBuffer = new ComputeBuffer(bucketMap.Length, sizeof(uint), ComputeBufferType.Structured);
         bucketMapBuffer.SetData(bucketMap);
 
+        // ---- 6c. Prototype scales buffer
+        Vector3[] scales = new Vector3[prototypeRegistry.entries.Length];
+        for (int i = 0; i < scales.Length; i++)
+        {
+            if (prototypeRegistry.entries[i] != null && prototypeRegistry.entries[i].sourcePrefab != null)
+                scales[i] = prototypeRegistry.entries[i].sourcePrefab.transform.localScale;
+            else
+                scales[i] = Vector3.one;
+        }
+        prototypeScalesBuffer = new ComputeBuffer(scales.Length, sizeof(float) * 3);
+        prototypeScalesBuffer.SetData(scales);
+
         // ---- 7. Bind buffers to compute shader ----
         BindComputeBuffers();
 
@@ -503,6 +516,10 @@ public class ImpostorRenderer : MonoBehaviour
 
         drawProps.Clear();
         drawProps.SetBuffer(ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
+        
+        // Bind the prototype scales!
+        if (prototypeScalesBuffer != null)
+            drawProps.SetBuffer("_PrototypeScales", prototypeScalesBuffer);
 
         var shadowMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
 
@@ -511,7 +528,6 @@ public class ImpostorRenderer : MonoBehaviour
             ref var bucket = ref buckets[i];
             if (bucket.mesh == null || bucket.material == null) continue;
 
-            // USE FLOAT INSTEAD OF INT!
             drawProps.SetFloat("_InstanceOffset", i * MAX_INSTANCES_PER_BUCKET);
 
             Graphics.DrawMeshInstancedIndirect(
@@ -520,6 +536,7 @@ public class ImpostorRenderer : MonoBehaviour
                 argsBuffer, bucket.argsBufferOffset,
                 drawProps, shadowMode, bucket.receiveShadows, 0, null);
         }
+        drawProps.SetVector("_SphereCenter", sphereCenter);
     }
 
     public void SetGlobalHeightmap(Texture2DArray heightmapArray, int gridSize)
@@ -696,7 +713,8 @@ public class ImpostorRenderer : MonoBehaviour
         chunkLODBuffer?.Release();            chunkLODBuffer = null;
         atomicCounters?.Release();            atomicCounters = null;
         bucketMapBuffer?.Release();           bucketMapBuffer = null;
-        blotchOffsetBuffer?.Release();         blotchOffsetBuffer = null;
+        blotchOffsetBuffer?.Release();        blotchOffsetBuffer = null;
+        prototypeScalesBuffer?.Release();     prototypeScalesBuffer = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
