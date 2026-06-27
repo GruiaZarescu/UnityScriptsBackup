@@ -45,6 +45,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 float4 _Color;
                 float _InstanceOffset;
                 float3 _Padding;
+                float3 _CameraPos;
             CBUFFER_END
 
             struct InstanceData
@@ -60,6 +61,7 @@ Shader "Custom/ImpostorInstanced_URP"
             
             // Prototype scales buffer
             StructuredBuffer<float3> _PrototypeScales;
+            StructuredBuffer<uint> _ProtoMaxLODs; 
 
             // Sphere constants (needed for orientation)
             float3 _SphereCenter;
@@ -78,18 +80,17 @@ Shader "Custom/ImpostorInstanced_URP"
 
                 float rotation = rotQ / 255.0 * 6.283185;
                 
-                // Get the prefab's base scale (e.g. 2, 4, 2) and multiply by procedural scale
                 float3 baseScale = _PrototypeScales[protoIdx];
                 float proceduralScale = lerp(0.5, 2.0, scaleQ / 255.0);
                 float3 finalScale = baseScale * proceduralScale;
 
-                // 1. Orient the tree to the sphere surface!
+                // 1. Orient the tree to the sphere surface
                 float3 dir = normalize(inst.worldPos - _SphereCenter);
                 float3 localUp = abs(dir.y) < 0.99 ? float3(0,1,0) : float3(1,0,0);
                 float3 binormal = normalize(cross(localUp, dir));
                 float3 tangent = cross(dir, binormal);
 
-                // 2. Apply scale and Y-axis rotation in local space
+                // 2. Apply scale and Y-axis rotation in local space (for 3D meshes)
                 float s, c; sincos(rotation, s, c);
                 float3 localPos = IN.positionOS.xyz * finalScale;
                 float3 rotatedPos;
@@ -97,20 +98,45 @@ Shader "Custom/ImpostorInstanced_URP"
                 rotatedPos.z = localPos.x * s + localPos.z * c;
                 rotatedPos.y = localPos.y;
 
-                // 3. Transform local position to oriented world space
-                float3 worldOffset = tangent * rotatedPos.x + dir * rotatedPos.y + binormal * rotatedPos.z;
-                float3 worldPos = inst.worldPos + worldOffset;
-
-                OUT.positionHCS = TransformWorldToHClip(worldPos);
-                OUT.uv = TRANSFORM_TEX(IN.uv, _MainTex);
-                
-                // Rotate and orient the normal as well
                 float3 rotatedNormal;
                 rotatedNormal.x = IN.normalOS.x * c - IN.normalOS.z * s;
                 rotatedNormal.z = IN.normalOS.x * s + IN.normalOS.z * c;
                 rotatedNormal.y = IN.normalOS.y;
-                
-                OUT.worldNormal = normalize(tangent * rotatedNormal.x + dir * rotatedNormal.y + binormal * rotatedNormal.z);
+
+                float3 worldOffset;
+                float3 finalNormal;
+
+                // 3. CHECK IF BILLBOARD (Max LOD for this specific prototype)
+                uint maxLod = _ProtoMaxLODs[protoIdx];
+                if (chunkLOD >= maxLod) 
+                {
+                    // BILLBOARD PATH:
+                    // Use localPos directly, ignoring per-instance Y-rotation!
+                    // We want a cylindrical billboard: up is the sphere normal, forward faces camera.
+                    float3 up = dir;
+                    float3 forward = normalize(_CameraPos - inst.worldPos);
+                    // Project forward onto the plane perpendicular to up
+                    float3 forwardProj = normalize(forward - up * dot(forward, up));
+                    float3 right = cross(up, forwardProj);
+                    
+                    // Map the mesh vertices to the camera-facing basis
+                    worldOffset = right * localPos.x + up * localPos.y + forwardProj * localPos.z;
+                    
+                    // Normal faces the camera
+                    finalNormal = forwardProj;
+                }
+                else
+                {
+                    // NORMAL 3D MESH PATH:
+                    worldOffset = tangent * rotatedPos.x + dir * rotatedPos.y + binormal * rotatedPos.z;
+                    finalNormal = normalize(tangent * rotatedNormal.x + dir * rotatedNormal.y + binormal * rotatedNormal.z);
+                }
+
+                float3 worldPos = inst.worldPos + worldOffset;
+
+                OUT.positionHCS = TransformWorldToHClip(worldPos);
+                OUT.uv = TRANSFORM_TEX(IN.uv, _MainTex);
+                OUT.worldNormal = finalNormal;
 
                 return OUT;
             }

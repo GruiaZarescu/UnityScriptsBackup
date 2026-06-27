@@ -108,6 +108,7 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer visibilityCountBuffer;        // RWStructuredBuffer<uint> — single counter for visible chunks
 
     private ComputeBuffer globalChunkLODBuffer;
+    private ComputeBuffer protoMaxLODBuffer;
     private uint[] cpuChunkLODs;
     private bool lodsDirty = false;
 
@@ -397,15 +398,25 @@ public class ImpostorRenderer : MonoBehaviour
 
         // ---- 6c. Prototype scales buffer
         Vector3[] scales = new Vector3[prototypeRegistry.entries.Length];
+        uint[] maxLods = new uint[prototypeRegistry.entries.Length];
         for (int i = 0; i < scales.Length; i++)
         {
             if (prototypeRegistry.entries[i] != null && prototypeRegistry.entries[i].sourcePrefab != null)
                 scales[i] = prototypeRegistry.entries[i].sourcePrefab.transform.localScale;
             else
                 scales[i] = Vector3.one;
+
+             // Store the max LOD index for this prototype
+            if (prototypeRegistry.entries[i] != null && prototypeRegistry.entries[i].lodMeshes != null && prototypeRegistry.entries[i].lodMeshes.Length > 0)
+                maxLods[i] = (uint)(prototypeRegistry.entries[i].lodMeshes.Length - 1);
+            else
+                maxLods[i] = 0;
         }
         prototypeScalesBuffer = new ComputeBuffer(scales.Length, sizeof(float) * 3);
         prototypeScalesBuffer.SetData(scales);
+
+        protoMaxLODBuffer = new ComputeBuffer(maxLods.Length, sizeof(uint));
+        protoMaxLODBuffer.SetData(maxLods);
 
         // ---- 7. Bind buffers to compute shader ----
         BindComputeBuffers();
@@ -506,8 +517,15 @@ public class ImpostorRenderer : MonoBehaviour
         if (prototypeScalesBuffer != null)
             drawProps.SetBuffer("_PrototypeScales", prototypeScalesBuffer);
 
-        // FIX: Set _SphereCenter BEFORE the loop so the vertex shader receives it!
+         if (protoMaxLODBuffer != null)
+            drawProps.SetBuffer("_ProtoMaxLODs", protoMaxLODBuffer);
+
         drawProps.SetVector("_SphereCenter", sphereCenter);
+        
+        // ADD THIS: Pass Camera Position for billboarding!
+        Camera cam = GetActiveCamera();
+        if (cam != null)
+            drawProps.SetVector("_CameraPos", cam.transform.position);
 
         var shadowMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
 
@@ -723,6 +741,7 @@ public class ImpostorRenderer : MonoBehaviour
         blotchOffsetBuffer?.Release();        blotchOffsetBuffer = null;
         prototypeScalesBuffer?.Release();     prototypeScalesBuffer = null;
         globalChunkLODBuffer?.Release();      globalChunkLODBuffer = null;
+        protoMaxLODBuffer?.Release();         protoMaxLODBuffer = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
