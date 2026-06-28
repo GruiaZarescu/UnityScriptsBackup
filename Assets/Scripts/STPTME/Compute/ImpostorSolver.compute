@@ -69,7 +69,7 @@ float3 _CameraPos; float _PlayerAltitude;
 float3 _SphereCenter; float _SphereRadius; float _HorizonMargin; float _ImpostorCullDistance;
 uint _MaxLODsPerBucket; uint _NumBuckets;
 uint _MinX; uint _NumberOfChunks; uint _MapsPerFace;
-uint _ResolutionPerLOD[8];
+uint _ConflictGridResolution;
 float _DensityMultiplierPerLOD[8];
 float _WidthMultiplierPerLOD[8];
 float _HalfChunkLinearSize;
@@ -263,7 +263,7 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     uint storageSlot = 0;
     uint chunkLOD = 255;
     BlotchRange range = (BlotchRange)0;
-    uint res = 0;
+    uint res = _ConflictGridResolution;
     uint cellsUints = 0;
 
     if (validChunk)
@@ -286,7 +286,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
     if (validChunk)
     {
-        res = _ResolutionPerLOD[min(chunkLOD, 7)];
         cellsUints = (res * res + CELLS_PER_UINT - 1) / CELLS_PER_UINT;
     }
 

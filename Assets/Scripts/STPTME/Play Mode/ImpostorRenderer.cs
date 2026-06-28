@@ -703,12 +703,10 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetFloat(ShaderIDs.HalfChunkLinearSize, halfChunkLinearSize);
         
         int slabStrideUints = ConflictGridDefines.SlabHeaderUints +
-            (ConflictGridDefines.ResolutionPerLOD[0] * ConflictGridDefines.ResolutionPerLOD[0] + ConflictGridDefines.CellsPerUint - 1) / ConflictGridDefines.CellsPerUint;
+            (ConflictGridDefines.resolution * ConflictGridDefines.resolution + ConflictGridDefines.CellsPerUint - 1) / ConflictGridDefines.CellsPerUint;
         impostorSolverCompute.SetInt(ShaderIDs.SlabStride, slabStrideUints);
         impostorSolverCompute.SetInt(ShaderIDs.NumBuckets, bucketCount);
-
-        var resArray = ConflictGridDefines.ResolutionPerLOD;
-        impostorSolverCompute.SetInts(ShaderIDs.ResolutionPerLOD, resArray);
+        impostorSolverCompute.SetInt(ShaderIDs.ConflictGridResolution, ConflictGridDefines.resolution);
 
         if (globalHeightmapArray != null)
         {
@@ -1002,7 +1000,8 @@ public static class ShaderIDs
     public static readonly int TimeMS = Shader.PropertyToID("_TimeMS");
     public static readonly int TotalBlotchCount = Shader.PropertyToID("_TotalBlotchCount");
     public static readonly int SlabStride = Shader.PropertyToID("_SlabStride");
-    public static readonly int ResolutionPerLOD = Shader.PropertyToID("_ResolutionPerLOD");
+
+    public static readonly int ConflictGridResolution = Shader.PropertyToID("_ConflictGridResolution");
     public static readonly int NumBuckets = Shader.PropertyToID("_NumBuckets");
     public static readonly int HalfChunkLinearSize = Shader.PropertyToID("_HalfChunkLinearSize");
     public static readonly int MinX = Shader.PropertyToID("_MinX");

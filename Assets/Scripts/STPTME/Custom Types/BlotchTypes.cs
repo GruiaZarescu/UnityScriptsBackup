@@ -283,18 +283,7 @@ namespace CustomTypes
         // ----- Grid resolution per LOD -----
         // Index = chunk LOD. LOD0 = highest resolution.
         // 75m chunk / resolution = cell size in meters.
-        public static readonly int[] ResolutionPerLOD = { 225, 150, 75, 38, 19, 19, 19, 19 };
-
-        /// <summary>
-        /// Returns the grid resolution (cells per axis) for the given chunk LOD.
-        /// Clamped to the array; LODs beyond the table use the last entry.
-        /// </summary>
-        public static int GetResolution(int chunkLOD)
-        {
-            if (chunkLOD < 0) chunkLOD = 0;
-            if (chunkLOD >= ResolutionPerLOD.Length) chunkLOD = ResolutionPerLOD.Length - 1;
-            return ResolutionPerLOD[chunkLOD];
-        }
+        public static readonly int resolution = 225;
 
         /// <summary>
         /// Returns the cell size in meters for the given chunk LOD.
@@ -302,7 +291,7 @@ namespace CustomTypes
         /// </summary>
         public static float GetCellSizeMeters(int chunkLOD, float chunkSizeMeters = 75f)
         {
-            return chunkSizeMeters / GetResolution(chunkLOD);
+            return chunkSizeMeters / resolution;
         }
 
         // ----- Slab layout -----
@@ -332,7 +321,7 @@ namespace CustomTypes
         /// Maximum slab size (at LOD0 resolution = 300×300).
         /// 300×300 = 90,000 cells / 8 = 11,250 uints + 4 header = 11,254 → rounded to 11,256.
         /// </summary>
-        public static int MaxSlabUints => GetSlabUints(ResolutionPerLOD[0]);
+        public static int MaxSlabUints => GetSlabUints(resolution);
 
         /// <summary>
         /// Maximum slab size in bytes.
