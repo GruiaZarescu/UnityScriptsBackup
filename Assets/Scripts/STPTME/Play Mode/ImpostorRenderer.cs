@@ -69,6 +69,13 @@ public class ImpostorRenderer : MonoBehaviour
     [SerializeField] private bool debugDrawVisibleChunks = false;
     [SerializeField] private bool debugLogStats = false;
 
+    private Texture2DArray activeLOD0HeightmapArray;
+    private ComputeBuffer activeLOD0SliceMap;
+    private uint[] cpuActiveLOD0SliceMap;
+    private Dictionary<int, int> slotToSliceMap = new Dictionary<int, int>();
+    private Queue<int> freeSlices = new Queue<int>();
+    private const int MAX_LOD0_SLICES = 25; // 25 * 128 * 128 * 2 bytes = 800KB VRAM
+
     // ===== CONSTANTS =====
     // Must match GrassSolver.compute and BlotchTypes.cs definitions.
 
@@ -76,6 +83,7 @@ public class ImpostorRenderer : MonoBehaviour
     private const int MAX_INSTANCES_PER_BUCKET = 65536;
     private const int BLOTCH_STRIDE = 16; // BlotchData is 16 bytes
     private const int INSTANCE_STRIDE = 32; // InstanceData is 32 bytes on GPU
+    private const int LOD0_HM_RES = 64;//CHUNKS HAVE VARIABLE RESOLUTION, so we'll need to make this variable at some point pehaps. A chunk can either be 64 or 128 
 
     // ===== COMPUTE SHADER KERNEL IDS =====
 
@@ -91,6 +99,7 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer blotchOffsetBuffer;
     private ComputeBuffer chunkVisibilityBuffer;        // StructuredBuffer<ChunkVisibilityData>
     private ComputeBuffer prototypeScalesBuffer;
+    private ComputeBuffer protoFlagsBuffer;
 
     // -- CPU-side cache of chunk visibility data (for debug hash comparison) --
     private ChunkVisibilityData[] cpuChunkVisibilityCache;
@@ -355,6 +364,19 @@ public class ImpostorRenderer : MonoBehaviour
         globalChunkLODBuffer = new ComputeBuffer(chunkData.Length, sizeof(uint), ComputeBufferType.Structured);
         globalChunkLODBuffer.SetData(cpuChunkLODs);
 
+        // ---- 2c. Active LOD0 slice map ----
+
+        cpuActiveLOD0SliceMap = new uint[chunkData.Length];
+        for (int i = 0; i < cpuActiveLOD0SliceMap.Length; i++) cpuActiveLOD0SliceMap[i] = 0xFFFFFFFF;
+        activeLOD0SliceMap = new ComputeBuffer(chunkData.Length, sizeof(uint), ComputeBufferType.Structured);
+        activeLOD0SliceMap.SetData(cpuActiveLOD0SliceMap);
+
+        activeLOD0HeightmapArray = new Texture2DArray(LOD0_HM_RES, LOD0_HM_RES, MAX_LOD0_SLICES, TextureFormat.RFloat, false, true);
+        activeLOD0HeightmapArray.filterMode = FilterMode.Bilinear;
+        activeLOD0HeightmapArray.wrapMode = TextureWrapMode.Clamp;
+
+        for (int i = 0; i < MAX_LOD0_SLICES; i++) freeSlices.Enqueue(i);
+
         // ---- 3. Conflict grid arena ----
         int arenaSize = ConflictGridDefines.ArenaUints;
         conflictGridArena = new ComputeBuffer(arenaSize, sizeof(uint),
@@ -423,6 +445,23 @@ public class ImpostorRenderer : MonoBehaviour
 
         protoMaxLODBuffer = new ComputeBuffer(maxLods.Length, sizeof(uint));
         protoMaxLODBuffer.SetData(maxLods);
+
+        // ---- 6d. Prototype flags buffer
+        // Bit 0: shouldInstance
+        // Bit 1: instanceAlways
+        uint[] protoFlags = new uint[prototypeRegistry.entries.Length];
+        for (int i = 0; i < protoFlags.Length; i++)
+        {
+            uint flags = 0;
+            if (prototypeRegistry.entries[i] != null)
+            {
+                if (prototypeRegistry.entries[i].shouldInstance) flags |= 1u;
+                if (prototypeRegistry.entries[i].instanceAlways) flags |= 2u;
+            }
+            protoFlags[i] = flags;
+        }
+        protoFlagsBuffer = new ComputeBuffer(protoFlags.Length, sizeof(uint));
+        protoFlagsBuffer.SetData(protoFlags);
 
         // ---- 7. Bind buffers to compute shader ----
         BindComputeBuffers();
@@ -517,6 +556,74 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetFloat("_ImpostorCullDistance", impostorCullDistance);
     }
 
+    public void SetActiveLOD0Heightmap(int storageSlot, ushort[,] heights, float maxHeight, int xOffset, int yOffset, int width, int height)
+    {
+        if (slotToSliceMap.TryGetValue(storageSlot, out int existingSlice))
+            return;
+
+        if (freeSlices.Count == 0) return;
+
+        int slice = freeSlices.Dequeue();
+        slotToSliceMap[storageSlot] = slice;
+
+        int srcResX = heights.GetLength(1);
+        int srcResY = heights.GetLength(0);
+        
+        float[] sliceData = new float[LOD0_HM_RES * LOD0_HM_RES];
+
+        for (int y = 0; y < LOD0_HM_RES; y++)
+        {
+            float fY = (float)y / (LOD0_HM_RES - 1) * (height - 1);
+            int y0 = Mathf.FloorToInt(fY);
+            int y1 = Mathf.Min(y0 + 1, height - 1);
+            float fracY = fY - y0;
+
+            int srcY0 = Mathf.Clamp(yOffset + y0, 0, srcResY - 1);
+            int srcY1 = Mathf.Clamp(yOffset + y1, 0, srcResY - 1);
+
+            for (int x = 0; x < LOD0_HM_RES; x++)
+            {
+                float fX = (float)x / (LOD0_HM_RES - 1) * (width - 1);
+                int x0 = Mathf.FloorToInt(fX);
+                int x1 = Mathf.Min(x0 + 1, width - 1);
+                float fracX = fX - x0;
+
+                int srcX0 = Mathf.Clamp(xOffset + x0, 0, srcResX - 1);
+                int srcX1 = Mathf.Clamp(xOffset + x1, 0, srcResX - 1);
+
+                float h00 = heights[srcY0, srcX0] / 65535f;
+                float h10 = heights[srcY0, srcX1] / 65535f;
+                float h01 = heights[srcY1, srcX0] / 65535f;
+                float h11 = heights[srcY1, srcX1] / 65535f;
+
+                float h0 = h00 * (1 - fracX) + h10 * fracX;
+                float h1 = h01 * (1 - fracX) + h11 * fracX;
+                float h = h0 * (1 - fracY) + h1 * fracY;
+
+                float heightMeters = h * maxHeight;
+                
+                sliceData[y * LOD0_HM_RES + x] = heightMeters;
+            }
+        }
+
+        activeLOD0HeightmapArray.SetPixelData(sliceData, 0, slice);
+        activeLOD0HeightmapArray.Apply(false, false);
+
+        cpuActiveLOD0SliceMap[storageSlot] = (uint)slice;
+        activeLOD0SliceMap.SetData(cpuActiveLOD0SliceMap);
+    }
+
+    public void ClearActiveLOD0Heightmap(int storageSlot)
+    {
+        if (slotToSliceMap.TryGetValue(storageSlot, out int slice))
+        {
+            slotToSliceMap.Remove(storageSlot);
+            freeSlices.Enqueue(slice);
+            cpuActiveLOD0SliceMap[storageSlot] = 0xFFFFFFFF;
+            activeLOD0SliceMap.SetData(cpuActiveLOD0SliceMap);
+        }
+    }
+
     // ===== INDIRECT DRAW =====
 
     private MaterialPropertyBlock drawProps;
@@ -557,6 +664,9 @@ public class ImpostorRenderer : MonoBehaviour
                 argsBuffer, bucket.argsBufferOffset,
                 drawProps, shadowMode, bucket.receiveShadows, 0, null);
         }
+
+        if (protoFlagsBuffer != null)
+        drawProps.SetBuffer("_ProtoFlags", protoFlagsBuffer);
     }
 
     public void SetGlobalHeightmap(Texture2DArray heightmapArray, int gridSize)
@@ -660,6 +770,8 @@ public class ImpostorRenderer : MonoBehaviour
         // Bind LOD buffer to BOTH kernels!
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ActiveLOD0SliceMap, activeLOD0SliceMap);
+        impostorSolverCompute.SetTexture(kernelExpand, ShaderIDs.ActiveLOD0HeightmapArray, activeLOD0HeightmapArray);
 
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
@@ -672,6 +784,7 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BlotchOffsetBuffer, blotchOffsetBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.AtomicCounters, atomicCounters);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoFlagsBuffer, protoFlagsBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -755,6 +868,7 @@ public class ImpostorRenderer : MonoBehaviour
         prototypeScalesBuffer?.Release();     prototypeScalesBuffer = null;
         globalChunkLODBuffer?.Release();      globalChunkLODBuffer = null;
         protoMaxLODBuffer?.Release();         protoMaxLODBuffer = null;
+        protoFlagsBuffer?.Release();          protoFlagsBuffer = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
@@ -764,6 +878,63 @@ public class ImpostorRenderer : MonoBehaviour
         Camera cam = VisibilitySystem.IsReady ? VisibilitySystem.Instance?.ActiveCamera : null;
         if (cam != null && cam.isActiveAndEnabled) return cam;
         return Camera.main;
+    }
+
+        public IEnumerator DebugAllBuckets()
+    {
+        if (argsBuffer == null || buckets == null) yield break;
+        yield return new WaitForEndOfFrame();
+
+        int totalBytes = bucketCount * 5 * sizeof(uint);
+        var request = AsyncGPUReadback.Request(argsBuffer, totalBytes, 0, (req) =>
+        {
+            if (req.hasError) { Debug.LogError("Readback error"); return; }
+            var data = req.GetData<uint>();
+            
+            Debug.Log($"<color=orange>===== ALL BUCKETS REPORT =====</color>");
+            for (int i = 0; i < bucketCount; i++)
+            {
+                int offset = i * 5;
+                uint indexCount = data[offset + 0];
+                uint instanceCount = data[offset + 1];
+                
+                int protoIdx = buckets[i].protoIdx;
+                int lod = buckets[i].lod;
+                string protoName = prototypeRegistry.entries[protoIdx]?.name ?? "Unknown";
+                
+                Debug.Log($"[Bucket {i}] Proto: {protoIdx} ({protoName}) | LOD: {lod} | IndexCount: {indexCount} | <b>InstanceCount: {instanceCount}</b>");
+            }
+        });
+        while (!request.done) yield return null;
+    }
+
+    public IEnumerator DebugBucketMap()
+    {
+        if (bucketMapBuffer == null) yield break;
+        yield return new WaitForEndOfFrame();
+
+        int totalBytes = 256 * MAX_LODS_PER_BUCKET * sizeof(uint);
+        var request = AsyncGPUReadback.Request(bucketMapBuffer, totalBytes, 0, (req) =>
+        {
+            if (req.hasError) return;
+            var data = req.GetData<uint>();
+            
+            Debug.Log($"<color=cyan>===== BUCKET MAP REPORT =====</color>");
+            for (int pi = 0; pi < prototypeRegistry.entries.Length; pi++)
+            {
+                if (prototypeRegistry.entries[pi] == null) continue;
+                
+                for (int lod = 0; lod < MAX_LODS_PER_BUCKET; lod++)
+                {
+                    uint bucketIdx = data[pi * MAX_LODS_PER_BUCKET + lod];
+                    if (bucketIdx != 0xFFFFFFFF)
+                    {
+                        Debug.Log($"Proto {pi} ({prototypeRegistry.entries[pi].name}) LOD {lod} -> Maps to Bucket {bucketIdx}");
+                    }
+                }
+            }
+        });
+        while (!request.done) yield return null;
     }
 
  
@@ -918,6 +1089,39 @@ public class ImpostorRenderer : MonoBehaviour
         while (!request.done) yield return null;
     }
 
+    public IEnumerator DebugSpecificBucket(int bucketIndex)
+    {
+        if (instanceOutputBuffer == null || !IsInitialized) yield break;
+
+        yield return new WaitForEndOfFrame();
+
+        const int instancesToRead = 5;
+        int byteSize = instancesToRead * 32; // 32 bytes per instance
+        int bucketByteOffset = bucketIndex * MAX_INSTANCES_PER_BUCKET * 32; 
+
+        var request = AsyncGPUReadback.Request(instanceOutputBuffer, byteSize, bucketByteOffset, (req) =>
+        {
+            if (req.hasError) { Debug.LogError("Readback error"); return; }
+
+            var data = req.GetData<uint>();
+            for (int i = 0; i < instancesToRead; i++)
+            {
+                int offset = i * 8; // 32 bytes / 4 = 8 uints per instance
+
+                float x = System.BitConverter.Int32BitsToSingle((int)data[offset + 0]);
+                float y = System.BitConverter.Int32BitsToSingle((int)data[offset + 1]);
+                float z = System.BitConverter.Int32BitsToSingle((int)data[offset + 2]);
+                
+                uint protoAndLod = data[offset + 4];
+                uint seed = data[offset + 5];
+
+                Debug.Log($"<color=green>[GPU Debug] Bucket {bucketIndex} Instance {i}: WorldPos ({x:F2}, {y:F2}, {z:F2}) | Proto/Lod: {protoAndLod}</color>");
+            }
+        });
+
+        while (!request.done) yield return null;
+    }
+
 
     void Update()
     {
@@ -927,6 +1131,18 @@ public class ImpostorRenderer : MonoBehaviour
             StartCoroutine(DebugArgsBuffer());
             StartCoroutine(DebugCounters());
             StartCoroutine(DebugVisibilityAndBlotches());
+        }
+        if (Input.GetKeyDown(KeyCode.O))
+        {
+            StartCoroutine(DebugAllBuckets());
+            StartCoroutine(DebugBucketMap());
+        }
+        
+        // ADD THIS
+        if (Input.GetKeyDown(KeyCode.I))
+        {
+            // 37 is the bucket index for Grass0 LOD0 from your previous debug report
+            StartCoroutine(DebugSpecificBucket(37)); 
         }
     }
 
@@ -971,6 +1187,7 @@ public static class ShaderIDs
     public static readonly int AtomicCounters = Shader.PropertyToID("_AtomicCounters");
     // New buffer IDs
     public static readonly int BucketMapBuffer = Shader.PropertyToID("_BucketMap");
+    public static readonly int ProtoFlagsBuffer = Shader.PropertyToID("_ProtoFlags");
     public static readonly int VisibilityCount = Shader.PropertyToID("_VisibilityCount");
 
     // Per-frame constants
@@ -987,7 +1204,8 @@ public static class ShaderIDs
     public static readonly int WindFrequency = Shader.PropertyToID("_WindFrequency");
     public static readonly int WindStrength = Shader.PropertyToID("_WindStrength");
     public static readonly int HorizonMargin = Shader.PropertyToID("_HorizonMargin");
-    
+    public static readonly int ActiveLOD0SliceMap = Shader.PropertyToID("_ActiveLOD0SliceMap");
+    public static readonly int ActiveLOD0HeightmapArray = Shader.PropertyToID("_ActiveLOD0HeightmapArray");
 
     // Counts
     public static readonly int BucketCount = Shader.PropertyToID("_BucketCount");

@@ -142,7 +142,7 @@ public static class BlotchBaker
             bool cullLODOverride = proto.cullLOD != 255;
             bool instanceAlways = proto.instanceAlways;
 
-            var blotch = new BlotchData(
+                var blotch = new BlotchData(
                 chunkPacked: cellPacked,
                 face: face,
                 prototypeIndex: (byte)protoIdx,
@@ -152,9 +152,7 @@ public static class BlotchBaker
                 radiusMeters: blotchRadius,
                 localXMeters: localX,
                 localZMeters: localZ,
-                chunkSizeMeters: chunkSizeMeters,
-                cullLODOverride: cullLODOverride,
-                instanceAlways: instanceAlways
+                chunkSizeMeters: chunkSizeMeters
             );
 
             blotchList.Add(blotch);

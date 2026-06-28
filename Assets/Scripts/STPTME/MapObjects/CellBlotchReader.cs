@@ -178,9 +178,7 @@ public static class CellBlotchReader
                         radiusMeters: ((seedAndDensity >> 24) & 0xFF) * 0.25f,
                         localXMeters: (packedPos & 0xFFFF) / 65535f * 75f,
                         localZMeters: ((packedPos >> 16) & 0xFFFF) / 65535f * 75f,
-                        chunkSizeMeters: 75f,
-                        cullLODOverride: (packedMeta & (1u << 24)) != 0,
-                        instanceAlways: (packedMeta & (1u << 25)) != 0
+                        chunkSizeMeters: 75f
                     );
                     
                     // Debug: log first few blobs from each subcell to verify packing

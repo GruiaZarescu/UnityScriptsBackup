@@ -63,17 +63,14 @@ namespace CustomTypes
             float radiusMeters,
             float localXMeters,
             float localZMeters,
-            float chunkSizeMeters,
-            bool cullLODOverride = false,
-            bool instanceAlways = false)
+            float chunkSizeMeters)
         {
             this.chunkPacked = chunkPacked;
 
             uint f = (uint)face & 0xFF;
             uint p = prototypeIndex;
             uint c = conflictCategory;
-            uint flags = (uint)((cullLODOverride ? 1 : 0) << 24) | (uint)((instanceAlways ? 1 : 0) << 25);
-            this.packedMeta = f | (p << 8) | (c << 16) | flags;
+            this.packedMeta = f | (p << 8) | (c << 16);
 
             uint s = seed & 0xFFFF;
             uint d = QuantizeDensity(densityPerSqM);
@@ -86,8 +83,6 @@ namespace CustomTypes
         public FaceId Face => (FaceId)(packedMeta & 0xFF);
         public byte PrototypeIndex => (byte)((packedMeta >> 8) & 0xFF);
         public byte ConflictCategory => (byte)((packedMeta >> 16) & 0xFF);
-        public bool HasCullLODOverride => (packedMeta & (1u << 24)) != 0;
-        public bool InstanceAlways => (packedMeta & (1u << 25)) != 0;
 
         public uint Seed => seedAndDensity & 0xFFFF;
         public float DensityPerSqM => ((seedAndDensity >> 16) & 0xFF) * 0.5f;

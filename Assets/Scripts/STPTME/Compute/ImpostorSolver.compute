@@ -10,8 +10,7 @@
 // =================================================================
 // CONSTANTS
 // =================================================================
-#define FLAG_CULLOVERRIDE (1u << 24)
-#define FLAG_ALWAYSINST   (1u << 25)
+StructuredBuffer<uint> _ProtoFlags; // Bit 0: shouldInstance, Bit 1: instanceAlways
 #define INST_PROTO_MASK   0xFFu
 #define INST_LOD_SHIFT    8
 #define INST_ROT_SHIFT    16
@@ -82,6 +81,9 @@ uint _MaxVisibleChunks; // Added dynamic uniform
 Texture2DArray<float> _GlobalHeightmapArray;
 SamplerState sampler_GlobalHeightmapArray;
 uint _TerrainGridSize;
+Texture2DArray<float> _ActiveLOD0HeightmapArray;
+SamplerState sampler_ActiveLOD0HeightmapArray;
+StructuredBuffer<uint> _ActiveLOD0SliceMap;
 
 // =================================================================
 // HELPERS
@@ -116,7 +118,10 @@ void BuildChunkSphere(ChunkVisibilityData c, out float3 center, out float radius
 
 uint UnpackProto(uint m)    { return (m >> 8) & 0xFFu; }
 uint UnpackConflict(uint m) { return (m >> 16) & 0xFFu; }
-bool UnpackAlwaysInst(uint m) { return (m & FLAG_ALWAYSINST) != 0; }
+bool IsInstanceAlways(uint protoIdx)
+{
+    return (_ProtoFlags[protoIdx] & 2u) != 0;
+}
 
 uint PackMeta(uint p, uint l, uint r, uint s)
 {
@@ -152,7 +157,8 @@ bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want)
 
 float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
                       float lx, float lz,
-                      float offsetAngle, float offsetDist)
+                      float offsetAngle, float offsetDist,
+                      uint chunkLOD, uint storageSlot)
 {
     uint face = packedMeta & 0xFFu;
     
@@ -187,8 +193,27 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
 
     uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize) + (terrainY * _TerrainGridSize) + terrainX;
 
-    float terrainHeight = _GlobalHeightmapArray.SampleLevel(sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
-
+    float terrainHeight;
+    if (chunkLOD == 0)
+    {
+        uint slice = _ActiveLOD0SliceMap[storageSlot];
+        if (slice != 0xFFFFFFFF)
+        {
+            // Just use lx, lz directly! The GPU hardware bilinear filter handles the rest.
+            float2 chunkUV = float2(lx, lz);
+            terrainHeight = _ActiveLOD0HeightmapArray.SampleLevel(sampler_ActiveLOD0HeightmapArray, float3(chunkUV, slice), 0);
+        }
+        else
+        {
+            // Fallback to global if out of slices
+            terrainHeight = _GlobalHeightmapArray.SampleLevel(sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
+        }
+    }
+    else
+    {
+        // Sample the global array for LOD1+
+        terrainHeight = _GlobalHeightmapArray.SampleLevel(sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
+    }
     float fx = globalLX - 0.5; 
     float fz = globalLZ - 0.5;
 
@@ -317,13 +342,14 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
         for (uint bi = range.start + t; bi < range.start + range.count; bi += 256)
         {
             BlotchData bl = _GlobalBlotchBuffer[bi];
-            
+        
+            uint protoIdx = UnpackProto(bl.packedMeta);
+
             // If chunk is LOD0, and the prototype is NOT "Instance Always", SKIP IT!
-            if (chunkLOD == 0 && !UnpackAlwaysInst(bl.packedMeta)) continue;
+            if (chunkLOD == 0 && !IsInstanceAlways(protoIdx)) continue;
 
             float density = ((bl.seedAndDensity >> 16) & 0xFFu) * 0.5;
             float radius  = ((bl.seedAndDensity >> 24) & 0xFFu) * 0.25;
-            uint protoIdx = UnpackProto(bl.packedMeta);
             uint conflict = UnpackConflict(bl.packedMeta);
             uint seed = bl.seedAndDensity & 0xFFFFu;
             float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
@@ -340,7 +366,7 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                 float lx = (bl.packedPos & 0xFFFFu) / 65535.0;
                 float lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
-                float3 wp = BlotchWorldPos(bl.chunkPacked, bl.packedMeta, bl.packedPos, lx, lz, ang, dst);
+                float3 wp = BlotchWorldPos(bl.chunkPacked, bl.packedMeta, bl.packedPos, lx, lz, ang, dst, chunkLOD, storageSlot);
 
                 // OPTIMIZATION: Only evaluate the conflict grid for LOD0 procedural clusters.
                 bool wonClaim = true;
@@ -395,8 +421,19 @@ void CSFillArgs(uint3 id : SV_DispatchThreadID)
 void CSClearCounters(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
+    // Clear per-bucket counters (offset by 1, bucket 0 is at index 1)
     if (i < _NumBuckets)
         _AtomicCounters[1 + i] = 0;
+    // Clear total visible chunk count
     if (i == 0)
+    {
         _VisibilityCount[0] = 0;
+        _AtomicCounters[0] = 0; // Clear total instances
+        
+        // Clear debug counters!
+        _AtomicCounters[4000] = 0;
+        _AtomicCounters[4001] = 0;
+        _AtomicCounters[4002] = 0;
+        _AtomicCounters[4003] = 0;
+    }
 }

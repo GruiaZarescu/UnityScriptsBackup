@@ -176,13 +176,32 @@ MonoBehaviour:
     baseWidth: 0
     baseHeight: 0
     heightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
     cullLOD: 4
-    sourcePrefab: {fileID: 0}
+    sourcePrefab: {fileID: 7524002481145723867, guid: b86e3873fdca6344799a2871db0361ec, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+  - name: Grass0
+    lodMeshes:
+    - {fileID: 7855247728046881105, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
+    - {fileID: -5887197880629875785, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    blotchRadius: 2
+    blotchDensity: 20
+    conflictCategory: 3
+    cullLOD: 4
+    sourcePrefab: {fileID: 3356751432538110193, guid: ffbddc4ef9676cc419e81e06aaa836d8, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []

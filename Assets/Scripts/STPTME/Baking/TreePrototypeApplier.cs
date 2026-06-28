@@ -1,4 +1,3 @@
-#if false
 #if UNITY_EDITOR
 using UnityEngine;
 using UnityEditor;
@@ -105,5 +104,4 @@ public class TreePrototypeApplier : EditorWindow
         return count;
     }
 }
-#endif
 #endif

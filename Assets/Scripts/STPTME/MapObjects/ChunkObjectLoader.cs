@@ -232,44 +232,25 @@ public class ChunkObjectLoader : MonoBehaviour
 
     private void ProcessBlobs(int packed, FaceId face, byte lod)
     {
-        STPTMEUtils.ReadFourSBytesFromInt(packed, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
-        
-        // Get the chunk's GameObject for parenting
         var chunkRegistry = ChunkManager.Instance?.chunkRegistry;
         Transform parentTransform = null;
         if (chunkRegistry != null && chunkRegistry.TryGetChunkGameObject(packed, face, lod, out GameObject chunkGO))
             parentTransform = chunkGO.transform;
 
-        // NEW: Query by full chunk coordinates for O(1) direct lookup!
         var blobs = CellBlotchQuery.GetBlobsForChunk(packed);
-        Debug.Log($"Found {blobs.Count} blobs");
-        
         int spawnedCount = 0;
-        int gpuCount = 0;
 
         foreach (var blob in blobs)
         {
-            STPTMEUtils.ReadFourSBytesFromInt(blob.chunkPacked, out sbyte bMapX, out sbyte bMapY, out sbyte bChunkX, out sbyte bChunkY);
             var entry = prototypeRegistry.GetEntry(blob.PrototypeIndex);
-            if (entry == null)
-            {
-                Debug.LogWarning($"[ChunkObjectLoader] No registry entry for blob prototypeIndex={blob.PrototypeIndex}");
-                continue;
-            }
+            if (entry == null) continue;
 
-            // Simplified decision:
-            // All LOD0 GameObject candidates are implicitly single-instance blobs.
-            // If LOD0 and NOT instanceAlways → Spawn as GameObject
-            // Else → Add to GPU buffer
-
-            if (lod == 0 && !entry.instanceAlways)
+            if (entry.ShouldSpawnAsPrefabAtLOD(lod))
             {
-                // Spawn single-instance blob as GameObject
                 var settings = TerrainManagementSettings.Instance;
-                var worldPos = ChunkManager.Instance.GetBlotchWorldPosition(
-                    blob,
-                    settings.faceWorldSize);    
-
+                // CPU calculates exact world position for prefab
+                var worldPos = ChunkManager.Instance.GetBlotchWorldPosition(blob, ChunkManager.Instance.GetFaceWorldSize());    
+                
                 Vector3 normal = (worldPos - settings.sphereCenter).normalized;
                 worldPos += normal * entry.heightOffset; 
 
@@ -280,21 +261,13 @@ public class ChunkObjectLoader : MonoBehaviour
                     face,
                     lod,
                     worldPos,
-                    0f,  // Blobs don't store per-instance rotation
-                    1f,  // Blobs use density, not per-instance scale
+                    0f,  
+                    1f,  
                     blob.Seed,
                     settings.sphereCenter);
                 spawnedCount++;
             }
-            else
-            {
-                // Add to GPU buffer (LOD1+ or LOD0 with instanceAlways)
-                _gpuBlotches.Add(blob);
-                gpuCount++;
-            }
         }
-        
-        //Debug.Log($"[ChunkObjectLoader] Blob processing complete: {spawnedCount} spawned as GameObjects, {gpuCount} added to GPU buffer");
     }
 
     // ===== GPU BUFFER SUBMISSION =====

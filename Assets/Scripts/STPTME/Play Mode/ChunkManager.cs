@@ -769,7 +769,7 @@ public class ChunkManager : MonoBehaviour
         return defaultPz;
     }
 
-    private float GetFaceWorldSize()
+    public float GetFaceWorldSize()
     {
         int mapsPerRow = maxX - minX + 1;
         return mapsPerRow * (terrainSize / subdivisionsPowerOf2);
@@ -912,6 +912,7 @@ public class ChunkManager : MonoBehaviour
         if (currentHeightmapHeights == null)
             return default;
 
+        
         if (!TryGetStartPosition(currentHeightmap, face, out Vector2 startPos2))
             return default;
 
@@ -966,6 +967,13 @@ public class ChunkManager : MonoBehaviour
 
         if (maxI <= 0 || maxJ <= 0)
             return default;
+
+        if (lod == 0 && ImpostorRenderer.Instance != null)
+        {
+            int slot = FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(packed), face);
+            ImpostorRenderer.Instance.SetActiveLOD0Heightmap(slot, currentHeightmapHeights, GetFaceMaxHeight(face),xOffset, yOffset, maxJ + 1, maxI + 1);
+        }
+
 
         int rowWidth = maxJ + 1;
         int vertexCount = (maxI + 1) * rowWidth;

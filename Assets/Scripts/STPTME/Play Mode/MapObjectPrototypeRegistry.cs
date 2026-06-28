@@ -172,6 +172,7 @@ public class MapObjectPrototypeRegistry : ScriptableObject
             return canopyMaskByLOD[clampedLod];
         }
 
+
         // ---- Cached mesh geometry (populated by CacheMeshData) ----
         [NonSerialized] public bool meshDataCached;
         [NonSerialized] public bool cachedIsZOriented;
@@ -246,6 +247,18 @@ public class MapObjectPrototypeRegistry : ScriptableObject
             }
 
             meshDataCached = true;
+        }
+
+        public bool ShouldSpawnAsPrefabAtLOD(int chunkLOD)
+        {
+            // Case 1: Never instance. Always spawn prefab at all LODs.
+            if (!shouldInstance) return true;
+            
+            // Case 3: Always instance. Never spawn prefab.
+            if (instanceAlways) return false;
+            
+            // Case 2: Instance at LOD1+, but spawn prefab at LOD0.
+            return chunkLOD == 0;
         }
 
         /// <summary>

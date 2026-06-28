@@ -1012,6 +1012,10 @@ public class ChunkRegistry : MonoBehaviour
             if (ImpostorRenderer.Instance != null)
                 ImpostorRenderer.Instance.SetChunkLOD(chunkSlotIdx, 255);
         }
+        if (chunk.lod == 0 && ImpostorRenderer.Instance != null)
+        {
+            ImpostorRenderer.Instance.ClearActiveLOD0Heightmap(GetStorageIndex(packed, face));
+        }
     }
 
     /// <summary>
@@ -1229,6 +1233,10 @@ if (TreeRenderer.HasActiveSystem &&
                 {
                     if (ImpostorRenderer.Instance != null)
                         ImpostorRenderer.Instance.SetChunkLOD(removeSlotIdx, 255);
+                }
+                if (record.lod == 0 && ImpostorRenderer.Instance != null)
+                {
+                    ImpostorRenderer.Instance.ClearActiveLOD0Heightmap(GetStorageIndex(packed, face));
                 }
             }
 
