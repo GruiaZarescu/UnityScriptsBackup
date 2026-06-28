@@ -1110,14 +1110,8 @@ public class MeshSaver : MonoBehaviour
             convertedLodToSplatTier[i] = (byte)tier;
         }
 
-        for (int i = 0; i < splatTierResolutions.Length; i++)
-        {
-            if (splatTierResolutions[i] < 0)
-            {
-                Debug.LogError($"[MeshSaver] splatTierResolutions[{i}] cannot be negative.");
-                return false;
-            }
-        }
+        // DELETED: The block that rejected negative numbers! 
+        // TextureBaker.cs already knows how to handle them (-2 = half resolution).
 
         bakeSettings.tierResolutions = (int[])splatTierResolutions.Clone();
         bakeSettings.lodToTier = convertedLodToSplatTier;

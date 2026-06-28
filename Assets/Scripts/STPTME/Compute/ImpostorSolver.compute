@@ -257,92 +257,119 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 {
     uint t = gtid.x;
 
-    if (gid.x >= _VisibilityCount[0]) return;
+    // 1. Validate without returning early!
+    bool validChunk = (gid.x < _VisibilityCount[0]);
     
-    uint storageSlot = _VisibleChunkList[gid.x];
-    if (storageSlot == 0xFFFFFFFF) return;
+    uint storageSlot = 0;
+    uint chunkLOD = 255;
+    BlotchRange range = (BlotchRange)0;
+    uint res = 0;
+    uint cellsUints = 0;
 
-    uint chunkLOD = _GlobalChunkLODBuffer[storageSlot];
-    if (chunkLOD == 255) return;
-
-    BlotchRange range = _BlotchOffsetBuffer[storageSlot];
-    if (range.count == 0) return; 
-
-    uint res = _ResolutionPerLOD[min(chunkLOD, 7)];
-    uint cellsUints = (res * res + CELLS_PER_UINT - 1) / CELLS_PER_UINT;
-    
-    gs_slab = gid.x * _SlabStride;
-    
-    if (t == 0)
+    if (validChunk)
     {
-        _ConflictGridArena[gs_slab + 0] = _TimeMS;
-        _ConflictGridArena[gs_slab + 1] = storageSlot;
-        _ConflictGridArena[gs_slab + 2] = cellsUints;
-        _ConflictGridArena[gs_slab + 3] = 0;
+        storageSlot = _VisibleChunkList[gid.x];
+        if (storageSlot == 0xFFFFFFFF) validChunk = false;
     }
-    GroupMemoryBarrierWithGroupSync();
 
-    for (uint i = t; i < cellsUints; i += 256)
+    if (validChunk)
     {
-        _ConflictGridArena[gs_slab + SLAB_HEADER + i] = 0;
+        chunkLOD = _GlobalChunkLODBuffer[storageSlot];
+        if (chunkLOD == 255) validChunk = false;
     }
-    GroupMemoryBarrierWithGroupSync();
 
-    for (uint bi = range.start + t; bi < range.start + range.count; bi += 256)
+    if (validChunk)
     {
-        BlotchData bl = _GlobalBlotchBuffer[bi];
+        range = _BlotchOffsetBuffer[storageSlot];
+        if (range.count == 0) validChunk = false;
+    }
+
+    if (validChunk)
+    {
+        res = _ResolutionPerLOD[min(chunkLOD, 7)];
+        cellsUints = (res * res + CELLS_PER_UINT - 1) / CELLS_PER_UINT;
+    }
+
+    // 2. OPTIMIZATION: Only build and clear the conflict grid for LOD0!
+    if (validChunk && chunkLOD == 0)
+    {
+        gs_slab = gid.x * _SlabStride;
         
-        if (chunkLOD == 0 && !UnpackAlwaysInst(bl.packedMeta)) continue;
-
-        float density = ((bl.seedAndDensity >> 16) & 0xFFu) * 0.5;
-        float radius  = ((bl.seedAndDensity >> 24) & 0xFFu) * 0.25;
-        uint protoIdx = UnpackProto(bl.packedMeta);
-        uint conflict = UnpackConflict(bl.packedMeta);
-        uint seed = bl.seedAndDensity & 0xFFFFu;
-        float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
-        float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
-        uint ic = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
-
-        [loop] for (uint inst = 0; inst < ic; inst++)
+        if (t == 0)
         {
-            uint hi = (seed << 16) | (inst & 0xFFFFu);
-            uint h1 = pcg_hash(hi); uint h2 = pcg_hash(h1 + 1);
-            float ang = (h1 / 4294967296.0) * 6.283185;
-            float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
+            _ConflictGridArena[gs_slab + 0] = _TimeMS;
+            _ConflictGridArena[gs_slab + 1] = storageSlot;
+            _ConflictGridArena[gs_slab + 2] = cellsUints;
+            _ConflictGridArena[gs_slab + 3] = 0;
+        }
 
-            float lx = (bl.packedPos & 0xFFFFu) / 65535.0;
-            float lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
+        for (uint i = t; i < cellsUints; i += 256)
+        {
+            _ConflictGridArena[gs_slab + SLAB_HEADER + i] = 0;
+        }
+    }
 
-            float3 wp = BlotchWorldPos(bl.chunkPacked, bl.packedMeta, bl.packedPos, lx, lz, ang, dst);
+    // 3. CRITICAL: All threads must hit this barrier unconditionally!
+    GroupMemoryBarrierWithGroupSync();
 
-            float cx = lx * res;
-            float cy = lz * res;
+    // 4. Proceed with expansion only if the chunk was valid
+    if (validChunk)
+    {
+        for (uint bi = range.start + t; bi < range.start + range.count; bi += 256)
+        {
+            BlotchData bl = _GlobalBlotchBuffer[bi];
+            
+            // If chunk is LOD0, and the prototype is NOT "Instance Always", SKIP IT!
+            if (chunkLOD == 0 && !UnpackAlwaysInst(bl.packedMeta)) continue;
 
-            uint cxi = min((uint)max((int)cx, 0), res - 1);
-            uint cyi = min((uint)max((int)cy, 0), res - 1);
+            float density = ((bl.seedAndDensity >> 16) & 0xFFu) * 0.5;
+            float radius  = ((bl.seedAndDensity >> 24) & 0xFFu) * 0.25;
+            uint protoIdx = UnpackProto(bl.packedMeta);
+            uint conflict = UnpackConflict(bl.packedMeta);
+            uint seed = bl.seedAndDensity & 0xFFFFu;
+            float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
+            float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
+            uint ic = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
 
-            bool wonClaim = false;
-            if (radius < 0.001) {
-                wonClaim = true;
-            } else {
-                wonClaim = TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict);
-            }
-
-            if (wonClaim)
+            [loop] for (uint inst = 0; inst < ic; inst++)
             {
-                uint rotQ = (h1 >> 24) & 0xFFu;
-                uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + chunkLOD];
-                if (bucketIdx != 0xFFFFFFFF)
-                {
-                    uint perBucketSlot;
-                    InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
+                uint hi = (seed << 16) | (inst & 0xFFFFu);
+                uint h1 = pcg_hash(hi); uint h2 = pcg_hash(h1 + 1);
+                float ang = (h1 / 4294967296.0) * 6.283185;
+                float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
 
-                    if (perBucketSlot < MAX_INSTANCES_PER_BUCKET)
+                float lx = (bl.packedPos & 0xFFFFu) / 65535.0;
+                float lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
+
+                float3 wp = BlotchWorldPos(bl.chunkPacked, bl.packedMeta, bl.packedPos, lx, lz, ang, dst);
+
+                // OPTIMIZATION: Only evaluate the conflict grid for LOD0 procedural clusters.
+                bool wonClaim = true;
+                if (chunkLOD == 0 && radius >= 0.001)
+                {
+                    float cx = lx * res;
+                    float cy = lz * res;
+                    uint cxi = min((uint)max((int)cx, 0), res - 1);
+                    uint cyi = min((uint)max((int)cy, 0), res - 1);
+                    wonClaim = TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict);
+                }
+
+                if (wonClaim)
+                {
+                    uint rotQ = (h1 >> 24) & 0xFFu;
+                    uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + chunkLOD];
+                    if (bucketIdx != 0xFFFFFFFF)
                     {
-                        uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
-                        _InstanceOutputBuffer[globalSlot].worldPos = wp;
-                        _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, chunkLOD, rotQ, 128);
-                        _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
+                        uint perBucketSlot;
+                        InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
+
+                        if (perBucketSlot < MAX_INSTANCES_PER_BUCKET)
+                        {
+                            uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
+                            _InstanceOutputBuffer[globalSlot].worldPos = wp;
+                            _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, chunkLOD, rotQ, 128);
+                            _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
+                        }
                     }
                 }
             }

@@ -449,12 +449,20 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetInt(ShaderIDs.TimeMS, (int)(Time.time * 1000f));
         UploadCameraData();
 
-        // Upload LODs (CPU → GPU, once per frame)
-        if (globalChunkLODBuffer != null && cpuChunkLODs != null)
+        // OPTIMIZATION 1: Only upload LODs if the CPU array was modified!
+        if (lodsDirty && globalChunkLODBuffer != null && cpuChunkLODs != null)
         {
             globalChunkLODBuffer.SetData(cpuChunkLODs);
             lodsDirty = false;
         }
+
+        // OPTIMIZATION 2: The GPU clears the counters via CSClearCounters!
+        // We do NOT need to call SetData on visibilityCountBuffer or atomicCounters anymore!
+        // This eliminates massive CPU-GPU sync stalls.
+
+        // OPTIMIZATION 3: Do NOT call ResetArgsBuffer() here!
+        // The argsBuffer was initialized once in Initialize(). CSFillArgs updates the instance count.
+        // Calling SetData here overwrites the GPU's data and causes a stall.
 
         // NOW dispatch in order: Clear → Visibility → Expand → FillArgs
         int clearGroups = (bucketCount + 1 + 63) / 64;
@@ -586,22 +594,23 @@ public class ImpostorRenderer : MonoBehaviour
     {
         var entries = prototypeRegistry.entries;
         int protoCount = entries.Length;
-        int totalSlots = protoCount * MAX_LODS_PER_BUCKET;
-        var bucketList = new List<IndirectBucket>(totalSlots);
+        var bucketList = new List<IndirectBucket>();
 
         for (int pi = 0; pi < protoCount; pi++)
         {
             var entry = entries[pi];
             if (entry == null || !entry.shouldInstance) continue;
+            if (entry.lodMeshes == null) continue;
 
-            for (int lod = 0; lod < MAX_LODS_PER_BUCKET; lod++)
+            // FIX: Only iterate up to the actual number of LODs!
+            int maxLod = entry.lodMeshes.Length;
+            for (int lod = 0; lod < maxLod; lod++)
             {
-                Mesh mesh = entry.GetMeshForLOD(lod);
+                Mesh mesh = entry.lodMeshes[lod];
                 if (mesh == null) continue;
                 if (entry.material == null) continue;
 
-                // Compute the offset for this bucket based on its position in the final bucket array.
-                int bucketIdx = bucketList.Count; // zero‑based index of the bucket we are about to add
+                int bucketIdx = bucketList.Count;
                 bucketList.Add(new IndirectBucket
                 {
                     mesh = mesh,
@@ -611,7 +620,6 @@ public class ImpostorRenderer : MonoBehaviour
                     indexCount = (int)mesh.GetIndexCount(0),
                     startIndex = 0,
                     baseVertex = 0,
-                    // argsBufferOffset is a byte offset into the args buffer. Each entry is 5 uints (20 bytes).
                     argsBufferOffset = bucketIdx * 5 * sizeof(uint),
                     protoIdx = pi,
                     lod = lod
