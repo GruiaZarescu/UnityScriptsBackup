@@ -1,7 +1,5 @@
 // ---------------------------------------------------------------
 // ImpostorSolver.compute
-// GPU-driven procedural instance solver for the LOD1+ impostor
-// rendering pipeline.
 // ---------------------------------------------------------------
 
 #pragma kernel CSVisibility
@@ -21,7 +19,6 @@
 #define BITS_PER_CELL    4
 #define CELLS_PER_UINT   8
 #define SLAB_HEADER      4
-#define MAX_VISIBLE 16384
 #define MAX_BLOTCH_INST 4096
 #define MAX_BUCKET_LODS 16
 #define MAX_INSTANCES_PER_BUCKET 65536 
@@ -48,30 +45,28 @@ struct BlotchRange {
     uint start;
     uint count;
 };
-StructuredBuffer<BlotchRange> _BlotchOffsetBuffer; // Indexed by storage slot
+StructuredBuffer<BlotchRange> _BlotchOffsetBuffer;
 
 RWStructuredBuffer<uint> _VisibleChunkList;
 StructuredBuffer<uint> _GlobalChunkLODBuffer;
 RWStructuredBuffer<uint> _ConflictGridArena;
 StructuredBuffer<uint> _BucketMap;
 
-
 struct InstanceData { 
     float3 worldPos; 
-    float pad1;       // 16 bytes
+    float pad1;
     uint packedMeta; 
     uint seed;
     uint pad2; 
-    uint pad3;        // 16 bytes (Total = 32 bytes)
+    uint pad3;
 };
 RWStructuredBuffer<InstanceData> _InstanceOutputBuffer;
 RWStructuredBuffer<uint> _ArgsBuffer;
-
 RWStructuredBuffer<uint> _AtomicCounters;
 
 float4 _FrustumPlanes[6];
 float3 _CameraPos; float _PlayerAltitude;
-float3 _SphereCenter; float _SphereRadius; float _HorizonMargin;
+float3 _SphereCenter; float _SphereRadius; float _HorizonMargin; float _ImpostorCullDistance;
 uint _MaxLODsPerBucket; uint _NumBuckets;
 uint _MinX; uint _NumberOfChunks; uint _MapsPerFace;
 uint _ResolutionPerLOD[8];
@@ -82,10 +77,11 @@ uint _TotalBlotchCount; uint _SlabStride;
 RWStructuredBuffer<uint> _VisibilityCount;
 uint _TimeMS;
 uint _DefaultChunkLOD;
+uint _MaxVisibleChunks; // Added dynamic uniform
+
 Texture2DArray<float> _GlobalHeightmapArray;
 SamplerState sampler_GlobalHeightmapArray;
 uint _TerrainGridSize;
-
 
 // =================================================================
 // HELPERS
@@ -143,14 +139,13 @@ bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want)
     [loop] for (int iter = 0; iter < 8; iter++)
     {
         uint cellVal = (oldVal >> (int)sh) & 0xFu;
-        if (cellVal >= want) return false;          // genuinely lower priority
+        if (cellVal >= want) return false;
 
         uint newVal = (oldVal & ~mask) | ((want << (int)sh) & mask);
         InterlockedCompareExchange(arena[addr], oldVal, newVal, original);
 
-        if (original == oldVal) return true;        // we won the CAS
-
-        oldVal = original;                          // lost — retry with the value that beat us
+        if (original == oldVal) return true;
+        oldVal = original;
     }
     return false;
 }
@@ -173,41 +168,27 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
 
     if (mapsPerFace == 0 || numChunks == 0) return _SphereCenter;
 
-    // 1. Calculate global chunk position across the entire face
     float totalChunksX = (mapX - minX) * numChunks + chunkX + lx;
     float totalChunksZ = (mapY - minX) * numChunks + chunkY + lz;
 
-    // 2. Calculate which terrain (slice) this belongs to
-    // terrainGridSize = mapsPerFace (since mapsPerFace = terrainGridSize * subdivisionsPowerOf2)
-    // Wait, mapsPerFace is the number of SUBDIVIDED cells. 
-    // The original terrain grid size is mapsPerFace / subdivisionsPowerOf2.
-    // Assuming you pass the correct original terrain grid size as _TerrainGridSize:
-    
-    // To find the terrain local UV, we can use modulo math:
-    float chunksPerTerrain = (float)numChunks; // assuming subdivisionsPowerOf2 is handled by mapX/mapY
-    
-    // Actually, the simplest way is:
-    // Global UV on the face:
     float globalLX = totalChunksX / (float)(mapsPerFace * numChunks);
     float globalLZ = totalChunksZ / (float)(mapsPerFace * numChunks);
 
-    // Map global face UV to terrain grid coordinates
     float terrainX_f = globalLX * _TerrainGridSize;
     float terrainY_f = globalLZ * _TerrainGridSize;
     
     uint terrainX = (uint)floor(terrainX_f);
     uint terrainY = (uint)floor(terrainY_f);
     
-    // Local UV inside this specific terrain slice
     float2 terrainUV = float2(terrainX_f - terrainX, terrainY_f - terrainY);
+    terrainUV = saturate(terrainUV);
+    terrainX = min(terrainX, _TerrainGridSize - 1);
+    terrainY = min(terrainY, _TerrainGridSize - 1);
 
-    // Calculate the slice index for the Texture2DArray
     uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize) + (terrainY * _TerrainGridSize) + terrainX;
 
-    // 3. Sample the heightmap!
     float terrainHeight = _GlobalHeightmapArray.SampleLevel(sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
 
-    // 4. Project to sphere with the EXACT terrain height
     float fx = globalLX - 0.5; 
     float fz = globalLZ - 0.5;
 
@@ -220,8 +201,6 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
     else cp = float3(fx, fz, -0.5);
 
     float3 dir = normalize(cp);
-    
-    // No more _GlobalImpostorHeightOffset! We use the real height.
     float effectiveRadius = _SphereRadius + terrainHeight;
     
     float3 bp = _SphereCenter + dir * effectiveRadius;
@@ -238,12 +217,11 @@ float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
 [numthreads(64, 1, 1)]
 void CSVisibility(uint3 id : SV_DispatchThreadID)
 {
-    uint idx = id.x; // idx is the storageSlot!
+    uint idx = id.x;
     uint count, stride;
     _ChunkVisibilityBuffer.GetDimensions(count, stride);
     if (idx >= count) return;
     
-    // If the CPU says there is no chunk here, bail out instantly!
     if (_GlobalChunkLODBuffer[idx] == 255) return;
 
     ChunkVisibilityData c = _ChunkVisibilityBuffer[idx];
@@ -258,12 +236,14 @@ void CSVisibility(uint3 id : SV_DispatchThreadID)
     if (!TestChunkHorizon(c, pn, cosP, sinP)) return;
     if (!TestSphereFrustum(center, radius)) return;
 
+    float distToChunkSurface = length(center - _CameraPos) - radius;
+    if (distToChunkSurface > _ImpostorCullDistance) return;
+
     uint vi;
     InterlockedAdd(_VisibilityCount[0], 1, vi);
-    if (vi < MAX_VISIBLE)
+    if (vi < _MaxVisibleChunks)
     {
         _VisibleChunkList[vi] = idx; 
-        // No need to write LOD here, we read it directly in CSExpandBlotches
     }
 }
 
@@ -279,12 +259,11 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
     if (gid.x >= _VisibilityCount[0]) return;
     
-    uint storageSlot = gid.x < _VisibilityCount[0] ? _VisibleChunkList[gid.x] : 0xFFFFFFFF;
+    uint storageSlot = _VisibleChunkList[gid.x];
     if (storageSlot == 0xFFFFFFFF) return;
 
-    // READ THE ACTUAL CHUNK LOD FROM THE CPU!
     uint chunkLOD = _GlobalChunkLODBuffer[storageSlot];
-    if (chunkLOD == 255) return; // Safety
+    if (chunkLOD == 255) return;
 
     BlotchRange range = _BlotchOffsetBuffer[storageSlot];
     if (range.count == 0) return; 
@@ -313,14 +292,7 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     {
         BlotchData bl = _GlobalBlotchBuffer[bi];
         
-        // DEBUG: Count how many blotches the GPU is actually attempting to process
-        InterlockedAdd(_AtomicCounters[4000], 1);
-        
-        // If chunk is LOD0, and the prototype is NOT "Instance Always", SKIP IT!
         if (chunkLOD == 0 && !UnpackAlwaysInst(bl.packedMeta)) continue;
-
-        // DEBUG: Count how many passed the LOD check
-        InterlockedAdd(_AtomicCounters[4001], 1);
 
         float density = ((bl.seedAndDensity >> 16) & 0xFFu) * 0.5;
         float radius  = ((bl.seedAndDensity >> 24) & 0xFFu) * 0.25;
@@ -330,7 +302,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
         float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
         float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
         uint ic = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
-        uint forb = conflict == 1 ? 0x5u : (conflict == 2 ? 0x6u : 0x7u);
 
         [loop] for (uint inst = 0; inst < ic; inst++)
         {
@@ -350,8 +321,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             uint cxi = min((uint)max((int)cx, 0), res - 1);
             uint cyi = min((uint)max((int)cy, 0), res - 1);
 
-            // FIX: Only use the conflict grid for procedural clusters (grass/bushes).
-            // Single-instance trees (radius < 0.001) always draw to prevent strobing!
             bool wonClaim = false;
             if (radius < 0.001) {
                 wonClaim = true;
@@ -361,16 +330,10 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
             if (wonClaim)
             {
-                // DEBUG: Count how many won the conflict grid
-                InterlockedAdd(_AtomicCounters[4003], 1);
-                
                 uint rotQ = (h1 >> 24) & 0xFFu;
                 uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + chunkLOD];
                 if (bucketIdx != 0xFFFFFFFF)
                 {
-                    // DEBUG: Count how many found a valid bucket
-                    InterlockedAdd(_AtomicCounters[4002], 1);
-                    
                     uint perBucketSlot;
                     InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
 
@@ -395,8 +358,8 @@ void CSFillArgs(uint3 id : SV_DispatchThreadID)
 {
     uint b = id.x;
     if (b >= _NumBuckets) return;
-    _ArgsBuffer[b * 5 + 1] = _AtomicCounters[1 + b];                    // instance count
-    _ArgsBuffer[b * 5 + 4] = 0;              // startInstance
+    _ArgsBuffer[b * 5 + 1] = _AtomicCounters[1 + b];
+    _ArgsBuffer[b * 5 + 4] = 0;
 }
 
 // =================================================================
@@ -406,10 +369,8 @@ void CSFillArgs(uint3 id : SV_DispatchThreadID)
 void CSClearCounters(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    // Clear per-bucket counters (offset by 1, bucket 0 is at index 1)
     if (i < _NumBuckets)
         _AtomicCounters[1 + i] = 0;
-    // Clear total visible chunk count
     if (i == 0)
         _VisibilityCount[0] = 0;
 }

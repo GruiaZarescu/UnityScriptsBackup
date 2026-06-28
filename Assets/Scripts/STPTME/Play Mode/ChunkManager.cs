@@ -373,7 +373,6 @@ public class ChunkManager : MonoBehaviour
         int sliceResolution = lod1CellRes * subdivisionsPowerOf2;
         sliceResolution = Mathf.Min(sliceResolution, 1024); 
 
-        // 1. Change TextureFormat to RHalf
         globalHeightmapArray = new Texture2DArray(
             sliceResolution, sliceResolution, totalSlices,
             TextureFormat.RHalf, false, true);
@@ -382,6 +381,9 @@ public class ChunkManager : MonoBehaviour
 
         int subPow2 = subdivisionsPowerOf2;
         float cellWorldSize = terrainSize / subPow2;
+
+        // OPTIMIZATION: Allocate the array ONCE outside the loop!
+        ushort[] sliceData = new ushort[sliceResolution * sliceResolution];
 
         for (int f = 0; f < FaceIdUtility.StorageFaceCount; f++)
         {
@@ -395,8 +397,8 @@ public class ChunkManager : MonoBehaviour
                 {
                     int sliceIndex = f * slicesPerFace + tgY * terrainGridSize + tgX;
                     
-                    // 2. Change array type to ushort (16-bit)
-                    ushort[] sliceData = new ushort[sliceResolution * sliceResolution];
+                    // Clear the array before filling it for this slice
+                    System.Array.Clear(sliceData, 0, sliceData.Length);
 
                     for (int scY = 0; scY < subPow2; scY++)
                     {
@@ -444,11 +446,12 @@ public class ChunkManager : MonoBehaviour
                                     int hmX = Mathf.Clamp(Mathf.FloorToInt(contX), 0, data.heights.GetLength(1) - 1);
 
                                     float heightMeters = (data.heights[hmY, hmX] / 65535f) * fMaxHeight;
-                                    
-                                    // 3. Convert 32-bit float to 16-bit half (ushort)
                                     sliceData[sliceY * sliceResolution + sliceX] = Mathf.FloatToHalf(heightMeters);
                                 }
                             }
+                            
+                            // ADD THIS: Evict the cell from CPU RAM to prevent the 16GB spike!
+                            cellReader.Evict(new Vector2SByte(mapX, mapY), face);
                         }
                     }
                     globalHeightmapArray.SetPixelData(sliceData, 0, sliceIndex);

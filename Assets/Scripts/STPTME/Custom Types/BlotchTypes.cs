@@ -283,7 +283,7 @@ namespace CustomTypes
         // ----- Grid resolution per LOD -----
         // Index = chunk LOD. LOD0 = highest resolution.
         // 75m chunk / resolution = cell size in meters.
-        public static readonly int[] ResolutionPerLOD = { 300, 150, 75, 38, 19, 19, 19, 19 };
+        public static readonly int[] ResolutionPerLOD = { 225, 150, 75, 38, 19, 19, 19, 19 };
 
         /// <summary>
         /// Returns the grid resolution (cells per axis) for the given chunk LOD.
@@ -344,7 +344,18 @@ namespace CustomTypes
         /// Maximum number of chunks visible at once. Conservative estimate for the
         /// spherical planet with 8 LOD rings.
         /// </summary>
-        public const int MaxVisibleChunks = 16384;
+        public static int MaxVisibleChunks {get; private set;} = 4096;
+
+        public static void CalculateMaxVisibleChunks(float cullDistance, float chunkSize)
+        {
+            // Radius in chunks
+            float radiusChunks = cullDistance / chunkSize;
+            // Bounding box square + a 2 chunk safety margin
+            float sideLength = (radiusChunks * 2.0f) + 4.0f;
+            int maxChunks = Mathf.CeilToInt(sideLength * sideLength);
+            
+            MaxVisibleChunks = Mathf.Max(maxChunks, 64); // Never go below 64
+        }
 
         /// <summary>
         /// Total arena buffer size in uint32s. Enough for MaxVisibleChunks slabs at

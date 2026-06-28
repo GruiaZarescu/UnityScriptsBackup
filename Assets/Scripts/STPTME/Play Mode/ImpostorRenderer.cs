@@ -62,6 +62,9 @@ public class ImpostorRenderer : MonoBehaviour
     [Tooltip("Horizon margin for the analytic horizon test. Matches VisibilitySystem.DEFAULT_HORIZON_MARGIN.")]
     [SerializeField] private float horizonMargin = 0f;
 
+    [Tooltip("Maximum distance (in meters) at which instanced impostors are drawn.")]
+    [SerializeField] private float impostorCullDistance = 1000f; 
+
     [Header("Debug")]
     [SerializeField] private bool debugDrawVisibleChunks = false;
     [SerializeField] private bool debugLogStats = false;
@@ -271,6 +274,9 @@ public class ImpostorRenderer : MonoBehaviour
                 + $"CSVisibility={hasVisibility} CSExpandBlotches={hasExpand} CSFillArgs={hasFillArgs}");
             return;
         }
+
+         float chunkSize = halfChunkLinearSize * 2.0f; 
+         ConflictGridDefines.CalculateMaxVisibleChunks(impostorCullDistance, chunkSize);
 
         // ---- 1. Global blotch buffer & Offset Buffer ----
         int totalStorageSlots = chunkData.Length; // chunkData is sized to totalStorageSlots
@@ -500,6 +506,7 @@ public class ImpostorRenderer : MonoBehaviour
         // Player altitude (also used for horizon test).
         impostorSolverCompute.SetFloat(ShaderIDs.PlayerAltitude, alt);
         impostorSolverCompute.SetFloat(ShaderIDs.PlayerAltitude, alt);
+        impostorSolverCompute.SetFloat("_ImpostorCullDistance", impostorCullDistance);
     }
 
     // ===== INDIRECT DRAW =====
@@ -974,6 +981,7 @@ public static class ShaderIDs
     public static readonly int WindFrequency = Shader.PropertyToID("_WindFrequency");
     public static readonly int WindStrength = Shader.PropertyToID("_WindStrength");
     public static readonly int HorizonMargin = Shader.PropertyToID("_HorizonMargin");
+    
 
     // Counts
     public static readonly int BucketCount = Shader.PropertyToID("_BucketCount");
