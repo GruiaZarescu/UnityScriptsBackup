@@ -218,9 +218,8 @@ public class ChunkManager : MonoBehaviour
         // every face. Uses the per-face baked maxHeight (td.size.y) and the per-chunk
         // SoA arrays populated by InitializeAdjacentData. Chunk linear size is constant
         // across faces (terrainSize / tilingFactor).
-        float halfChunkLinearSize = (terrainSize / tilingFactor) * 0.5f;
         VisibilitySystem.Initialize(
-            sphereCenter, sphereRadius, halfChunkLinearSize,
+            sphereCenter, sphereRadius, settings.halfChunkLinearSize,
             visCenterDir, visCosThetaC, visSinThetaC, visBoundCenterAlt, visBoundHalfH,
             new STPTMEUtils.GlobalIndexCalculator(minX, maxX, numberOfChunks),
             settings.horizonCosineMargin,
@@ -289,7 +288,7 @@ public class ChunkManager : MonoBehaviour
             var chunkVisData = BuildChunkVisibilityData();
 
             Vector3 halfExtent = new Vector3(sphereRadius * 1.5f, sphereRadius * 1.5f, sphereRadius * 1.5f);
-            impostor.Initialize(mapObjectRegistry, sphereCenter, sphereRadius, allBlotches, chunkVisData, halfChunkLinearSize, halfExtent, minX, numberOfChunks, mapsPerRow);
+            impostor.Initialize(mapObjectRegistry, sphereCenter, sphereRadius, allBlotches, chunkVisData, settings.halfChunkLinearSize, halfExtent, minX, numberOfChunks, mapsPerRow);
 
             allBlotches = null; // Free RAM copy (keep only in VRAM)
         }
@@ -1381,6 +1380,17 @@ public class ChunkManager : MonoBehaviour
 
     public bool isGenerationVersionValid(int generationVersion) { return this.chunkGenerationVersion == generationVersion ? true:false;}
 
+    /// <summary>
+    /// Gets the baked chunk center direction for a given storage slot.
+    /// Used by CPU prefab pipeline to match GPU spherical interpolation.
+    /// </summary>
+    public Vector3 GetChunkCenterDirection(int storageSlot)
+    {
+        if (visCenterDir == null || storageSlot < 0 || storageSlot >= visCenterDir.Length)
+            return Vector3.up;
+        return visCenterDir[storageSlot];
+    }
+
 #if false
     // ===== TREE DECODING SUPPORT (deprecated — replaced by ImpostorRenderer blotch system) =====
 
@@ -1605,13 +1615,38 @@ public class ChunkManager : MonoBehaviour
         STPTMEUtils.ReadFourSBytesFromInt(blob.chunkPacked, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
         Vector2SByte map = new Vector2SByte(mapX, mapY);
 
-        // Ensure the heightmap data for this cell is loaded
+        // Get the storage slot for this chunk
+        int globalFlatIdx = globalIndexCalculator.GetIndex(blob.chunkPacked);
+        int storageSlot = FaceIdUtility.GetStorageIndex(globalFlatIdx, blob.Face);
+
+        // Get the baked chunk center direction
+        Vector3 centerDir = GetChunkCenterDirection(storageSlot);
+
+        // Get face axes for tangent basis
+        FaceIdUtility.GetFaceAxes(blob.Face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
+
+        // Build tangent basis aligned with cube face axes (matches GPU)
+        Vector3 tangentU = (axisA - Vector3.Dot(centerDir, axisA) * centerDir).normalized;
+        Vector3 tangentV = (axisB - Vector3.Dot(centerDir, axisB) * centerDir).normalized;
+
+        // Unpack local position within chunk
+        float chunkSize = terrainSize / tilingFactor;
+        blob.GetLocalPosition(chunkSize, out float localX, out float localZ);
+
+        // Convert local position to angular offset (matches GPU)
+        float chunkAngularHalfSize = settings.halfChunkLinearSize / sphereRadius;
+        float uOff = (localX / chunkSize - 0.5f) * 2f * chunkAngularHalfSize;
+        float vOff = (localZ / chunkSize - 0.5f) * 2f * chunkAngularHalfSize;
+
+        // Build instance direction using spherical interpolation
+        Vector3 instanceDir = (centerDir + tangentU * uOff + tangentV * vOff).normalized;
+
+        // Sample height at this exact position
         if (!cellReader.IsCached(map, blob.Face))
             cellReader.GetOrLoadSync(map, blob.Face);
 
-        // Use LOD 0 heightmap for exact surface placement
         ushort[,] heights = cellReader.GetHeights(map, 0, blob.Face, sync: true);
-        if (heights == null) return default;
+        if (heights == null) return sphereCenter + instanceDir * sphereRadius;
 
         // Get the exact scaling parameters for this face and cell
         byte cellDsSteps = GetCellDsSteps(map, blob.Face);
@@ -1623,10 +1658,6 @@ public class ChunkManager : MonoBehaviour
 
         int xOffset = faceChunkStep * chunkX;
         int yOffset = faceChunkStep * chunkY;
-
-        // Unpack local position using the standard chunk size
-        float chunkSize = terrainSize / tilingFactor;
-        blob.GetLocalPosition(chunkSize, out float localX, out float localZ);
 
         // Convert local meters to continuous heightmap pixel indices
         float contX = localX / facePixelDistance + xOffset;
@@ -1658,21 +1689,7 @@ public class ChunkManager : MonoBehaviour
         float h1 = Mathf.Lerp(h01, h11, fracX);
         float h = Mathf.Lerp(h0, h1, fracY);
 
-        // Calculate absolute face plane coordinates
-        float cellSize = terrainSize / subdivisionsPowerOf2;
-        float worldPlaneX = (mapX - minX) * cellSize + chunkX * chunkSize + localX;
-        float worldPlaneZ = (mapY - minX) * cellSize + chunkY * chunkSize + localZ;
-
-        // Project to sphere with height
-        FaceIdUtility.GetFaceAxes(blob.Face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
-        float percentX = faceWorldSize > 0f ? worldPlaneX / faceWorldSize : 0f;
-        float percentY = faceWorldSize > 0f ? worldPlaneZ / faceWorldSize : 0f;
-
-        Vector3 pointOnUnitCube = localUp
-            + (percentX - 0.5f) * 2f * axisA
-            + (percentY - 0.5f) * 2f * axisB;
-
-        return sphereCenter + pointOnUnitCube.normalized * (sphereRadius + h);
+        return sphereCenter + instanceDir * (sphereRadius + h);
     }
 
     private void OnDestroy()

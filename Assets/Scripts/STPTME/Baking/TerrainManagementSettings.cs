@@ -91,4 +91,11 @@ public class TerrainManagementSettings : ScriptableObject
     [Range(0, 7)]
     public byte canopyStartLOD = 1;
     public float faceWorldSize => Mathf.Sqrt(numberOfTerrains) * terrainSize;
+    
+    /// <summary>
+    /// Half the linear size of a chunk in world units.
+    /// Derived from terrainSize / tilingFactor * 0.5.
+    /// Used by visibility system, impostor renderer, and CPU prefab positioning.
+    /// </summary>
+    public float halfChunkLinearSize => (terrainSize / tilingFactor) * 0.5f;
 }
