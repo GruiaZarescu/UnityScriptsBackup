@@ -11,6 +11,8 @@
 // CONSTANTS
 // =================================================================
 StructuredBuffer<uint> _ProtoFlags; // Bit 0: shouldInstance, Bit 1: instanceAlways
+StructuredBuffer<float4> _ProtoSizeParamsBuffer;  // x = minScale/minH, y = maxScale/maxH, z = minW, w = maxW
+StructuredBuffer<float2> _ProtoSizeModeBuffer;    // x = mode (0=Uniform, 1=HeightWidth), y = steepness
 #define INST_PROTO_MASK   0xFFu
 #define INST_LOD_SHIFT    8
 #define INST_ROT_SHIFT    16
@@ -54,10 +56,10 @@ StructuredBuffer<uint> _BucketMap;
 
 struct InstanceData { 
     float3 worldPos; 
-    float pad1;
+    float heightScale;
     uint packedMeta; 
     uint seed;
-    uint pad2; 
+    float widthScale;
     uint pad3;
 };
 RWStructuredBuffer<InstanceData> _InstanceOutputBuffer;
@@ -97,6 +99,74 @@ uint pcg_hash(uint input)
     uint state = input * 747796405u + 2891336453u;
     uint word = ((state >> (int)((state >> 28) + 4u)) ^ state) * 277803737u;
     return (word >> 22) ^ word;
+}
+
+// =================================================================
+// SIZE VARIABILITY DISTRIBUTION
+// 
+// Generates a value in [0,1] with bell-curve-like distribution.
+// Uses average of two uniform randoms for triangular base, then
+// applies power function for steepness control.
+//
+// steepness = 1.0: uniform triangular (linear falloff from center)
+// steepness > 1.0: tighter clustering around center (fewer extremes)
+// steepness < 1.0: more extremes, less center clustering
+// =================================================================
+float BellCurveDistribution(uint seed, float steepness)
+{
+    // Two independent uniform values
+    uint h1 = pcg_hash(seed);
+    uint h2 = pcg_hash(h1);
+    float u1 = h1 / 4294967296.0;
+    float u2 = h2 / 4294967296.0;
+    
+    // Average gives triangular distribution (peaks at 0.5)
+    float bell = (u1 + u2) * 0.5;
+    
+    // Distance from center [0,1]
+    float dist = abs(bell - 0.5) * 2.0;
+    
+    // Apply steepness: pow(dist, steepness)
+    // steepness > 1: pushes values toward 0 (center)
+    // steepness < 1: pushes values toward 1 (extremes)
+    float shaped = pow(dist, steepness);
+    
+    // Map back to [0,1], preserving which side of center
+    return bell >= 0.5 ? 0.5 + shaped * 0.5 : 0.5 - shaped * 0.5;
+}
+
+// =================================================================
+// COMPUTE SIZE SCALES
+//
+// Given prototype index and seed, computes height and width scales
+// based on the prototype's size variability settings.
+// Returns float2(heightScale, widthScale)
+// =================================================================
+float2 ComputeSizeScales(uint protoIdx, uint seed)
+{
+    float4 params = _ProtoSizeParamsBuffer[protoIdx];
+    float2 modeSteep = _ProtoSizeModeBuffer[protoIdx];
+    uint mode = (uint)modeSteep.x;
+    float steepness = modeSteep.y;
+    
+    // If min == max, no variability
+    if (abs(params.y - params.x) < 0.001)
+        return float2(1.0, 1.0);
+    
+    // Get distribution value
+    float t = BellCurveDistribution(seed, steepness);
+    
+    if (mode == 0) // Uniform mode
+    {
+        float scale = lerp(params.x, params.y, t);
+        return float2(scale, scale);
+    }
+    else // HeightWidth mode
+    {
+        float heightScale = lerp(params.x, params.y, t);
+        float widthScale = lerp(params.z, params.w, t);
+        return float2(heightScale, widthScale);
+    }
 }
 
 bool TestChunkHorizon(ChunkVisibilityData c, float3 pn, float cosP, float sinP)
@@ -551,10 +621,15 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
                         if (perBucketSlot < MAX_INSTANCES_PER_BUCKET)
                         {
+                            // Compute deterministic size scales from seed
+                            float2 scales = ComputeSizeScales(protoIdx, hi);
+                            
                             uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
                             _InstanceOutputBuffer[globalSlot].worldPos = wp;
                             _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, chunkLOD, rotQ, 128);
                             _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
+                            _InstanceOutputBuffer[globalSlot].heightScale = scales.x;
+                            _InstanceOutputBuffer[globalSlot].widthScale = scales.y;
                             
                         }
                     }

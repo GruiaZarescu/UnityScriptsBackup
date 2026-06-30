@@ -216,6 +216,12 @@ public class ChunkObjectLoader : MonoBehaviour
 
             // Spawn as GameObject
             var settings = TerrainManagementSettings.Instance;
+            
+            // Compute deterministic size scales for cell objects
+            // Use position hash as seed for cell objects (they don't have blotch seeds)
+            uint cellSeed = (uint)cellObj.position.GetHashCode();
+            Vector2 cellScales = entry.sizeVariability.ComputeSizeScalesCPU(cellSeed);
+            
             var spawned = prefabStreamer.SpawnObject(
                 cellObj.prototypeIndex,
                 parentTransform,
@@ -224,9 +230,10 @@ public class ChunkObjectLoader : MonoBehaviour
                 lod,
                 cellObj.position,
                 cellObj.rotation.eulerAngles.y,
-                cellObj.scale.magnitude,
-                (uint)System.DateTime.Now.GetHashCode(), // Use timestamp-based seed
-                settings.sphereCenter);
+                cellScales.x,  // heightScale
+                cellSeed,
+                settings.sphereCenter,
+                cellScales.y);  // widthScale
         }
     }
 
@@ -254,6 +261,13 @@ public class ChunkObjectLoader : MonoBehaviour
                 Vector3 normal = (worldPos - settings.sphereCenter).normalized;
                 worldPos += normal * entry.heightOffset; 
 
+                // Compute deterministic size scales (matches GPU pipeline)
+                // For single-instance blotches, instanceID = 0
+                uint sizeSeed = (uint)((blob.Seed & 0xFFFF) << 16) | 0u;
+                Vector2 scales = entry.sizeVariability.ComputeSizeScalesCPU(sizeSeed);
+                float heightScale = scales.x;
+                float widthScale = scales.y;
+
                 prefabStreamer.SpawnObject(
                     blob.PrototypeIndex,
                     parentTransform,
@@ -262,9 +276,10 @@ public class ChunkObjectLoader : MonoBehaviour
                     lod,
                     worldPos,
                     0f,  
-                    1f,  
+                    heightScale,  
                     blob.Seed,
-                    settings.sphereCenter);
+                    settings.sphereCenter,
+                    widthScale);
                 spawnedCount++;
             }
         }

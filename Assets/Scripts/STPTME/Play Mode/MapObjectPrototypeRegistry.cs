@@ -36,6 +36,144 @@ public class CanopyMaskSettings
 }
 
 /// <summary>
+/// Size variability mode for procedural instance scaling.
+/// Uniform: single scale factor applied to both height and width.
+/// HeightWidth: separate height/width factors, but width tracks height proportionally.
+/// </summary>
+public enum SizeVariabilityMode
+{
+    Uniform,      // Single scale factor for both dimensions
+    HeightWidth   // Separate height/width, width proportional to height
+}
+
+/// <summary>
+/// Per-prototype size variability settings.
+/// Enables deterministic, repeatable size variation for instances.
+/// </summary>
+[Serializable]
+public class SizeVariabilitySettings
+{
+    [Tooltip("Enable size variability for this prototype. Disabled = all instances at scale 1.0.")]
+    public bool enabled = false;
+
+    [Tooltip("Uniform mode: single scale factor. HeightWidth mode: separate height/width factors.")]
+    public SizeVariabilityMode mode = SizeVariabilityMode.Uniform;
+
+    // ── Uniform mode settings ─────────────────────────────────────────────
+    [Header("Uniform Mode")]
+    [Tooltip("Minimum uniform scale factor (e.g. 0.7 = 70% of base size).")]
+    [Range(0.1f, 2f)] public float minUniformScale = 0.7f;
+    [Tooltip("Maximum uniform scale factor (e.g. 1.3 = 130% of base size).")]
+    [Range(0.1f, 3f)] public float maxUniformScale = 1.3f;
+
+    // ── Height/Width mode settings ────────────────────────────────────────
+    [Header("Height/Width Mode")]
+    [Tooltip("Minimum height scale factor.")]
+    [Range(0.1f, 2f)] public float minHeightScale = 0.8f;
+    [Tooltip("Maximum height scale factor.")]
+    [Range(0.1f, 3f)] public float maxHeightScale = 1.2f;
+    [Tooltip("Minimum width scale factor (relative to base, not height).")]
+    [Range(0.1f, 2f)] public float minWidthScale = 0.8f;
+    [Tooltip("Maximum width scale factor (relative to base, not height).")]
+    [Range(0.1f, 3f)] public float maxWidthScale = 1.2f;
+
+    // ── Distribution curve ────────────────────────────────────────────────
+    [Header("Distribution")]
+    [Tooltip("Steepness of the distribution curve. "
+           + "1.0 = uniform triangular (linear falloff from center). "
+           + ">1.0 = tighter clustering around center (fewer extremes). "
+           + "<1.0 = more extremes, less center clustering.")]
+    [Range(0.2f, 5f)] public float distributionSteepness = 2.0f;
+
+    /// <summary>
+    /// Packs settings into a float4 for GPU upload.
+    /// x = minScale (uniform) or minHeightScale
+    /// y = maxScale (uniform) or maxHeightScale
+    /// z = minWidthScale (0 if uniform mode)
+    /// w = maxWidthScale (0 if uniform mode)
+    /// Mode and steepness are packed into separate buffer.
+    /// </summary>
+    public Vector4 PackForGPU()
+    {
+        if (mode == SizeVariabilityMode.Uniform)
+        {
+            return new Vector4(minUniformScale, maxUniformScale, 0f, 0f);
+        }
+        else
+        {
+            return new Vector4(minHeightScale, maxHeightScale, minWidthScale, maxWidthScale);
+        }
+    }
+
+    /// <summary>
+    /// Packs mode and steepness for GPU.
+    /// x = mode (0 = Uniform, 1 = HeightWidth)
+    /// y = distributionSteepness
+    /// </summary>
+    public Vector2 PackModeAndSteepness()
+    {
+        return new Vector2((float)mode, distributionSteepness);
+    }
+
+    // =====================================================================
+    // CPU-SIDE SIZE COMPUTATION (for prefab pipeline)
+    // Must match GPU BellCurveDistribution + ComputeSizeScales exactly.
+    // =====================================================================
+
+    /// <summary>
+    /// PCG hash for deterministic random generation (matches GPU version).
+    /// </summary>
+    private static uint PCGHash(uint input)
+    {
+        uint state = input * 747796405u + 2891336453u;
+        uint word = ((state >> (int)((state >> 28) + 4u)) ^ state) * 277803737u;
+        return (word >> 22) ^ word;
+    }
+
+    /// <summary>
+    /// Computes deterministic height and width scales for the given seed.
+    /// Uses the same bell-curve distribution as the GPU version.
+    /// </summary>
+    /// <param name="seed">Deterministic seed (e.g., blotchSeed << 16 | instanceID)</param>
+    /// <returns>Vector2(heightScale, widthScale)</returns>
+    public Vector2 ComputeSizeScalesCPU(uint seed)
+    {
+        if (!enabled)
+            return Vector2.one;
+
+        // Two independent uniform values
+        uint h1 = PCGHash(seed);
+        uint h2 = PCGHash(h1);
+        float u1 = h1 / 4294967296f;
+        float u2 = h2 / 4294967296f;
+
+        // Average gives triangular distribution (peaks at 0.5)
+        float bell = (u1 + u2) * 0.5f;
+
+        // Distance from center [0,1]
+        float dist = Mathf.Abs(bell - 0.5f) * 2f;
+
+        // Apply steepness
+        float shaped = Mathf.Pow(dist, distributionSteepness);
+
+        // Map back to [0,1], preserving which side of center
+        float t = bell >= 0.5f ? 0.5f + shaped * 0.5f : 0.5f - shaped * 0.5f;
+
+        if (mode == SizeVariabilityMode.Uniform)
+        {
+            float scale = Mathf.Lerp(minUniformScale, maxUniformScale, t);
+            return new Vector2(scale, scale);
+        }
+        else // HeightWidth mode
+        {
+            float heightScale = Mathf.Lerp(minHeightScale, maxHeightScale, t);
+            float widthScale = Mathf.Lerp(minWidthScale, maxWidthScale, t);
+            return new Vector2(heightScale, widthScale);
+        }
+    }
+}
+
+/// <summary>
 /// Runtime registry mapping prototypeIndex to all map object data.
 /// Every placed object — trees, grass, rocks, buildings, foliage, props —
 /// has an entry here. Index in entries[] = prototypeIndex from baked data.
@@ -112,6 +250,11 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                + "255 = use the global cull LOD from BlotchExpansionDefines. "
                + "e.g. cullLOD=2 means this prototype is hidden from LOD3 onward.")]
         public byte cullLOD = 255;
+
+        // ── Size variability ────────────────────────────────────────────────
+        [Header("Size Variability")]
+        [Tooltip("Deterministic size variation per instance. Same seed = same size in both prefab and instanced pipelines.")]
+        public SizeVariabilitySettings sizeVariability = new SizeVariabilitySettings();
 
         // ── Prefab reference ───────────────────────────────────────────────
         [Tooltip("Original prefab reference (for editor/debug LOD0 spawning, not used at runtime)")]

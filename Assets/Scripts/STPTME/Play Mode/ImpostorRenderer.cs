@@ -104,6 +104,8 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer protoFlagsBuffer;
     private ComputeBuffer protoHeightOffsetBuffer;
     private ComputeBuffer protoBlotchParamsBuffer;
+    private ComputeBuffer protoSizeParamsBuffer;    // x=minScale/minH, y=maxScale/maxH, z=minW, w=maxW
+    private ComputeBuffer protoSizeModeBuffer;      // x=mode, y=steepness
 
     // -- CPU-side cache of chunk visibility data (for debug hash comparison) --
     private ChunkVisibilityData[] cpuChunkVisibilityCache;
@@ -498,6 +500,28 @@ public class ImpostorRenderer : MonoBehaviour
         protoBlotchParamsBuffer = new ComputeBuffer(blotchParams.Length, sizeof(float) * 2);
         protoBlotchParamsBuffer.SetData(blotchParams);
 
+        // ---- 6g. Prototype size variability buffers
+        Vector4[] sizeParams = new Vector4[prototypeRegistry.entries.Length];
+        Vector2[] sizeMode = new Vector2[prototypeRegistry.entries.Length];
+        for (int i = 0; i < prototypeRegistry.entries.Length; i++)
+        {
+            if (prototypeRegistry.entries[i] != null && prototypeRegistry.entries[i].sizeVariability.enabled)
+            {
+                sizeParams[i] = prototypeRegistry.entries[i].sizeVariability.PackForGPU();
+                sizeMode[i] = prototypeRegistry.entries[i].sizeVariability.PackModeAndSteepness();
+            }
+            else
+            {
+                // Disabled: use scale 1.0 for everything
+                sizeParams[i] = new Vector4(1f, 1f, 1f, 1f);
+                sizeMode[i] = new Vector2(0f, 1f); // Uniform mode, steepness 1
+            }
+        }
+        protoSizeParamsBuffer = new ComputeBuffer(sizeParams.Length, sizeof(float) * 4);
+        protoSizeParamsBuffer.SetData(sizeParams);
+        protoSizeModeBuffer = new ComputeBuffer(sizeMode.Length, sizeof(float) * 2);
+        protoSizeModeBuffer.SetData(sizeMode);
+
         // ---- 7. Bind buffers to compute shader ----
         BindComputeBuffers();
 
@@ -816,6 +840,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoFlagsBuffer, protoFlagsBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoHeightOffsetBuffer, protoHeightOffsetBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoBlotchParamsBuffer, protoBlotchParamsBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoSizeParamsBuffer, protoSizeParamsBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoSizeModeBuffer, protoSizeModeBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -902,6 +928,8 @@ public class ImpostorRenderer : MonoBehaviour
         protoFlagsBuffer?.Release();          protoFlagsBuffer = null;
         protoHeightOffsetBuffer?.Release();  protoHeightOffsetBuffer = null;
         protoBlotchParamsBuffer?.Release(); protoBlotchParamsBuffer = null;
+        protoSizeParamsBuffer?.Release();    protoSizeParamsBuffer = null;
+        protoSizeModeBuffer?.Release();     protoSizeModeBuffer = null;
         activeLOD0SliceMap?.Release();      activeLOD0SliceMap = null;
         activeLOD0ResolutionMap?.Release();  activeLOD0ResolutionMap = null;
     }
@@ -1228,6 +1256,9 @@ public static class ShaderIDs
     public static readonly int ProtoFlagsBuffer = Shader.PropertyToID("_ProtoFlags");
     public static readonly int VisibilityCount = Shader.PropertyToID("_VisibilityCount");
     public static readonly int ProtoHeightOffsetBuffer = Shader.PropertyToID("_ProtoHeightOffsetBuffer");
+    public static readonly int ProtoBlotchParamsBuffer = Shader.PropertyToID("_ProtoBlotchParamsBuffer");
+    public static readonly int ProtoSizeParamsBuffer = Shader.PropertyToID("_ProtoSizeParamsBuffer");
+    public static readonly int ProtoSizeModeBuffer = Shader.PropertyToID("_ProtoSizeModeBuffer");
 
     // Per-frame constants
     public static readonly int FrustumPlanes = Shader.PropertyToID("_FrustumPlanes");
@@ -1266,5 +1297,4 @@ public static class ShaderIDs
     public static readonly int NumberOfChunks = Shader.PropertyToID("_NumberOfChunks");
     public static readonly int MapsPerFace = Shader.PropertyToID("_MapsPerFace");
     public static readonly int BlotchOffsetBuffer = Shader.PropertyToID("_BlotchOffsetBuffer");
-    public static readonly int ProtoBlotchParamsBuffer = Shader.PropertyToID("_ProtoBlotchParamsBuffer");
 }

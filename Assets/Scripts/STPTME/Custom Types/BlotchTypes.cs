@@ -145,7 +145,7 @@ namespace CustomTypes
         public float worldX;
         public float worldY;
         public float worldZ;
-        public float padding; // 4-byte padding for alignment (unused for now, flaot3 is 16 bytes on GPU)
+        public float heightScale; // Height scale factor (1.0 = base height)
 
         // Bit layout:
         //   bits  0-7:  prototypeIndex
@@ -156,24 +156,24 @@ namespace CustomTypes
 
         // Per-instance seed for deterministic wind phase / color variation.
         public uint seed;
-        public uint pad2;
+        public float widthScale;  // Width scale factor (1.0 = base width)
         public uint pad3; 
 
         // ===== Helpers =====
 
-        public InstanceData(Vector3 worldPos, byte prototypeIndex, byte chunkLOD, float rotationDeg, float scale, uint seed, float padding = 0f)
+        public InstanceData(Vector3 worldPos, byte prototypeIndex, byte chunkLOD, float rotationDeg, float scale, uint seed, float heightScale = 1f, float widthScale = 1f)
         {
             worldX = worldPos.x;
             worldY = worldPos.y;
             worldZ = worldPos.z;
-            this.padding = padding;
+            this.heightScale = heightScale;
 
             uint r = (uint)Mathf.Clamp(Mathf.RoundToInt(rotationDeg / 360f * 255f), 0, 255);
             uint s = (uint)Mathf.Clamp(Mathf.RoundToInt(Mathf.InverseLerp(0.5f, 2.0f, scale) * 255f), 0, 255);
             packedMeta = prototypeIndex | ((uint)chunkLOD << 8) | (r << 16) | (s << 24);
 
             this.seed = seed;
-            this.pad2 = 0;
+            this.widthScale = widthScale;
             this.pad3 = 0;
         }
 

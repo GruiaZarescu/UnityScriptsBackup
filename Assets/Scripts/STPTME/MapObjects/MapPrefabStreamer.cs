@@ -120,9 +120,10 @@ namespace STPTME.MapObjects
             byte chunkLOD,
             Vector3 worldPosition,
             float rotationDeg,
-            float scale,
+            float heightScale,
             uint seed,
-            Vector3 sphereCenter)
+            Vector3 sphereCenter,
+            float widthScale = 1f)
         {
             //Final stage of streaming pipeline, CPU/Object branch. Start of debug to see where it's broken.
             STPTMEUtils.ReadFourSBytesFromInt(chunkPacked,out var map1, out var map2, out var chunk1, out var chunk2);
@@ -153,8 +154,10 @@ namespace STPTME.MapObjects
             // First yaw around the default Y axis, then rotate the Y axis to point radially.
             // This keeps the per-instance yaw (rotationDeg) in the tree's local horizontal plane.
             t.rotation = Quaternion.FromToRotation(Vector3.up, radialUp) * Quaternion.Euler(0f, rotationDeg, 0f);
-            // Reset local scale FIRST, then apply — prevents compounding when objects are reused from pool
-            t.localScale *=  scale;
+            // Apply height and width scales separately
+            // Base scale comes from the prefab, then we multiply by height/width factors
+            Vector3 baseScale = entry.sourcePrefab.transform.localScale;
+            t.localScale = new Vector3(baseScale.x * widthScale, baseScale.y * heightScale, baseScale.z * widthScale);
             obj.name = "prefab " + entry.sourcePrefab.name;
             obj.SetActive(true);
 

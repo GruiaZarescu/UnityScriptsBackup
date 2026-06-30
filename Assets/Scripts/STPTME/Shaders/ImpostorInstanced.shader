@@ -51,10 +51,10 @@ Shader "Custom/ImpostorInstanced_URP"
             struct InstanceData
             {
                 float3 worldPos;
-                float pad1;
+                float heightScale;
                 uint packedMeta;
                 uint seed;
-                uint pad2;
+                float widthScale;
                 uint pad3;
             };
             StructuredBuffer<InstanceData> _InstanceOutputBuffer;
@@ -76,13 +76,17 @@ Shader "Custom/ImpostorInstanced_URP"
                 uint protoIdx = inst.packedMeta & 0xFF;
                 uint chunkLOD = (inst.packedMeta >> 8) & 0xFF;
                 uint rotQ = (inst.packedMeta >> 16) & 0xFF;
-                uint scaleQ = (inst.packedMeta >> 24) & 0xFF;
+                // scaleQ is no longer used - we use heightScale/widthScale directly
 
                 float rotation = rotQ / 255.0 * 6.283185;
                 
                 float3 baseScale = _PrototypeScales[protoIdx];
-                float proceduralScale = lerp(0.5, 2.0, scaleQ / 255.0);
-                float3 finalScale = baseScale * proceduralScale;
+                // Apply height and width scales separately
+                float3 finalScale = float3(
+                    baseScale.x * inst.widthScale,
+                    baseScale.y * inst.heightScale,
+                    baseScale.z * inst.widthScale
+                );
 
                 // 1. Orient the tree to the sphere surface
                 float3 dir = normalize(inst.worldPos - _SphereCenter);
