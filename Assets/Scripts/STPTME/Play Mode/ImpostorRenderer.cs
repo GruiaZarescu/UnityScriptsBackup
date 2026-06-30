@@ -71,7 +71,9 @@ public class ImpostorRenderer : MonoBehaviour
 
     private Texture2DArray activeLOD0HeightmapArray;
     private ComputeBuffer activeLOD0SliceMap;
+    private ComputeBuffer activeLOD0ResolutionMap;
     private uint[] cpuActiveLOD0SliceMap;
+    private Vector2Int[] cpuActiveLOD0ResolutionMap;
     private Dictionary<int, int> slotToSliceMap = new Dictionary<int, int>();
     private Queue<int> freeSlices = new Queue<int>();
     private const int MAX_LOD0_SLICES = 25; // 25 * 128 * 128 * 2 bytes = 800KB VRAM
@@ -83,7 +85,7 @@ public class ImpostorRenderer : MonoBehaviour
     private const int MAX_INSTANCES_PER_BUCKET = 65536;
     private const int BLOTCH_STRIDE = 16; // BlotchData is 16 bytes
     private const int INSTANCE_STRIDE = 32; // InstanceData is 32 bytes on GPU
-    private const int LOD0_HM_RES = 64;//CHUNKS HAVE VARIABLE RESOLUTION, so we'll need to make this variable at some point pehaps. A chunk can either be 64 or 128 
+    private const int LOD0_HM_RES = 128;//CHUNKS HAVE VARIABLE RESOLUTION, so we'll need to make this variable at some point pehaps. A chunk can either be 64 or 128 
 
     // ===== COMPUTE SHADER KERNEL IDS =====
 
@@ -100,6 +102,8 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer chunkVisibilityBuffer;        // StructuredBuffer<ChunkVisibilityData>
     private ComputeBuffer prototypeScalesBuffer;
     private ComputeBuffer protoFlagsBuffer;
+    private ComputeBuffer protoHeightOffsetBuffer;
+    private ComputeBuffer protoBlotchParamsBuffer;
 
     // -- CPU-side cache of chunk visibility data (for debug hash comparison) --
     private ChunkVisibilityData[] cpuChunkVisibilityCache;
@@ -121,6 +125,7 @@ public class ImpostorRenderer : MonoBehaviour
 
     private ComputeBuffer globalChunkLODBuffer;
     private ComputeBuffer protoMaxLODBuffer;
+
     private uint[] cpuChunkLODs;
     private bool lodsDirty = false;
 
@@ -371,6 +376,12 @@ public class ImpostorRenderer : MonoBehaviour
         activeLOD0SliceMap = new ComputeBuffer(chunkData.Length, sizeof(uint), ComputeBufferType.Structured);
         activeLOD0SliceMap.SetData(cpuActiveLOD0SliceMap);
 
+        // ---- 2c-bis. Active LOD0 resolution map (per-chunk width/height in texels) ----
+        cpuActiveLOD0ResolutionMap = new Vector2Int[chunkData.Length];
+        for (int i = 0; i < cpuActiveLOD0ResolutionMap.Length; i++) cpuActiveLOD0ResolutionMap[i] = new Vector2Int(0, 0);
+        activeLOD0ResolutionMap = new ComputeBuffer(chunkData.Length, sizeof(uint) * 2, ComputeBufferType.Structured);
+        activeLOD0ResolutionMap.SetData(cpuActiveLOD0ResolutionMap);
+
         activeLOD0HeightmapArray = new Texture2DArray(LOD0_HM_RES, LOD0_HM_RES, MAX_LOD0_SLICES, TextureFormat.RFloat, false, true);
         activeLOD0HeightmapArray.filterMode = FilterMode.Bilinear;
         activeLOD0HeightmapArray.wrapMode = TextureWrapMode.Clamp;
@@ -462,6 +473,30 @@ public class ImpostorRenderer : MonoBehaviour
         }
         protoFlagsBuffer = new ComputeBuffer(protoFlags.Length, sizeof(uint));
         protoFlagsBuffer.SetData(protoFlags);
+
+         // ---- 6e. Prototype height offsets buffer (x = base, y = lod1Plus)
+        Vector2[] heightOffsets = new Vector2[prototypeRegistry.entries.Length];
+        for (int i = 0; i < heightOffsets.Length; i++)
+        {
+            if (prototypeRegistry.entries[i] != null)
+                heightOffsets[i] = new Vector2(prototypeRegistry.entries[i].heightOffset, prototypeRegistry.entries[i].lod1PlusHeightOffset);
+            else
+                heightOffsets[i] = Vector2.zero;
+        }
+        protoHeightOffsetBuffer = new ComputeBuffer(heightOffsets.Length, sizeof(float) * 2);
+        protoHeightOffsetBuffer.SetData(heightOffsets);
+
+         // ---- 6f. Prototype blotch params buffer (x = radius, y = density)
+        Vector2[] blotchParams = new Vector2[prototypeRegistry.entries.Length];
+        for (int i = 0; i < blotchParams.Length; i++)
+        {
+            if (prototypeRegistry.entries[i] != null)
+                blotchParams[i] = new Vector2(prototypeRegistry.entries[i].blotchRadius, prototypeRegistry.entries[i].blotchDensity);
+            else
+                blotchParams[i] = Vector2.zero;
+        }
+        protoBlotchParamsBuffer = new ComputeBuffer(blotchParams.Length, sizeof(float) * 2);
+        protoBlotchParamsBuffer.SetData(blotchParams);
 
         // ---- 7. Bind buffers to compute shader ----
         BindComputeBuffers();
@@ -568,40 +603,28 @@ public class ImpostorRenderer : MonoBehaviour
 
         int srcResX = heights.GetLength(1);
         int srcResY = heights.GetLength(0);
-        
+
+        // Use the chunk's NATIVE resolution (width × height) so we get 1:1
+        // texel-to-vertex mapping. No bilinear interpolation loss vs the mesh.
+        // The texture array is sized at LOD0_HM_RES (128, the max), so smaller
+        // chunks (64) just use the upper-left quadrant — the GPU samples only
+        // within [0, width/LOD0_HM_RES] which we scale the UV to below.
+        int dstResX = width;
+        int dstResY = height;
         float[] sliceData = new float[LOD0_HM_RES * LOD0_HM_RES];
 
-        for (int y = 0; y < LOD0_HM_RES; y++)
+        for (int y = 0; y < dstResY; y++)
         {
-            float fY = (float)y / (LOD0_HM_RES - 1) * (height - 1);
-            int y0 = Mathf.FloorToInt(fY);
-            int y1 = Mathf.Min(y0 + 1, height - 1);
-            float fracY = fY - y0;
+            // 1:1 mapping — no resampling, direct source pixel read
+            int srcY = Mathf.Clamp(yOffset + y, 0, srcResY - 1);
 
-            int srcY0 = Mathf.Clamp(yOffset + y0, 0, srcResY - 1);
-            int srcY1 = Mathf.Clamp(yOffset + y1, 0, srcResY - 1);
-
-            for (int x = 0; x < LOD0_HM_RES; x++)
+            for (int x = 0; x < dstResX; x++)
             {
-                float fX = (float)x / (LOD0_HM_RES - 1) * (width - 1);
-                int x0 = Mathf.FloorToInt(fX);
-                int x1 = Mathf.Min(x0 + 1, width - 1);
-                float fracX = fX - x0;
+                int srcX = Mathf.Clamp(xOffset + x, 0, srcResX - 1);
 
-                int srcX0 = Mathf.Clamp(xOffset + x0, 0, srcResX - 1);
-                int srcX1 = Mathf.Clamp(xOffset + x1, 0, srcResX - 1);
-
-                float h00 = heights[srcY0, srcX0] / 65535f;
-                float h10 = heights[srcY0, srcX1] / 65535f;
-                float h01 = heights[srcY1, srcX0] / 65535f;
-                float h11 = heights[srcY1, srcX1] / 65535f;
-
-                float h0 = h00 * (1 - fracX) + h10 * fracX;
-                float h1 = h01 * (1 - fracX) + h11 * fracX;
-                float h = h0 * (1 - fracY) + h1 * fracY;
-
+                float h = heights[srcY, srcX] / 65535f;
                 float heightMeters = h * maxHeight;
-                
+
                 sliceData[y * LOD0_HM_RES + x] = heightMeters;
             }
         }
@@ -610,7 +633,9 @@ public class ImpostorRenderer : MonoBehaviour
         activeLOD0HeightmapArray.Apply(false, false);
 
         cpuActiveLOD0SliceMap[storageSlot] = (uint)slice;
+        cpuActiveLOD0ResolutionMap[storageSlot] = new Vector2Int(dstResX, dstResY);
         activeLOD0SliceMap.SetData(cpuActiveLOD0SliceMap);
+        activeLOD0ResolutionMap.SetData(cpuActiveLOD0ResolutionMap);
     }
 
     public void ClearActiveLOD0Heightmap(int storageSlot)
@@ -620,7 +645,9 @@ public class ImpostorRenderer : MonoBehaviour
             slotToSliceMap.Remove(storageSlot);
             freeSlices.Enqueue(slice);
             cpuActiveLOD0SliceMap[storageSlot] = 0xFFFFFFFF;
+            cpuActiveLOD0ResolutionMap[storageSlot] = new Vector2Int(0, 0);
             activeLOD0SliceMap.SetData(cpuActiveLOD0SliceMap);
+            activeLOD0ResolutionMap.SetData(cpuActiveLOD0ResolutionMap);
         }
     }
 
@@ -771,12 +798,14 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ActiveLOD0SliceMap, activeLOD0SliceMap);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ActiveLOD0ResolutionMap, activeLOD0ResolutionMap);
         impostorSolverCompute.SetTexture(kernelExpand, ShaderIDs.ActiveLOD0HeightmapArray, activeLOD0HeightmapArray);
 
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
         // Expand kernel.
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ChunkVisibilityBuffer, chunkVisibilityBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.GlobalBlotchBuffer, globalBlotchBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ConflictGridArena, conflictGridArena);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.VisibleChunkList, visibleChunkListBuffer);
@@ -785,6 +814,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BlotchOffsetBuffer, blotchOffsetBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.AtomicCounters, atomicCounters);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoFlagsBuffer, protoFlagsBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoHeightOffsetBuffer, protoHeightOffsetBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoBlotchParamsBuffer, protoBlotchParamsBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -869,6 +900,10 @@ public class ImpostorRenderer : MonoBehaviour
         globalChunkLODBuffer?.Release();      globalChunkLODBuffer = null;
         protoMaxLODBuffer?.Release();         protoMaxLODBuffer = null;
         protoFlagsBuffer?.Release();          protoFlagsBuffer = null;
+        protoHeightOffsetBuffer?.Release();  protoHeightOffsetBuffer = null;
+        protoBlotchParamsBuffer?.Release(); protoBlotchParamsBuffer = null;
+        activeLOD0SliceMap?.Release();      activeLOD0SliceMap = null;
+        activeLOD0ResolutionMap?.Release();  activeLOD0ResolutionMap = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
@@ -1113,9 +1148,12 @@ public class ImpostorRenderer : MonoBehaviour
                 float z = System.BitConverter.Int32BitsToSingle((int)data[offset + 2]);
                 
                 uint protoAndLod = data[offset + 4];
-                uint seed = data[offset + 5];
 
-                Debug.Log($"<color=green>[GPU Debug] Bucket {bucketIndex} Instance {i}: WorldPos ({x:F2}, {y:F2}, {z:F2}) | Proto/Lod: {protoAndLod}</color>");
+                // Calculate the exact height above the sphere surface!
+                Vector3 worldPos = new Vector3(x, y, z);
+                float altitude = Vector3.Distance(worldPos, sphereCenter) - sphereRadius;
+
+                Debug.Log($"<color=green>[GPU Debug] Bucket {bucketIndex} Instance {i}: WorldPos ({x:F2}, {y:F2}, {z:F2}) | Altitude: {altitude:F2}m</color>");
             }
         });
 
@@ -1189,6 +1227,7 @@ public static class ShaderIDs
     public static readonly int BucketMapBuffer = Shader.PropertyToID("_BucketMap");
     public static readonly int ProtoFlagsBuffer = Shader.PropertyToID("_ProtoFlags");
     public static readonly int VisibilityCount = Shader.PropertyToID("_VisibilityCount");
+    public static readonly int ProtoHeightOffsetBuffer = Shader.PropertyToID("_ProtoHeightOffsetBuffer");
 
     // Per-frame constants
     public static readonly int FrustumPlanes = Shader.PropertyToID("_FrustumPlanes");
@@ -1205,6 +1244,7 @@ public static class ShaderIDs
     public static readonly int WindStrength = Shader.PropertyToID("_WindStrength");
     public static readonly int HorizonMargin = Shader.PropertyToID("_HorizonMargin");
     public static readonly int ActiveLOD0SliceMap = Shader.PropertyToID("_ActiveLOD0SliceMap");
+    public static readonly int ActiveLOD0ResolutionMap = Shader.PropertyToID("_ActiveLOD0ResolutionMap");
     public static readonly int ActiveLOD0HeightmapArray = Shader.PropertyToID("_ActiveLOD0HeightmapArray");
 
     // Counts
@@ -1226,4 +1266,5 @@ public static class ShaderIDs
     public static readonly int NumberOfChunks = Shader.PropertyToID("_NumberOfChunks");
     public static readonly int MapsPerFace = Shader.PropertyToID("_MapsPerFace");
     public static readonly int BlotchOffsetBuffer = Shader.PropertyToID("_BlotchOffsetBuffer");
+    public static readonly int ProtoBlotchParamsBuffer = Shader.PropertyToID("_ProtoBlotchParamsBuffer");
 }

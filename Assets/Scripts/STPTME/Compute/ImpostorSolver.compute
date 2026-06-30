@@ -21,6 +21,7 @@ StructuredBuffer<uint> _ProtoFlags; // Bit 0: shouldInstance, Bit 1: instanceAlw
 #define MAX_BLOTCH_INST 4096
 #define MAX_BUCKET_LODS 16
 #define MAX_INSTANCES_PER_BUCKET 65536 
+#define LOD0_HM_RES_MAX 128
 
 // =================================================================
 // BUFFERS
@@ -67,7 +68,6 @@ float4 _FrustumPlanes[6];
 float3 _CameraPos; float _PlayerAltitude;
 float3 _SphereCenter; float _SphereRadius; float _HorizonMargin; float _ImpostorCullDistance;
 uint _MaxLODsPerBucket; uint _NumBuckets;
-uint _MinX; uint _NumberOfChunks; uint _MapsPerFace;
 uint _ConflictGridResolution;
 float _DensityMultiplierPerLOD[8];
 float _WidthMultiplierPerLOD[8];
@@ -84,6 +84,9 @@ uint _TerrainGridSize;
 Texture2DArray<float> _ActiveLOD0HeightmapArray;
 SamplerState sampler_ActiveLOD0HeightmapArray;
 StructuredBuffer<uint> _ActiveLOD0SliceMap;
+StructuredBuffer<uint2> _ActiveLOD0ResolutionMap; // per-chunk (width, height) in texels
+StructuredBuffer<float2> _ProtoHeightOffsetBuffer; // x = base offset, y = lod1Plus offset
+StructuredBuffer<float2> _ProtoBlotchParamsBuffer; // x = radius, y = density
 
 // =================================================================
 // HELPERS
@@ -155,85 +158,161 @@ bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want)
     return false;
 }
 
-float3 BlotchWorldPos(int chunkPacked, uint packedMeta, uint packedPos,
-                      float lx, float lz,
-                      float offsetAngle, float offsetDist,
-                      uint chunkLOD, uint storageSlot)
+// Inverse cube-sphere projection: a normalized sphere direction back
+// to the face-plane UV coordinates [0,1]² used for heightmap indexing.
+// Matches the forward mapping in the original BlotchWorldPos:
+//   face 0 (Up):     cp = (fx,       0.5,     fz      )
+//   face 1 (Down):   cp = (fx,      -0.5,     fz      )
+//   face 2 (Left):   cp = (-0.5,     fz,      fx      )
+//   face 3 (Right):  cp = ( 0.5,     fz,      fx      )
+//   face 4 (Fwd):    cp = (fx,       fz,       0.5    )
+//   face 5 (Back):   cp = (fx,       fz,      -0.5    )
+// where fx = globalLX-0.5, fz = globalLZ-0.5.
+void DirectionToFaceUV(float3 dir, uint face, out float globalLX, out float globalLZ)
 {
-    uint face = packedMeta & 0xFFu;
-    
-    uint raw = asuint(chunkPacked);
-    int mapX = (int)((raw >> 24) & 0xFFu); if (mapX > 127) mapX -= 256;
-    int mapY = (int)((raw >> 16) & 0xFFu); if (mapY > 127) mapY -= 256;
-    int chunkX = (int)((raw >> 8) & 0xFFu); if (chunkX > 127) chunkX -= 256;
-    int chunkY = (int)(raw & 0xFFu); if (chunkY > 127) chunkY -= 256;
+    float invMax = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
+    float3 cubePt = dir / invMax;  // Unit-cube point [-1,1]³
 
-    int minX = (int)_MinX;
-    int numChunks = (int)_NumberOfChunks;
-    int mapsPerFace = (int)_MapsPerFace;
+    // Extract (fx,fz) from cp = 0.5*cubePt based on face layout
+    float fx, fz;
+    if (face == 0)      { fx = cubePt.x; fz = cubePt.z; }
+    else if (face == 1) { fx = cubePt.x; fz = cubePt.z; }
+    else if (face == 2) { fx = cubePt.z; fz = cubePt.y; }
+    else if (face == 3) { fx = cubePt.z; fz = cubePt.y; }
+    else if (face == 4) { fx = cubePt.x; fz = cubePt.y; }
+    else                { fx = cubePt.x; fz = cubePt.y; }
 
-    if (mapsPerFace == 0 || numChunks == 0) return _SphereCenter;
+    // cp = 0.5*cubePt  →  fx = 0.5*cubePt.component  →  globalLX = fx + 0.5
+    globalLX = fx * 0.5f + 0.5f;
+    globalLZ = fz * 0.5f + 0.5f;
+}
 
-    float totalChunksX = (mapX - minX) * numChunks + chunkX + lx;
-    float totalChunksZ = (mapY - minX) * numChunks + chunkY + lz;
+// Face axes for tangent-basis alignment with cube face UV space.
+static const float3 FACE_AXIS_A[6] = {
+    float3(1,0,0),  // Up:    +x
+    float3(1,0,0),  // Down:  +x
+    float3(0,0,1),  // Left:  +z (cp.z = fx)
+    float3(0,0,1),  // Right: +z (cp.z = fx)
+    float3(1,0,0),  // Fwd:   +x
+    float3(1,0,0)   // Back:  +x
+};
+static const float3 FACE_AXIS_B[6] = {
+    float3(0,0,1),  // Up:    +z
+    float3(0,0,1),  // Down:  +z (= -back axis, using forward)
+    float3(0,1,0),  // Left:  +y
+    float3(0,1,0),  // Right: +y
+    float3(0,1,0),  // Fwd:   +y
+    float3(0,1,0)   // Back:  +y
+};
 
-    float globalLX = totalChunksX / (float)(mapsPerFace * numChunks);
-    float globalLZ = totalChunksZ / (float)(mapsPerFace * numChunks);
+// =================================================================
+// BlotchWorldPos — SPHERICAL COORDINATE VERSION
+//
+// Takes a blotch's local UV (lx,lz) within a chunk and produces the
+// 3D sphere position using spherical (tangent-space) interpolation
+// from the chunk's center direction. The height is sampled at the
+// same spherical position, eliminating the cube-sphere mismatch
+// that plagued the old face-plane→normalize() pipeline.
+//
+// For the blotch scatter, the offset (uv_dx, uv_dz) is computed
+// directly in ANGULAR space (dst / sphereRadius) so that the
+// heightmap UV and the 3D position use the SAME coordinate system.
+// =================================================================
+float3 BlotchWorldPos(ChunkVisibilityData vis, uint face,
+                      float lx, float lz, float angularOffsetX, float angularOffsetZ,
+                      uint chunkLOD, uint storageSlot, uint protoIdx)
+{
+    // ---- 1. Build instance direction from chunk center + angular offset ----
+    float3 centerDir = float3(vis.centerDirX, vis.centerDirY, vis.centerDirZ);
 
-    float terrainX_f = globalLX * _TerrainGridSize;
-    float terrainY_f = globalLZ * _TerrainGridSize;
-    
-    uint terrainX = (uint)floor(terrainX_f);
-    uint terrainY = (uint)floor(terrainY_f);
-    
-    float2 terrainUV = float2(terrainX_f - terrainX, terrainY_f - terrainY);
-    terrainUV = saturate(terrainUV);
-    terrainX = min(terrainX, _TerrainGridSize - 1);
-    terrainY = min(terrainY, _TerrainGridSize - 1);
+    // Tangent basis aligned with cube face axes.
+    float3 axisA = FACE_AXIS_A[face];
+    float3 axisB = FACE_AXIS_B[face];
+    float3 tangentU = normalize(axisA - dot(centerDir, axisA) * centerDir);
+    float3 tangentV = normalize(axisB - dot(centerDir, axisB) * centerDir);
 
-    uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize) + (terrainY * _TerrainGridSize) + terrainX;
+    // Angular offset from blotch center = base UV position + scatter offset
+    // Both in angular units: (lx - 0.5)*2*halfSize and angularOffsetXZ are
+    // in the same spherical-tangent coordinate system.
+    float chunkAngularHalfSize = _HalfChunkLinearSize / _SphereRadius;
+    float uOff = (lx - 0.5f) * 2.0f * chunkAngularHalfSize + angularOffsetX;
+    float vOff = (lz - 0.5f) * 2.0f * chunkAngularHalfSize + angularOffsetZ;
 
+    float3 instanceDir = centerDir + tangentU * uOff + tangentV * vOff;
+    instanceDir = normalize(instanceDir);
+
+    // ---- 2. Inverse-project: sphere direction → face-plane UV (for global heightmap) ----
+    float globalLX, globalLZ;
+    DirectionToFaceUV(instanceDir, face, globalLX, globalLZ);
+
+    // ---- 3. Sample height ----
     float terrainHeight;
+
+    // Convert the angular scatter offset back to chunk-UV fraction so the
+    // LOD0 heightmap is sampled at the instance's actual displaced position,
+    // not at the blotch center. 1 UV unit = chunkWorldSize/sphereRadius angular.
+    float chunkWorldSize = _HalfChunkLinearSize * 2.0;
+    float uvToAngular = chunkWorldSize / _SphereRadius;
+    float dispLX = lx + angularOffsetX / uvToAngular;
+    float dispLZ = lz + angularOffsetZ / uvToAngular;
+
     if (chunkLOD == 0)
     {
         uint slice = _ActiveLOD0SliceMap[storageSlot];
         if (slice != 0xFFFFFFFF)
         {
-            // Just use lx, lz directly! The GPU hardware bilinear filter handles the rest.
-            float2 chunkUV = float2(lx, lz);
-            terrainHeight = _ActiveLOD0HeightmapArray.SampleLevel(sampler_ActiveLOD0HeightmapArray, float3(chunkUV, slice), 0);
+            // LOD0 texture is per-chunk: sample at the DISPLACED chunk-relative UV.
+            // Half-texel offset: chunk UV [0,1] spans vertices 0..(width-1), and each
+            // vertex x maps to texel x whose CENTER is at (x+0.5)/128 in texture space.
+            // Without this offset we sample between texels → bilinear blur + half-pixel shift.
+            uint2 chunkRes = _ActiveLOD0ResolutionMap[storageSlot];
+            float2 chunkResF = float2(chunkRes.x, chunkRes.y);
+            float2 clampedDisp = saturate(float2(dispLX, dispLZ));
+            float2 chunkUV = (clampedDisp * (chunkResF - 1.0) + 0.5) / (float)LOD0_HM_RES_MAX;
+            terrainHeight = _ActiveLOD0HeightmapArray.SampleLevel(
+                sampler_ActiveLOD0HeightmapArray, float3(chunkUV, slice), 0);
         }
         else
         {
-            // Fallback to global if out of slices
-            terrainHeight = _GlobalHeightmapArray.SampleLevel(sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
+            // Fallback: inverse-project to get corrected face-plane UV for global heightmap
+            float terrainX_f = globalLX * _TerrainGridSize;
+            float terrainY_f = globalLZ * _TerrainGridSize;
+            uint terrainX = (uint)floor(terrainX_f);
+            uint terrainY = (uint)floor(terrainY_f);
+            float2 terrainUV = saturate(float2(terrainX_f - terrainX, terrainY_f - terrainY));
+            terrainX = min(terrainX, _TerrainGridSize - 1);
+            terrainY = min(terrainY, _TerrainGridSize - 1);
+            uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize)
+                            + terrainY * _TerrainGridSize + terrainX;
+            terrainHeight = _GlobalHeightmapArray.SampleLevel(
+                sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
         }
     }
     else
     {
-        // Sample the global array for LOD1+
-        terrainHeight = _GlobalHeightmapArray.SampleLevel(sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
+        // LOD1+: global heightmap, use inverse-projected face-plane UV
+        float terrainX_f = globalLX * _TerrainGridSize;
+        float terrainY_f = globalLZ * _TerrainGridSize;
+        uint terrainX = (uint)floor(terrainX_f);
+        uint terrainY = (uint)floor(terrainY_f);
+        float2 terrainUV = saturate(float2(terrainX_f - terrainX, terrainY_f - terrainY));
+        terrainX = min(terrainX, _TerrainGridSize - 1);
+        terrainY = min(terrainY, _TerrainGridSize - 1);
+        uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize)
+                        + terrainY * _TerrainGridSize + terrainX;
+        terrainHeight = _GlobalHeightmapArray.SampleLevel(
+            sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
     }
-    float fx = globalLX - 0.5; 
-    float fz = globalLZ - 0.5;
 
-    float3 cp;
-    if (face == 0) cp = float3(fx, 0.5, fz);
-    else if (face == 1) cp = float3(fx, -0.5, fz);
-    else if (face == 2) cp = float3(-0.5, fz, fx);
-    else if (face == 3) cp = float3(0.5, fz, fx);
-    else if (face == 4) cp = float3(fx, fz, 0.5);
-    else cp = float3(fx, fz, -0.5);
+    // APPLY HEIGHT OFFSETS
+    float2 offsets = _ProtoHeightOffsetBuffer[protoIdx];
+    terrainHeight += offsets.x;
+    if (chunkLOD > 0)
+        terrainHeight += offsets.y;
 
-    float3 dir = normalize(cp);
+    // ---- 4. 3D world position on the sphere ----
     float effectiveRadius = _SphereRadius + terrainHeight;
-    
-    float3 bp = _SphereCenter + dir * effectiveRadius;
-    float3 rt = normalize(cross(dir, abs(dir.y) < 0.99 ? float3(0,1,0) : float3(1,0,0)));
-    float3 ut = cross(dir, rt);
-    float3 wp = bp + rt * cos(offsetAngle) * offsetDist + ut * sin(offsetAngle) * offsetDist;
-    
-    return _SphereCenter + normalize(wp - _SphereCenter) * effectiveRadius;
+    return _SphereCenter + instanceDir * effectiveRadius;
 }
 
 // =================================================================
@@ -348,8 +427,9 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             // If chunk is LOD0, and the prototype is NOT "Instance Always", SKIP IT!
             if (chunkLOD == 0 && !IsInstanceAlways(protoIdx)) continue;
 
-            float density = ((bl.seedAndDensity >> 16) & 0xFFu) * 0.5;
-            float radius  = ((bl.seedAndDensity >> 24) & 0xFFu) * 0.25;
+            float2 params = _ProtoBlotchParamsBuffer[protoIdx];
+            float radius = params.x;
+            float density = params.y;
             uint conflict = UnpackConflict(bl.packedMeta);
             uint seed = bl.seedAndDensity & 0xFFFFu;
             float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
@@ -363,22 +443,39 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                 float ang = (h1 / 4294967296.0) * 6.283185;
                 float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
 
-                float lx = (bl.packedPos & 0xFFFFu) / 65535.0;
-                float lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
+                float base_lx = (bl.packedPos & 0xFFFFu) / 65535.0;
+                float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
-                float3 wp = BlotchWorldPos(bl.chunkPacked, bl.packedMeta, bl.packedPos, lx, lz, ang, dst, chunkLOD, storageSlot);
+                // Scatter offset directly in ANGULAR space (radians).
+                // This is the key coordinate fix: by computing the scatter in the same
+                // angular-tangent space used by BlotchWorldPos, the heightmap UV and
+                // the 3D position use IDENTICAL coordinates — no mismatch possible.
+                float angularDst = dst / _SphereRadius;
+                float uv_dx = cos(ang) * angularDst;
+                float uv_dz = sin(ang) * angularDst;
+
+                // Pass the instance local position and angular offsets!
+                ChunkVisibilityData vis = _ChunkVisibilityBuffer[storageSlot];
+                uint face = bl.packedMeta & 0xFFu;
+                float3 wp = BlotchWorldPos(vis, face, base_lx, base_lz, uv_dx, uv_dz, chunkLOD, storageSlot, protoIdx);
 
                 // OPTIMIZATION: Only evaluate the conflict grid for LOD0 procedural clusters.
                 bool wonClaim = true;
                 if (chunkLOD == 0 && radius >= 0.001)
                 {
-                    float cx = lx * res;
-                    float cy = lz * res;
+                    float chunkWorldSize = _HalfChunkLinearSize * 2.0;
+                    float scatterUVx = cos(ang) * dst / chunkWorldSize;
+                    float scatterUVz = sin(ang) * dst / chunkWorldSize;
+                    float gridLX = saturate(base_lx + scatterUVx);
+                    float gridLZ = saturate(base_lz + scatterUVz);
+                    float cx = gridLX * res;
+                    float cy = gridLZ * res;
                     uint cxi = min((uint)max((int)cx, 0), res - 1);
                     uint cyi = min((uint)max((int)cy, 0), res - 1);
                     wonClaim = TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict);
                 }
 
+                
                 if (wonClaim)
                 {
                     uint rotQ = (h1 >> 24) & 0xFFu;
@@ -394,6 +491,7 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                             _InstanceOutputBuffer[globalSlot].worldPos = wp;
                             _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, chunkLOD, rotQ, 128);
                             _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
+                            
                         }
                     }
                 }

@@ -26,6 +26,7 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -49,6 +50,7 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 2
     heightOffset: 0
+    lod1PlusHeightOffset: -1
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -72,6 +74,7 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -94,6 +97,7 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -116,6 +120,7 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -138,6 +143,7 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -159,6 +165,7 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -176,6 +183,7 @@ MonoBehaviour:
     baseWidth: 0
     baseHeight: 0
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
     blotchRadius: 0
@@ -195,10 +203,11 @@ MonoBehaviour:
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
+    lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 1
-    blotchRadius: 2
-    blotchDensity: 20
+    blotchRadius: 20
+    blotchDensity: 200
     conflictCategory: 3
     cullLOD: 4
     sourcePrefab: {fileID: 3356751432538110193, guid: ffbddc4ef9676cc419e81e06aaa836d8, type: 3}

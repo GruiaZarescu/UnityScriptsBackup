@@ -73,6 +73,9 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         [Tooltip("A global offset applied to each instance's height.")]
         public float heightOffset = 0f;
 
+        [Tooltip("An additional height offset applied ONLY to LOD1+ instances to correct for global heightmap (RHalf) precision loss.")]
+        public float lod1PlusHeightOffset = 0f;
+
         // ── Instance / pool behaviour ──────────────────────────────────────
         [Tooltip("If true, LOD1+ uses GPU instancing (blotch-based procedural pipeline). "
                + "If false, LOD1+ spawns GameObjects like LOD0. "
