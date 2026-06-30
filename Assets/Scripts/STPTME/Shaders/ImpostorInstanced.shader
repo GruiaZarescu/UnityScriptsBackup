@@ -154,7 +154,8 @@ Shader "Custom/ImpostorInstanced_URP"
                 float NdotL = saturate(dot(normalWS, mainLight.direction));
                 float3 ambient = SampleSH(normalWS);
                 
-                half3 finalColor = texColor.rgb * _Color.rgb * (mainLight.color * NdotL + ambient);
+                //half3 finalColor = texColor.rgb * _Color.rgb * (mainLight.color * NdotL + ambient);
+                half3 finalColor = texColor.rgb * (mainLight.color * NdotL + ambient);
                 return half4(finalColor, 1.0);
             }
             ENDHLSL
