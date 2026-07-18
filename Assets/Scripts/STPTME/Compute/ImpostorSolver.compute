@@ -4,15 +4,19 @@
 
 #pragma kernel CSVisibility
 #pragma kernel CSExpandBlotches
+#pragma kernel CSCountDistanceBlotches
+#pragma kernel CSFillBatchDispatchArgs
+#pragma kernel CSGenerateDistanceInstances
 #pragma kernel CSFillArgs
 #pragma kernel CSClearCounters
 
 // =================================================================
 // CONSTANTS
 // =================================================================
-StructuredBuffer<uint> _ProtoFlags; // Bit 0: shouldInstance, Bit 1: instanceAlways
-StructuredBuffer<float4> _ProtoSizeParamsBuffer;  // x = minScale/minH, y = maxScale/maxH, z = minW, w = maxW
-StructuredBuffer<float2> _ProtoSizeModeBuffer;    // x = mode (0=Uniform, 1=HeightWidth), y = steepness
+StructuredBuffer<uint> _ProtoFlags;
+StructuredBuffer<uint> _ProtoMaxLODs;
+StructuredBuffer<float4> _ProtoSizeParamsBuffer;
+StructuredBuffer<float2> _ProtoSizeModeBuffer;
 #define INST_PROTO_MASK   0xFFu
 #define INST_LOD_SHIFT    8
 #define INST_ROT_SHIFT    16
@@ -22,8 +26,9 @@ StructuredBuffer<float2> _ProtoSizeModeBuffer;    // x = mode (0=Uniform, 1=Heig
 #define SLAB_HEADER      4
 #define MAX_BLOTCH_INST 4096
 #define MAX_BUCKET_LODS 16
-#define MAX_INSTANCES_PER_BUCKET 65536 
+#define MAX_INSTANCES_PER_BUCKET 65536
 #define LOD0_HM_RES_MAX 128
+#define BATCH_SIZE 64
 
 // =================================================================
 // BUFFERS
@@ -43,10 +48,7 @@ struct BlotchData
 };
 StructuredBuffer<BlotchData> _GlobalBlotchBuffer;
 
-struct BlotchRange {
-    uint start;
-    uint count;
-};
+struct BlotchRange { uint start; uint count; };
 StructuredBuffer<BlotchRange> _BlotchOffsetBuffer;
 
 RWStructuredBuffer<uint> _VisibleChunkList;
@@ -54,10 +56,10 @@ StructuredBuffer<uint> _GlobalChunkLODBuffer;
 RWStructuredBuffer<uint> _ConflictGridArena;
 StructuredBuffer<uint> _BucketMap;
 
-struct InstanceData { 
-    float3 worldPos; 
+struct InstanceData {
+    float3 worldPos;
     float heightScale;
-    uint packedMeta; 
+    uint packedMeta;
     uint seed;
     float widthScale;
     uint pad3;
@@ -65,6 +67,18 @@ struct InstanceData {
 RWStructuredBuffer<InstanceData> _InstanceOutputBuffer;
 RWStructuredBuffer<uint> _ArgsBuffer;
 RWStructuredBuffer<uint> _AtomicCounters;
+
+// ---- Two-phase distance-mode expansion buffers ----
+struct BatchItem { uint blotchIndex; uint storageSlot; uint localStart; uint icMax; };
+RWStructuredBuffer<BatchItem> _BatchList;
+RWStructuredBuffer<uint> _BatchCounter;       // [0] = number of batches emitted
+RWStructuredBuffer<uint> _BatchDispatchArgs;  // [0]=groupsX,[1]=1,[2]=1
+uint _MaxDistanceBatches;
+
+// ---- Variable-length LOD distances + per-LOD keep fractions ----
+StructuredBuffer<uint2> _ProtoLODInfo;         // x = offset into flat arrays, y = count
+StructuredBuffer<float> _ProtoLODDistancesFlat;// per-LOD max distance
+StructuredBuffer<float> _ProtoKeepFractions;   // per-LOD density keep fraction [0,1]
 
 float4 _FrustumPlanes[6];
 float3 _CameraPos; float _PlayerAltitude;
@@ -79,7 +93,7 @@ uint _TotalBlotchCount; uint _SlabStride;
 RWStructuredBuffer<uint> _VisibilityCount;
 uint _TimeMS;
 uint _DefaultChunkLOD;
-uint _MaxVisibleChunks; // Added dynamic uniform
+uint _MaxVisibleChunks;
 
 Texture2DArray<float> _GlobalHeightmapArray;
 SamplerState sampler_GlobalHeightmapArray;
@@ -87,9 +101,11 @@ uint _TerrainGridSize;
 Texture2DArray<float> _ActiveLOD0HeightmapArray;
 SamplerState sampler_ActiveLOD0HeightmapArray;
 StructuredBuffer<uint> _ActiveLOD0SliceMap;
-StructuredBuffer<uint2> _ActiveLOD0ResolutionMap; // per-chunk (width, height) in texels
-StructuredBuffer<float2> _ProtoHeightOffsetBuffer; // x = base offset, y = lod1Plus offset
-StructuredBuffer<float2> _ProtoBlotchParamsBuffer; // x = radius, y = density
+StructuredBuffer<uint2> _ActiveLOD0ResolutionMap;
+StructuredBuffer<float2> _ProtoHeightOffsetBuffer;
+StructuredBuffer<float4> _ProtoBlotchParamsBuffer;
+StructuredBuffer<float4> _ProtoColorParamsBuffer;
+StructuredBuffer<uint>   _ProtoLODModeBuffer;
 
 // =================================================================
 // HELPERS
@@ -101,72 +117,64 @@ uint pcg_hash(uint input)
     return (word >> 22) ^ word;
 }
 
-// =================================================================
-// SIZE VARIABILITY DISTRIBUTION
-// 
-// Generates a value in [0,1] with bell-curve-like distribution.
-// Uses average of two uniform randoms for triangular base, then
-// applies power function for steepness control.
-//
-// steepness = 1.0: uniform triangular (linear falloff from center)
-// steepness > 1.0: tighter clustering around center (fewer extremes)
-// steepness < 1.0: more extremes, less center clustering
-// =================================================================
 float BellCurveDistribution(uint seed, float steepness)
 {
-    // Two independent uniform values
     uint h1 = pcg_hash(seed);
     uint h2 = pcg_hash(h1);
     float u1 = h1 / 4294967296.0;
     float u2 = h2 / 4294967296.0;
-    
-    // Average gives triangular distribution (peaks at 0.5)
     float bell = (u1 + u2) * 0.5;
-    
-    // Distance from center [0,1]
     float dist = abs(bell - 0.5) * 2.0;
-    
-    // Apply steepness: pow(dist, steepness)
-    // steepness > 1: pushes values toward 0 (center)
-    // steepness < 1: pushes values toward 1 (extremes)
     float shaped = pow(dist, steepness);
-    
-    // Map back to [0,1], preserving which side of center
     return bell >= 0.5 ? 0.5 + shaped * 0.5 : 0.5 - shaped * 0.5;
 }
 
-// =================================================================
-// COMPUTE SIZE SCALES
-//
-// Given prototype index and seed, computes height and width scales
-// based on the prototype's size variability settings.
-// Returns float2(heightScale, widthScale)
-// =================================================================
 float2 ComputeSizeScales(uint protoIdx, uint seed)
 {
     float4 params = _ProtoSizeParamsBuffer[protoIdx];
     float2 modeSteep = _ProtoSizeModeBuffer[protoIdx];
     uint mode = (uint)modeSteep.x;
     float steepness = modeSteep.y;
-    
-    // If min == max, no variability
     if (abs(params.y - params.x) < 0.001)
         return float2(1.0, 1.0);
-    
-    // Get distribution value
     float t = BellCurveDistribution(seed, steepness);
-    
-    if (mode == 0) // Uniform mode
+    if (mode == 0)
     {
         float scale = lerp(params.x, params.y, t);
         return float2(scale, scale);
     }
-    else // HeightWidth mode
+    else
     {
         float heightScale = lerp(params.x, params.y, t);
         float widthScale = lerp(params.z, params.w, t);
         return float2(heightScale, widthScale);
     }
+}
+
+// ---- Variable LOD helpers ----
+float GetMaxLODDistance(uint protoIdx)
+{
+    uint2 info = _ProtoLODInfo[protoIdx];
+    if (info.y == 0) return 0.0;
+    return _ProtoLODDistancesFlat[info.x + info.y - 1];
+}
+
+bool SelectLODByDistance(uint protoIdx, float dist, out uint lod)
+{
+    uint2 info = _ProtoLODInfo[protoIdx];
+    lod = 0;
+    [loop] for (uint i = 0; i < info.y; i++)
+    {
+        if (dist < _ProtoLODDistancesFlat[info.x + i]) { lod = i; return true; }
+    }
+    return false; // beyond last threshold -> cull
+}
+
+float KeepFractionForLOD(uint protoIdx, uint lod)
+{
+    uint2 info = _ProtoLODInfo[protoIdx];
+    if (lod >= info.y) return 1.0;
+    return _ProtoKeepFractions[info.x + lod];
 }
 
 bool TestChunkHorizon(ChunkVisibilityData c, float3 pn, float cosP, float sinP)
@@ -192,10 +200,7 @@ void BuildChunkSphere(ChunkVisibilityData c, out float3 center, out float radius
 
 uint UnpackProto(uint m)    { return (m >> 8) & 0xFFu; }
 uint UnpackConflict(uint m) { return (m >> 16) & 0xFFu; }
-bool IsInstanceAlways(uint protoIdx)
-{
-    return (_ProtoFlags[protoIdx] & 2u) != 0;
-}
+bool IsInstanceAlways(uint protoIdx) { return (_ProtoFlags[protoIdx] & 2u) != 0; }
 
 uint PackMeta(uint p, uint l, uint r, uint s)
 {
@@ -211,40 +216,24 @@ bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want)
     uint sh  = (ci % CELLS_PER_UINT) * BITS_PER_CELL;
     uint addr = slab + off;
     uint mask = 0xFu << (int)sh;
-
     uint original;
     uint oldVal = arena[addr];
-
     [loop] for (int iter = 0; iter < 8; iter++)
     {
         uint cellVal = (oldVal >> (int)sh) & 0xFu;
         if (cellVal >= want) return false;
-
         uint newVal = (oldVal & ~mask) | ((want << (int)sh) & mask);
         InterlockedCompareExchange(arena[addr], oldVal, newVal, original);
-
         if (original == oldVal) return true;
         oldVal = original;
     }
     return false;
 }
 
-// Inverse cube-sphere projection: a normalized sphere direction back
-// to the face-plane UV coordinates [0,1]² used for heightmap indexing.
-// Matches the forward mapping in the original BlotchWorldPos:
-//   face 0 (Up):     cp = (fx,       0.5,     fz      )
-//   face 1 (Down):   cp = (fx,      -0.5,     fz      )
-//   face 2 (Left):   cp = (-0.5,     fz,      fx      )
-//   face 3 (Right):  cp = ( 0.5,     fz,      fx      )
-//   face 4 (Fwd):    cp = (fx,       fz,       0.5    )
-//   face 5 (Back):   cp = (fx,       fz,      -0.5    )
-// where fx = globalLX-0.5, fz = globalLZ-0.5.
 void DirectionToFaceUV(float3 dir, uint face, out float globalLX, out float globalLZ)
 {
     float invMax = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
-    float3 cubePt = dir / invMax;  // Unit-cube point [-1,1]³
-
-    // Extract (fx,fz) from cp = 0.5*cubePt based on face layout
+    float3 cubePt = dir / invMax;
     float fx, fz;
     if (face == 0)      { fx = cubePt.x; fz = cubePt.z; }
     else if (face == 1) { fx = cubePt.x; fz = cubePt.z; }
@@ -252,53 +241,60 @@ void DirectionToFaceUV(float3 dir, uint face, out float globalLX, out float glob
     else if (face == 3) { fx = cubePt.z; fz = cubePt.y; }
     else if (face == 4) { fx = cubePt.x; fz = cubePt.y; }
     else                { fx = cubePt.x; fz = cubePt.y; }
-
-    // cp = 0.5*cubePt  →  fx = 0.5*cubePt.component  →  globalLX = fx + 0.5
     globalLX = fx * 0.5f + 0.5f;
     globalLZ = fz * 0.5f + 0.5f;
 }
 
-// Face axes for tangent-basis alignment with cube face UV space.
 static const float3 FACE_AXIS_A[6] = {
-    float3(1,0,0),  // Up:    +x
-    float3(1,0,0),  // Down:  +x
-    float3(0,0,1),  // Left:  +z (cp.z = fx)
-    float3(0,0,1),  // Right: +z (cp.z = fx)
-    float3(1,0,0),  // Fwd:   +x
-    float3(1,0,0)   // Back:  +x
+    float3(1,0,0), float3(1,0,0), float3(0,0,1),
+    float3(0,0,1), float3(1,0,0), float3(1,0,0)
 };
 static const float3 FACE_AXIS_B[6] = {
-    float3(0,0,1),  // Up:    +z
-    float3(0,0,1),  // Down:  +z (= -back axis, using forward)
-    float3(0,1,0),  // Left:  +y
-    float3(0,1,0),  // Right: +y
-    float3(0,1,0),  // Fwd:   +y
-    float3(0,1,0)   // Back:  +y
+    float3(0,0,1), float3(0,0,1), float3(0,1,0),
+    float3(0,1,0), float3(0,1,0), float3(0,1,0)
 };
 
-// Compute the storage slot for a chunk given its (mapX, mapY, chunkX, chunkY, face).
-// Mirrors STPTMEUtils.GlobalIndexCalculator.GetIndex + FaceIdUtility.GetStorageIndex.
-// chunkX/chunkY may be out of [0, numberOfChunks-1]; they wrap into the neighbor cell.
+// Build the tangent frame for a chunk+face once. Hoisted out of the per-instance path.
+struct TangentFrame { float3 centerDir; float3 tangentU; float3 tangentV; float angHalf; };
+
+TangentFrame BuildTangentFrame(ChunkVisibilityData vis, uint face)
+{
+    TangentFrame tf;
+    tf.centerDir = float3(vis.centerDirX, vis.centerDirY, vis.centerDirZ);
+    float3 axisA = FACE_AXIS_A[face];
+    float3 axisB = FACE_AXIS_B[face];
+    tf.tangentU = normalize(axisA - dot(tf.centerDir, axisA) * tf.centerDir);
+    tf.tangentV = normalize(axisB - dot(tf.centerDir, axisB) * tf.centerDir);
+    tf.angHalf  = _HalfChunkLinearSize / _SphereRadius;
+    return tf;
+}
+
+// Direction from a prebuilt frame + local UV + angular scatter. No normalize of the frame.
+float3 InstanceDirFromFrame(TangentFrame tf, float lx, float lz, float aoX, float aoZ)
+{
+    float uOff = (lx - 0.5f) * 2.0f * tf.angHalf + aoX;
+    float vOff = (lz - 0.5f) * 2.0f * tf.angHalf + aoZ;
+    return normalize(tf.centerDir + tf.tangentU * uOff + tf.tangentV * vOff);
+}
+
+// Cheap approx world pos (no heightmap read) from a prebuilt frame.
+float3 ApproxWorldPosFromDir(float3 instanceDir, float boundCenterAlt)
+{
+    return _SphereCenter + instanceDir * (_SphereRadius + boundCenterAlt);
+}
+
 uint ComputeStorageSlot(int mapX, int mapY, int chunkX, int chunkY, uint face)
 {
     int minX = (int)_MinX;
     int numChunks = (int)_NumberOfChunks;
     int mapsPerRow = (int)_MapsPerFace;
-
-    // Wrap chunk coords into neighbor cells (chunkX/Y can be -1 or numChunks)
-    int cx = chunkX;
-    int cy = chunkY;
-    int mx = mapX;
-    int my = mapY;
+    int cx = chunkX; int cy = chunkY; int mx = mapX; int my = mapY;
     if (cx < 0)               { cx += numChunks; mx -= 1; }
     else if (cx >= numChunks) { cx -= numChunks; mx += 1; }
     if (cy < 0)               { cy += numChunks; my -= 1; }
     else if (cy >= numChunks) { cy -= numChunks; my += 1; }
-
-    // Bounds check: if the neighbor cell is off the face grid, return invalid.
     if (mx < minX || mx >= minX + mapsPerRow || my < minX || my >= minX + mapsPerRow)
         return 0xFFFFFFFFu;
-
     int mapFlatIndex = (mx - minX) * mapsPerRow + (my - minX);
     int flatIndex    = cy * numChunks + cx;
     int chunksPerMap = numChunks * numChunks;
@@ -306,53 +302,48 @@ uint ComputeStorageSlot(int mapX, int mapY, int chunkX, int chunkY, uint face)
     return (uint)(globalIndex * 6 + (int)face);
 }
 
-// =================================================================
-// BlotchWorldPos — SPHERICAL COORDINATE VERSION
-//
-// Takes a blotch's local UV (lx,lz) within a chunk and produces the
-// 3D sphere position using spherical (tangent-space) interpolation
-// from the chunk's center direction. The height is sampled at the
-// same spherical position, eliminating the cube-sphere mismatch
-// that plagued the old face-plane→normalize() pipeline.
-//
-// For the blotch scatter, the offset (uv_dx, uv_dz) is computed
-// directly in ANGULAR space (dst / sphereRadius) so that the
-// heightmap UV and the 3D position use the SAME coordinate system.
-//
-// If the displaced UV spills into a neighbor chunk, we resolve the
-// neighbor's storage slot and sample its LOD0 heightmap (or fall
-// back to the global heightmap if the neighbor isn't LOD0).
-// =================================================================
-float3 BlotchWorldPos(ChunkVisibilityData vis, uint face,
-                      float lx, float lz, float angularOffsetX, float angularOffsetZ,
-                      uint chunkLOD, uint storageSlot, uint protoIdx,
-                      int chunkPacked)
+// Per-triangle planar interpolation — matches the terrain MESH, not bilinear.
+// Split along the ANTI-diagonal (0,1)-(1,0). If your terrain mesh triangulates
+// the other way, swap to the main-diagonal branch (commented below).
+float TriInterp(float h00, float h10, float h01, float h11, float2 f)
 {
-    // ---- 1. Build instance direction from chunk center + angular offset ----
-    float3 centerDir = float3(vis.centerDirX, vis.centerDirY, vis.centerDirZ);
+    if (f.x + f.y <= 1.0)
+        return h00 + (h10 - h00) * f.x + (h01 - h00) * f.y;
+    return h11 + (h01 - h11) * (1.0 - f.x) + (h10 - h11) * (1.0 - f.y);
 
-    // Tangent basis aligned with cube face axes.
-    float3 axisA = FACE_AXIS_A[face];
-    float3 axisB = FACE_AXIS_B[face];
-    float3 tangentU = normalize(axisA - dot(centerDir, axisA) * centerDir);
-    float3 tangentV = normalize(axisB - dot(centerDir, axisB) * centerDir);
+    // Main-diagonal (0,0)-(1,1) variant, if needed:
+    // if (f.y <= f.x) return h00 + (h10 - h00) * f.x + (h11 - h10) * f.y;
+    // return h00 + (h11 - h01) * f.x + (h01 - h00) * f.y;
+}
 
-    // Angular offset from blotch center = base UV position + scatter offset
-    float chunkAngularHalfSize = _HalfChunkLinearSize / _SphereRadius;
-    float uOff = (lx - 0.5f) * 2.0f * chunkAngularHalfSize + angularOffsetX;
-    float vOff = (lz - 0.5f) * 2.0f * chunkAngularHalfSize + angularOffsetZ;
+float SampleHeightActiveTri(float2 uv, uint2 res, uint slice)
+{
+    float2 coord = saturate(uv) * (float2(res) - 1.0);
+    int2 i0 = (int2)floor(coord);
+    int2 i1 = min(i0 + 1, (int2)res - 1);
+    float2 f = coord - (float2)i0;
 
-    float3 instanceDir = centerDir + tangentU * uOff + tangentV * vOff;
-    instanceDir = normalize(instanceDir);
+    float h00 = _ActiveLOD0HeightmapArray.Load(int4(i0.x, i0.y, slice, 0));
+    float h10 = _ActiveLOD0HeightmapArray.Load(int4(i1.x, i0.y, slice, 0));
+    float h01 = _ActiveLOD0HeightmapArray.Load(int4(i0.x, i1.y, slice, 0));
+    float h11 = _ActiveLOD0HeightmapArray.Load(int4(i1.x, i1.y, slice, 0));
+    return TriInterp(h00, h10, h01, h11, f);
+}
 
-    // ---- 2. Inverse-project: sphere direction → face-plane UV (for global heightmap) ----
+// =================================================================
+// BlotchWorldPosDir — height-accurate world position from a
+// PRE-COMPUTED instance direction (steps 2-4 of the old function).
+// The generate kernel builds instanceDir once for the distance test
+// and reuses it here, eliminating the duplicate direction math.
+// =================================================================
+float3 BlotchWorldPosDir(float3 instanceDir, uint face,
+                         float lx, float lz, float angularOffsetX, float angularOffsetZ,
+                         uint chunkLOD, uint storageSlot, uint protoIdx, int chunkPacked)
+{
     float globalLX, globalLZ;
     DirectionToFaceUV(instanceDir, face, globalLX, globalLZ);
 
-    // ---- 3. Sample height ----
     float terrainHeight;
-
-    // Convert the angular scatter offset back to chunk-UV fraction.
     float chunkWorldSize = _HalfChunkLinearSize * 2.0;
     float uvToAngular = chunkWorldSize / _SphereRadius;
     float dispLX = lx + angularOffsetX / uvToAngular;
@@ -360,55 +351,37 @@ float3 BlotchWorldPos(ChunkVisibilityData vis, uint face,
 
     if (chunkLOD == 0)
     {
-        // Determine if the instance spilled into a neighbor chunk.
         uint sampleSlot = storageSlot;
         float sampleLX = dispLX;
         float sampleLZ = dispLZ;
-
         bool outOfBounds = (dispLX < 0.0f || dispLX > 1.0f || dispLZ < 0.0f || dispLZ > 1.0f);
         if (outOfBounds)
         {
-            // Unpack the parent chunk's coords to compute the neighbor.
             uint raw = asuint(chunkPacked);
             int mapX = (int)((raw >> 24) & 0xFFu); if (mapX > 127) mapX -= 256;
             int mapY = (int)((raw >> 16) & 0xFFu); if (mapY > 127) mapY -= 256;
             int chunkX = (int)((raw >> 8) & 0xFFu); if (chunkX > 127) chunkX -= 256;
             int chunkY = (int)(raw & 0xFFu); if (chunkY > 127) chunkY -= 256;
-
-            // Floor the displaced UV to find which neighbor chunk we're in.
             int nChunkX = chunkX + (int)floor(dispLX);
             int nChunkY = chunkY + (int)floor(dispLZ);
             uint neighborSlot = ComputeStorageSlot(mapX, mapY, nChunkX, nChunkY, face);
-
             if (neighborSlot != 0xFFFFFFFFu)
             {
-                // Wrap UV into [0,1] relative to the neighbor chunk.
                 sampleLX = dispLX - floor(dispLX);
                 sampleLZ = dispLZ - floor(dispLZ);
                 sampleSlot = neighborSlot;
             }
-            else
-            {
-                // Off the face grid — clamp and use the parent chunk.
-                sampleLX = saturate(dispLX);
-                sampleLZ = saturate(dispLZ);
-            }
+            else { sampleLX = saturate(dispLX); sampleLZ = saturate(dispLZ); }
         }
 
         uint slice = _ActiveLOD0SliceMap[sampleSlot];
         if (slice != 0xFFFFFFFFu)
         {
-            // LOD0 texture: sample at the chunk-relative UV with half-texel offset.
             uint2 chunkRes = _ActiveLOD0ResolutionMap[sampleSlot];
-            float2 chunkResF = float2(chunkRes.x, chunkRes.y);
-            float2 clampedDisp = saturate(float2(sampleLX, sampleLZ));
-            float2 chunkUV = (clampedDisp * (chunkResF - 1.0) + 0.5) / (float)LOD0_HM_RES_MAX;
-            terrainHeight = _ActiveLOD0HeightmapArray.SampleLevel(
-                sampler_ActiveLOD0HeightmapArray, float3(chunkUV, slice), 0);
+            terrainHeight = SampleHeightActiveTri(float2(sampleLX, sampleLZ), chunkRes, slice);
         }
         else
         {
-            // Neighbor isn't LOD0 (or no slice): fall back to global heightmap.
             float terrainX_f = globalLX * _TerrainGridSize;
             float terrainY_f = globalLZ * _TerrainGridSize;
             uint terrainX = (uint)floor(terrainX_f);
@@ -424,7 +397,6 @@ float3 BlotchWorldPos(ChunkVisibilityData vis, uint face,
     }
     else
     {
-        // LOD1+: global heightmap, use inverse-projected face-plane UV
         float terrainX_f = globalLX * _TerrainGridSize;
         float terrainY_f = globalLZ * _TerrainGridSize;
         uint terrainX = (uint)floor(terrainX_f);
@@ -438,19 +410,26 @@ float3 BlotchWorldPos(ChunkVisibilityData vis, uint face,
             sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
     }
 
-    // APPLY HEIGHT OFFSETS
     float2 offsets = _ProtoHeightOffsetBuffer[protoIdx];
     terrainHeight += offsets.x;
-    if (chunkLOD > 0)
-        terrainHeight += offsets.y;
+    if (chunkLOD > 0) terrainHeight += offsets.y;
 
-    // ---- 4. 3D world position on the sphere ----
-    float effectiveRadius = _SphereRadius + terrainHeight;
-    return _SphereCenter + instanceDir * effectiveRadius;
+    return _SphereCenter + instanceDir * (_SphereRadius + terrainHeight);
+}
+
+// Legacy wrapper used by the chunk-LOD kernel (builds the frame internally).
+float3 BlotchWorldPos(ChunkVisibilityData vis, uint face,
+                      float lx, float lz, float angularOffsetX, float angularOffsetZ,
+                      uint chunkLOD, uint storageSlot, uint protoIdx, int chunkPacked)
+{
+    TangentFrame tf = BuildTangentFrame(vis, face);
+    float3 instanceDir = InstanceDirFromFrame(tf, lx, lz, angularOffsetX, angularOffsetZ);
+    return BlotchWorldPosDir(instanceDir, face, lx, lz, angularOffsetX, angularOffsetZ,
+                             chunkLOD, storageSlot, protoIdx, chunkPacked);
 }
 
 // =================================================================
-// KERNEL 1: CSVisibility
+// KERNEL 1: CSVisibility  (unchanged)
 // =================================================================
 [numthreads(64, 1, 1)]
 void CSVisibility(uint3 id : SV_DispatchThreadID)
@@ -459,11 +438,9 @@ void CSVisibility(uint3 id : SV_DispatchThreadID)
     uint count, stride;
     _ChunkVisibilityBuffer.GetDimensions(count, stride);
     if (idx >= count) return;
-    
     if (_GlobalChunkLODBuffer[idx] == 255) return;
 
     ChunkVisibilityData c = _ChunkVisibilityBuffer[idx];
-
     float h = max(_PlayerAltitude, 0.0);
     float cosP = _SphereRadius / (_SphereRadius + h);
     float sinP = sqrt(1.0 - cosP * cosP);
@@ -473,20 +450,18 @@ void CSVisibility(uint3 id : SV_DispatchThreadID)
     BuildChunkSphere(c, center, radius);
     if (!TestChunkHorizon(c, pn, cosP, sinP)) return;
     if (!TestSphereFrustum(center, radius)) return;
-
     float distToChunkSurface = length(center - _CameraPos) - radius;
     if (distToChunkSurface > _ImpostorCullDistance) return;
 
     uint vi;
     InterlockedAdd(_VisibilityCount[0], 1, vi);
-    if (vi < _MaxVisibleChunks)
-    {
-        _VisibleChunkList[vi] = idx; 
-    }
+    if (vi < _MaxVisibleChunks) _VisibleChunkList[vi] = idx;
 }
 
 // =================================================================
-// KERNEL 2: CSExpandBlotches
+// KERNEL 2: CSExpandBlotches — CHUNK-LOD ONLY.
+// Distance-mode blotches are skipped here; they go through the
+// two-phase instance-parallel path below. Conflict grid preserved.
 // =================================================================
 groupshared uint gs_slab;
 
@@ -494,44 +469,22 @@ groupshared uint gs_slab;
 void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 {
     uint t = gtid.x;
-
-    // 1. Validate without returning early!
     bool validChunk = (gid.x < _VisibilityCount[0]);
-    
+
     uint storageSlot = 0;
     uint chunkLOD = 255;
     BlotchRange range = (BlotchRange)0;
     uint res = _ConflictGridResolution;
     uint cellsUints = 0;
 
-    if (validChunk)
-    {
-        storageSlot = _VisibleChunkList[gid.x];
-        if (storageSlot == 0xFFFFFFFF) validChunk = false;
-    }
+    if (validChunk) { storageSlot = _VisibleChunkList[gid.x]; if (storageSlot == 0xFFFFFFFF) validChunk = false; }
+    if (validChunk) { chunkLOD = _GlobalChunkLODBuffer[storageSlot]; if (chunkLOD == 255) validChunk = false; }
+    if (validChunk) { range = _BlotchOffsetBuffer[storageSlot]; if (range.count == 0) validChunk = false; }
+    if (validChunk) { cellsUints = (res * res + CELLS_PER_UINT - 1) / CELLS_PER_UINT; }
 
-    if (validChunk)
-    {
-        chunkLOD = _GlobalChunkLODBuffer[storageSlot];
-        if (chunkLOD == 255) validChunk = false;
-    }
-
-    if (validChunk)
-    {
-        range = _BlotchOffsetBuffer[storageSlot];
-        if (range.count == 0) validChunk = false;
-    }
-
-    if (validChunk)
-    {
-        cellsUints = (res * res + CELLS_PER_UINT - 1) / CELLS_PER_UINT;
-    }
-
-    // 2. OPTIMIZATION: Only build and clear the conflict grid for LOD0!
     if (validChunk && chunkLOD == 0)
     {
         gs_slab = gid.x * _SlabStride;
-        
         if (t == 0)
         {
             _ConflictGridArena[gs_slab + 0] = _TimeMS;
@@ -539,36 +492,45 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             _ConflictGridArena[gs_slab + 2] = cellsUints;
             _ConflictGridArena[gs_slab + 3] = 0;
         }
-
         for (uint i = t; i < cellsUints; i += 256)
-        {
             _ConflictGridArena[gs_slab + SLAB_HEADER + i] = 0;
-        }
     }
 
-    // 3. CRITICAL: All threads must hit this barrier unconditionally!
     GroupMemoryBarrierWithGroupSync();
 
-    // 4. Proceed with expansion only if the chunk was valid
     if (validChunk)
     {
         for (uint bi = range.start + t; bi < range.start + range.count; bi += 256)
         {
             BlotchData bl = _GlobalBlotchBuffer[bi];
-        
             uint protoIdx = UnpackProto(bl.packedMeta);
 
-            // If chunk is LOD0, and the prototype is NOT "Instance Always", SKIP IT!
+            // Distance-mode blotches are handled by the two-phase path.
+            if (_ProtoLODModeBuffer[protoIdx] == 1u) continue;
+
+            // Chunk-LOD LOD0 spawns prefabs, not instances (except instanceAlways).
             if (chunkLOD == 0 && !IsInstanceAlways(protoIdx)) continue;
 
-            float2 params = _ProtoBlotchParamsBuffer[protoIdx];
-            float radius = params.x;
-            float density = params.y;
+            ChunkVisibilityData vis = _ChunkVisibilityBuffer[storageSlot];
+            uint face = bl.packedMeta & 0xFFu;
+            float base_lx = (bl.packedPos & 0xFFFFu) / 65535.0;
+            float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
+
+            float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
+
+            float4 params = _ProtoBlotchParamsBuffer[protoIdx];
+            float radius   = params.x;
+            float density  = params.y;
+            float fadeStart = params.z;
+            bool  fadeEnabled = params.w > 0.5;
             uint conflict = UnpackConflict(bl.packedMeta);
             uint seed = bl.seedAndDensity & 0xFFFFu;
-            float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
             float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
             uint ic = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
+
+            // Hoisted: frame constant across all instances of this blotch.
+            TangentFrame tf = BuildTangentFrame(vis, face);
+            uint selectedLOD = min(chunkLOD, _ProtoMaxLODs[protoIdx]);
 
             [loop] for (uint inst = 0; inst < ic; inst++)
             {
@@ -577,60 +539,55 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                 float ang = (h1 / 4294967296.0) * 6.283185;
                 float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
 
-                float base_lx = (bl.packedPos & 0xFFFFu) / 65535.0;
-                float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
+                if (fadeEnabled && radius > 0.001)
+                {
+                    float normalizedDist = dst / radius;
+                    if (normalizedDist > fadeStart)
+                    {
+                        float fadeFactor = 1.0 - (normalizedDist - fadeStart) / max(1.0 - fadeStart, 0.0001);
+                        uint fadeHash = pcg_hash(hi + 31337u);
+                        if ((fadeHash / 4294967296.0) > fadeFactor) continue;
+                    }
+                }
 
-                // Scatter offset directly in ANGULAR space (radians).
-                // This is the key coordinate fix: by computing the scatter in the same
-                // angular-tangent space used by BlotchWorldPos, the heightmap UV and
-                // the 3D position use IDENTICAL coordinates — no mismatch possible.
                 float angularDst = dst / _SphereRadius;
                 float uv_dx = cos(ang) * angularDst;
                 float uv_dz = sin(ang) * angularDst;
 
-                // Pass the instance local position and angular offsets!
-                ChunkVisibilityData vis = _ChunkVisibilityBuffer[storageSlot];
-                uint face = bl.packedMeta & 0xFFu;
-                float3 wp = BlotchWorldPos(vis, face, base_lx, base_lz, uv_dx, uv_dz, chunkLOD, storageSlot, protoIdx, bl.chunkPacked);
+                float3 instanceDir = InstanceDirFromFrame(tf, base_lx, base_lz, uv_dx, uv_dz);
+                float3 wp = BlotchWorldPosDir(instanceDir, face, base_lx, base_lz, uv_dx, uv_dz,
+                                              chunkLOD, storageSlot, protoIdx, bl.chunkPacked);
 
-                // OPTIMIZATION: Only evaluate the conflict grid for LOD0 procedural clusters.
                 bool wonClaim = true;
-                if (chunkLOD == 0 && radius >= 0.001)
+                if (selectedLOD == 0 && radius >= 0.001)
                 {
                     float chunkWorldSize = _HalfChunkLinearSize * 2.0;
                     float scatterUVx = cos(ang) * dst / chunkWorldSize;
                     float scatterUVz = sin(ang) * dst / chunkWorldSize;
                     float gridLX = saturate(base_lx + scatterUVx);
                     float gridLZ = saturate(base_lz + scatterUVz);
-                    float cx = gridLX * res;
-                    float cy = gridLZ * res;
-                    uint cxi = min((uint)max((int)cx, 0), res - 1);
-                    uint cyi = min((uint)max((int)cy, 0), res - 1);
+                    uint cxi = min((uint)max((int)(gridLX * res), 0), res - 1);
+                    uint cyi = min((uint)max((int)(gridLZ * res), 0), res - 1);
                     wonClaim = TryClaim(_ConflictGridArena, gs_slab, CellIdx(cxi, cyi, res), conflict);
                 }
 
-                
                 if (wonClaim)
                 {
                     uint rotQ = (h1 >> 24) & 0xFFu;
-                    uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + chunkLOD];
+                    uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + selectedLOD];
                     if (bucketIdx != 0xFFFFFFFF)
                     {
                         uint perBucketSlot;
                         InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
-
                         if (perBucketSlot < MAX_INSTANCES_PER_BUCKET)
                         {
-                            // Compute deterministic size scales from seed
                             float2 scales = ComputeSizeScales(protoIdx, hi);
-                            
                             uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
                             _InstanceOutputBuffer[globalSlot].worldPos = wp;
-                            _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, chunkLOD, rotQ, 128);
+                            _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, selectedLOD, rotQ, 128);
                             _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
                             _InstanceOutputBuffer[globalSlot].heightScale = scales.x;
                             _InstanceOutputBuffer[globalSlot].widthScale = scales.y;
-                            
                         }
                     }
                 }
@@ -640,34 +597,203 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 }
 
 // =================================================================
-// KERNEL 3: CSFillArgs
+// KERNEL 3: CSCountDistanceBlotches — Phase A.
+// One thread per distance-mode blotch. Sizes icMax at FULL density
+// (stable => no whole-blotch flashing) and emits fixed-size batches.
+// =================================================================
+[numthreads(256, 1, 1)]
+void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
+{
+    uint t = gtid.x;
+    if (gid.x >= _VisibilityCount[0]) return;
+    uint storageSlot = _VisibleChunkList[gid.x];
+    if (storageSlot == 0xFFFFFFFF) return;
+    uint chunkLOD = _GlobalChunkLODBuffer[storageSlot];
+    if (chunkLOD == 255) return;
+    BlotchRange range = _BlotchOffsetBuffer[storageSlot];
+    if (range.count == 0) return;
+
+    ChunkVisibilityData vis = _ChunkVisibilityBuffer[storageSlot];
+
+    for (uint bi = range.start + t; bi < range.start + range.count; bi += 256)
+    {
+        BlotchData bl = _GlobalBlotchBuffer[bi];
+        uint protoIdx = UnpackProto(bl.packedMeta);
+        if (_ProtoLODModeBuffer[protoIdx] != 1u) continue; // distance-mode only
+
+        uint face = bl.packedMeta & 0xFFu;
+        float base_lx = (bl.packedPos & 0xFFFFu) / 65535.0;
+        float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
+
+        float4 params = _ProtoBlotchParamsBuffer[protoIdx];
+        float radius = params.x;
+        float density = params.y;
+
+        // SAFE whole-blotch early-out: closest point still beyond max LOD dist.
+        TangentFrame tf = BuildTangentFrame(vis, face);
+        float3 centerDir = InstanceDirFromFrame(tf, base_lx, base_lz, 0, 0);
+        float3 approxCenter = ApproxWorldPosFromDir(centerDir, vis.boundCenterAlt);
+        float centerDist = length(approxCenter - _CameraPos);
+        if (centerDist - radius > GetMaxLODDistance(protoIdx)) continue;
+
+        // Full-density upper bound: stable, no per-frame cliff.
+        float dm = _DensityMultiplierPerLOD[0];
+        float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
+        uint icMax = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
+
+        uint numBatches = (icMax + BATCH_SIZE - 1) / BATCH_SIZE;
+        uint batchStart;
+        InterlockedAdd(_BatchCounter[0], numBatches, batchStart);
+
+        [loop] for (uint b = 0; b < numBatches; b++)
+        {
+            uint slot = batchStart + b;
+            if (slot >= _MaxDistanceBatches) break;
+            BatchItem item;
+            item.blotchIndex = bi;
+            item.storageSlot = storageSlot;
+            item.localStart  = b * BATCH_SIZE;
+            item.icMax       = icMax;
+            _BatchList[slot] = item;
+        }
+    }
+}
+
+// =================================================================
+// KERNEL 4: CSFillBatchDispatchArgs — writes indirect dispatch args.
+// =================================================================
+[numthreads(1, 1, 1)]
+void CSFillBatchDispatchArgs(uint3 id : SV_DispatchThreadID)
+{
+    uint n = min(_BatchCounter[0], _MaxDistanceBatches);
+    _BatchDispatchArgs[0] = n;
+    _BatchDispatchArgs[1] = 1;
+    _BatchDispatchArgs[2] = 1;
+}
+
+// =================================================================
+// KERNEL 5: CSGenerateDistanceInstances — Phase B.
+// One thread per instance, 64 per group. Full occupancy.
+// LOD select + density pruning happen BEFORE the height sample so
+// culled threads are nearly free.
+// =================================================================
+[numthreads(BATCH_SIZE, 1, 1)]
+void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
+{
+    uint batchIdx = gid.x;
+    if (batchIdx >= _BatchCounter[0]) return;
+
+    BatchItem item = _BatchList[batchIdx];
+    uint inst = item.localStart + gtid.x;
+    if (inst >= item.icMax) return;
+
+    uint storageSlot = item.storageSlot;
+    uint chunkLOD = _GlobalChunkLODBuffer[storageSlot];
+    ChunkVisibilityData vis = _ChunkVisibilityBuffer[storageSlot];
+
+    BlotchData bl = _GlobalBlotchBuffer[item.blotchIndex];
+    uint protoIdx = UnpackProto(bl.packedMeta);
+    uint face = bl.packedMeta & 0xFFu;
+    float base_lx = (bl.packedPos & 0xFFFFu) / 65535.0;
+    float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
+
+    float4 params = _ProtoBlotchParamsBuffer[protoIdx];
+    float radius    = params.x;
+    float fadeStart = params.z;
+    bool  fadeEnabled = params.w > 0.5;
+    uint seed = bl.seedAndDensity & 0xFFFFu;
+
+    // Frame hoisted; identical for every thread in this batch.
+    TangentFrame tf = BuildTangentFrame(vis, face);
+
+    uint hi = (seed << 16) | (inst & 0xFFFFu);
+    uint h1 = pcg_hash(hi); uint h2 = pcg_hash(h1 + 1);
+    float ang = (h1 / 4294967296.0) * 6.283185;
+    float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
+
+    // Radius density fade (existing feature).
+    if (fadeEnabled && radius > 0.001)
+    {
+        float normalizedDist = dst / radius;
+        if (normalizedDist > fadeStart)
+        {
+            float fadeFactor = 1.0 - (normalizedDist - fadeStart) / max(1.0 - fadeStart, 0.0001);
+            uint fadeHash = pcg_hash(hi + 31337u);
+            if ((fadeHash / 4294967296.0) > fadeFactor) return;
+        }
+    }
+
+    float angularDst = dst / _SphereRadius;
+    float uv_dx = cos(ang) * angularDst;
+    float uv_dz = sin(ang) * angularDst;
+
+    // Direction built ONCE, reused for both the distance test and the height sample.
+    float3 instanceDir = InstanceDirFromFrame(tf, base_lx, base_lz, uv_dx, uv_dz);
+
+    float3 approxWp = ApproxWorldPosFromDir(instanceDir, vis.boundCenterAlt);
+    float instDist = length(approxWp - _CameraPos);
+
+    uint distBandLOD;
+    if (!SelectLODByDistance(protoIdx, instDist, distBandLOD)) return; // beyond max -> cull
+
+    // Density pruning keyed to the distance band (thins far grass even if it reuses a mesh).
+    float keep = KeepFractionForLOD(protoIdx, distBandLOD);
+    if (keep < 0.999)
+    {
+        uint keepHash = pcg_hash(hi + 0xBEEFu);
+        if ((keepHash / 4294967296.0) > keep) return;
+    }
+
+    // Mesh LOD clamped to available meshes: bands past the last mesh become the billboard,
+    // instead of silently vanishing (this is the "only LOD0 grass" fix).
+    uint selectedLOD = min(distBandLOD, _ProtoMaxLODs[protoIdx]);
+
+    // Survivors only: pay for the height-accurate position.
+    float3 wp = BlotchWorldPosDir(instanceDir, face, base_lx, base_lz, uv_dx, uv_dz,
+                                  chunkLOD, storageSlot, protoIdx, bl.chunkPacked);
+
+    uint rotQ = (h1 >> 24) & 0xFFu;
+    uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + selectedLOD];
+    if (bucketIdx == 0xFFFFFFFF) return;
+
+    uint perBucketSlot;
+    InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
+    if (perBucketSlot >= MAX_INSTANCES_PER_BUCKET) return;
+
+    float2 scales = ComputeSizeScales(protoIdx, hi);
+    uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
+    _InstanceOutputBuffer[globalSlot].worldPos = wp;
+    _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, selectedLOD, rotQ, 128);
+    _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
+    _InstanceOutputBuffer[globalSlot].heightScale = scales.x;
+    _InstanceOutputBuffer[globalSlot].widthScale = scales.y;
+}
+
+// =================================================================
+// KERNEL 6: CSFillArgs  (unchanged)
 // =================================================================
 [numthreads(64, 1, 1)]
 void CSFillArgs(uint3 id : SV_DispatchThreadID)
 {
     uint b = id.x;
     if (b >= _NumBuckets) return;
-    _ArgsBuffer[b * 5 + 1] = _AtomicCounters[1 + b];
+    _ArgsBuffer[b * 5 + 1] = min(_AtomicCounters[1 + b], MAX_INSTANCES_PER_BUCKET);
     _ArgsBuffer[b * 5 + 4] = 0;
 }
 
 // =================================================================
-// KERNEL 4: CSClearCounters
+// KERNEL 7: CSClearCounters — also clears the batch counter.
 // =================================================================
 [numthreads(64, 1, 1)]
 void CSClearCounters(uint3 id : SV_DispatchThreadID)
 {
     uint i = id.x;
-    // Clear per-bucket counters (offset by 1, bucket 0 is at index 1)
-    if (i < _NumBuckets)
-        _AtomicCounters[1 + i] = 0;
-    // Clear total visible chunk count
+    if (i < _NumBuckets) _AtomicCounters[1 + i] = 0;
     if (i == 0)
     {
         _VisibilityCount[0] = 0;
-        _AtomicCounters[0] = 0; // Clear total instances
-        
-        // Clear debug counters!
+        _AtomicCounters[0] = 0;
+        _BatchCounter[0] = 0;
         _AtomicCounters[4000] = 0;
         _AtomicCounters[4001] = 0;
         _AtomicCounters[4002] = 0;

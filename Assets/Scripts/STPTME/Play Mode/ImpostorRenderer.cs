@@ -106,6 +106,10 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer protoBlotchParamsBuffer;
     private ComputeBuffer protoSizeParamsBuffer;    // x=minScale/minH, y=maxScale/maxH, z=minW, w=maxW
     private ComputeBuffer protoSizeModeBuffer;      // x=mode, y=steepness
+    private ComputeBuffer protoColorParamsBuffer;   // color override for impostors
+
+    private ComputeBuffer protoLODModeBuffer;      //0 - chunk LOD, 1- distance LOD
+    private ComputeBuffer protoLODDistancesBuffer; //float4: max dist for LOD 0,1,2,3
 
     // -- CPU-side cache of chunk visibility data (for debug hash comparison) --
     private ChunkVisibilityData[] cpuChunkVisibilityCache;
@@ -115,7 +119,6 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer instanceOutputBuffer;         // RWStructuredBuffer<InstanceData>
     // -- Args buffer (structured + indirect, written by compute shader, consumed by DrawMeshInstancedIndirect) --
     private ComputeBuffer argsBuffer;                   // RWStructuredBuffer<uint> + IndirectArguments
-    private ComputeBuffer chunkLODBuffer;               // RWStructuredBuffer<uint> — per-chunk LOD data
     private ComputeBuffer atomicCounters;               // RWStructuredBuffer<uint> — [0]=instance count, [1+N]=per-bucket counts
 
     // -- Bucket map lookup (protoIdx * MAX_LODS_PER_BUCKET + lod) -> bucketIdx --
@@ -127,6 +130,23 @@ public class ImpostorRenderer : MonoBehaviour
 
     private ComputeBuffer globalChunkLODBuffer;
     private ComputeBuffer protoMaxLODBuffer;
+
+    // ---- Two-phase distance-mode expansion ----
+    private ComputeBuffer batchListBuffer;
+    private ComputeBuffer batchCounterBuffer;
+    private ComputeBuffer batchDispatchArgsBuffer;
+    private ComputeBuffer protoLODInfoBuffer;
+    private ComputeBuffer protoLODDistancesFlatBuffer;
+    private ComputeBuffer protoKeepFractionsBuffer;
+
+    private int kernelCountDistance;
+    private int kernelFillBatchArgs;
+    private int kernelGenerateDistance;
+
+    private const int BATCH_SIZE = 64;
+    // 65536 batches * 64 = ~4.2M instance capacity for distance-mode foliage.
+    // Bump if a single frame's visible grass exceeds this; each batch is 16 bytes.
+    private const int MAX_DISTANCE_BATCHES = 65535;
 
     private uint[] cpuChunkLODs;
     private bool lodsDirty = false;
@@ -259,7 +279,8 @@ public class ImpostorRenderer : MonoBehaviour
         ChunkVisibilityData[] chunkData,
         float halfChunkLinearSize,
         Vector3 halfExtent,
-        int minX, int numberOfChunks, int mapsPerRow)
+        int minX, int numberOfChunks, int mapsPerRow,
+        Texture2DArray globalHeightmap = null, int terrainGridSize = 0)
     {
         Instance = this;
         this.sphereCenter = sphereCenter;
@@ -270,6 +291,14 @@ public class ImpostorRenderer : MonoBehaviour
         this.mapsPerRow = mapsPerRow;
         prototypeRegistry = registry;
 
+        // Capture the global heightmap up-front so it is bound regardless of
+        // whether SetGlobalHeightmap() is called before or after Initialize().
+        if (globalHeightmap != null)
+        {
+            this.globalHeightmapArray = globalHeightmap;
+            this.terrainGridSize = terrainGridSize;
+        }
+
         planetBounds = new Bounds(sphereCenter, halfExtent * 2f);
 
         if (!ValidateState()) return;
@@ -279,6 +308,16 @@ public class ImpostorRenderer : MonoBehaviour
         kernelExpand = impostorSolverCompute.FindKernel("CSExpandBlotches");
         kernelFillArgs = impostorSolverCompute.FindKernel("CSFillArgs");
         kernelClear = impostorSolverCompute.FindKernel("CSClearCounters");
+        kernelCountDistance   = impostorSolverCompute.FindKernel("CSCountDistanceBlotches");
+        kernelFillBatchArgs   = impostorSolverCompute.FindKernel("CSFillBatchDispatchArgs");
+        kernelGenerateDistance= impostorSolverCompute.FindKernel("CSGenerateDistanceInstances");
+
+        if (kernelCountDistance < 0 || kernelFillBatchArgs < 0 || kernelGenerateDistance < 0)
+        {
+            Debug.LogError("[ImpostorRenderer] Missing distance-mode kernels (CSCountDistanceBlotches / "
+                + "CSFillBatchDispatchArgs / CSGenerateDistanceInstances). Reimport the compute shader.");
+            return;
+        }
 
         bool hasVisibility = kernelVisibility >= 0;
         bool hasExpand = kernelExpand >= 0;
@@ -404,11 +443,6 @@ public class ImpostorRenderer : MonoBehaviour
         // ---- 5b. Visibility count buffer (single uint, reset to 0 each frame) ----
         visibilityCountBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Structured);
 
-        // ---- 6. Chunk LOD buffer (per-chunk LOD data for visibility pass) ----
-        chunkLODBuffer = new ComputeBuffer(
-            ConflictGridDefines.MaxVisibleChunks, sizeof(uint),
-            ComputeBufferType.Structured);
-        chunkLODBuffer.SetData(new uint[ConflictGridDefines.MaxVisibleChunks]); // init to zeros
 
         // ---- 7. Atomic counters ----
         // Must match MAX_BUCKET_LODS in the compute shader (16) for correct bucket indexing.
@@ -434,6 +468,28 @@ public class ImpostorRenderer : MonoBehaviour
         {
             bucketMap[buckets[b].protoIdx * MAX_LODS_PER_BUCKET + buckets[b].lod] = (uint)b;
         }
+        
+        // DEBUG: Log bucket map entries for instanceAlways prototypes
+        var bucketMapDebug = new System.Text.StringBuilder();
+        bucketMapDebug.AppendLine("[ImpostorRenderer] Bucket map for instanceAlways prototypes:");
+        for (int pi = 0; pi < prototypeRegistry.entries.Length; pi++)
+        {
+            var entry = prototypeRegistry.entries[pi];
+            if (entry != null && entry.instanceAlways)
+            {
+                bucketMapDebug.AppendLine($"  [{pi}] '{entry.name}':");
+                for (int lod = 0; lod < MAX_LODS_PER_BUCKET; lod++)
+                {
+                    uint bucketIdx = bucketMap[pi * MAX_LODS_PER_BUCKET + lod];
+                    if (bucketIdx != 0xFFFFFFFF)
+                    {
+                        bucketMapDebug.AppendLine($"    LOD{lod} -> bucket {bucketIdx} (mesh={buckets[bucketIdx].mesh?.name ?? "null"})");
+                    }
+                }
+            }
+        }
+        Debug.Log(bucketMapDebug.ToString());
+        
         bucketMapBuffer = new ComputeBuffer(bucketMap.Length, sizeof(uint), ComputeBufferType.Structured);
         bucketMapBuffer.SetData(bucketMap);
 
@@ -473,6 +529,20 @@ public class ImpostorRenderer : MonoBehaviour
             }
             protoFlags[i] = flags;
         }
+        
+        // DEBUG: Log proto flags for instanceAlways prototypes
+        var flagsDebug = new System.Text.StringBuilder();
+        flagsDebug.AppendLine("[ImpostorRenderer] Proto flags for instanceAlways prototypes:");
+        for (int i = 0; i < prototypeRegistry.entries.Length; i++)
+        {
+            var entry = prototypeRegistry.entries[i];
+            if (entry != null && entry.instanceAlways)
+            {
+                flagsDebug.AppendLine($"  [{i}] '{entry.name}': flags={protoFlags[i]:X2} (shouldInstance={entry.shouldInstance}, instanceAlways={entry.instanceAlways})");
+            }
+        }
+        Debug.Log(flagsDebug.ToString());
+        
         protoFlagsBuffer = new ComputeBuffer(protoFlags.Length, sizeof(uint));
         protoFlagsBuffer.SetData(protoFlags);
 
@@ -489,38 +559,83 @@ public class ImpostorRenderer : MonoBehaviour
         protoHeightOffsetBuffer.SetData(heightOffsets);
 
          // ---- 6f. Prototype blotch params buffer (x = radius, y = density)
-        Vector2[] blotchParams = new Vector2[prototypeRegistry.entries.Length];
+        Vector4[] blotchParams = new Vector4[prototypeRegistry.entries.Length];
         for (int i = 0; i < blotchParams.Length; i++)
         {
             if (prototypeRegistry.entries[i] != null)
-                blotchParams[i] = new Vector2(prototypeRegistry.entries[i].blotchRadius, prototypeRegistry.entries[i].blotchDensity);
+            {
+                var e = prototypeRegistry.entries[i];
+                blotchParams[i] = new Vector4(
+                    e.blotchRadius,
+                    e.blotchDensity,
+                    e.densityFadeStart,
+                    e.densityFadeEnabled ? 1f : 0f);
+            }
             else
-                blotchParams[i] = Vector2.zero;
+                blotchParams[i] = Vector4.zero;
         }
-        protoBlotchParamsBuffer = new ComputeBuffer(blotchParams.Length, sizeof(float) * 2);
+        protoBlotchParamsBuffer = new ComputeBuffer(blotchParams.Length, sizeof(float) * 4);
         protoBlotchParamsBuffer.SetData(blotchParams);
 
         // ---- 6g. Prototype size variability buffers
         Vector4[] sizeParams = new Vector4[prototypeRegistry.entries.Length];
         Vector2[] sizeMode = new Vector2[prototypeRegistry.entries.Length];
+        Vector4[] colorParams = new Vector4[prototypeRegistry.entries.Length];
         for (int i = 0; i < prototypeRegistry.entries.Length; i++)
         {
             if (prototypeRegistry.entries[i] != null && prototypeRegistry.entries[i].sizeVariability.enabled)
             {
                 sizeParams[i] = prototypeRegistry.entries[i].sizeVariability.PackForGPU();
                 sizeMode[i] = prototypeRegistry.entries[i].sizeVariability.PackModeAndSteepness();
+                colorParams[i] = prototypeRegistry.entries[i].impostorColorOverride;
             }
             else
             {
                 // Disabled: use scale 1.0 for everything
                 sizeParams[i] = new Vector4(1f, 1f, 1f, 1f);
                 sizeMode[i] = new Vector2(0f, 1f); // Uniform mode, steepness 1
+                colorParams[i] = new Vector4(1f, 1f, 1f, 1f); // No override (white = use material color)
             }
         }
         protoSizeParamsBuffer = new ComputeBuffer(sizeParams.Length, sizeof(float) * 4);
         protoSizeParamsBuffer.SetData(sizeParams);
         protoSizeModeBuffer = new ComputeBuffer(sizeMode.Length, sizeof(float) * 2);
         protoSizeModeBuffer.SetData(sizeMode);
+        protoColorParamsBuffer = new ComputeBuffer(colorParams.Length, sizeof(float) * 4);
+        protoColorParamsBuffer.SetData(colorParams);
+
+        // ---- 6h. Prototype LOD mode + distance buffers
+        // _ProtoLODModeBuffer: 0 = chunk LOD, 1 = distance LOD
+        // _ProtoLODDistancesBuffer: x,y,z,w = max distance for LOD 0,1,2,3
+        uint[] lodModes = new uint[prototypeRegistry.entries.Length];
+        Vector4[] lodDistances = new Vector4[prototypeRegistry.entries.Length];
+        for (int i = 0; i < prototypeRegistry.entries.Length; i++)
+        {
+            var e = prototypeRegistry.entries[i];
+            if (e != null)
+            {
+                lodModes[i] = e.useDistanceLOD ? 1u : 0u;
+                lodDistances[i] = e.lodDistances;
+            }
+            else
+            {
+                lodModes[i] = 0u;
+                lodDistances[i] = Vector4.zero;
+            }
+        }
+        protoLODModeBuffer = new ComputeBuffer(lodModes.Length, sizeof(uint));
+        protoLODModeBuffer.SetData(lodModes);
+        protoLODDistancesBuffer = new ComputeBuffer(lodDistances.Length, sizeof(float) * 4);
+        protoLODDistancesBuffer.SetData(lodDistances);
+
+        // ---- Two-phase batch buffers ----
+        batchListBuffer = new ComputeBuffer(MAX_DISTANCE_BATCHES, sizeof(uint) * 4, ComputeBufferType.Structured);
+        batchCounterBuffer = new ComputeBuffer(1, sizeof(uint), ComputeBufferType.Structured);
+        batchDispatchArgsBuffer = new ComputeBuffer(3, sizeof(uint), ComputeBufferType.IndirectArguments);
+        batchDispatchArgsBuffer.SetData(new uint[] { 0, 1, 1 });
+
+        // ---- Variable-length LOD distance + keep-fraction buffers ----
+        BuildVariableLODBuffers();
 
         // ---- 7. Bind buffers to compute shader ----
         BindComputeBuffers();
@@ -533,6 +648,9 @@ public class ImpostorRenderer : MonoBehaviour
     }
 
     // ===== PER-FRAME UPDATE =====
+
+    private int debugLogInterval = 60; // Log every 60 frames
+    private int debugLogCounter = 0;
 
     private void LateUpdate()
     {
@@ -562,10 +680,11 @@ public class ImpostorRenderer : MonoBehaviour
         // The argsBuffer was initialized once in Initialize(). CSFillArgs updates the instance count.
         // Calling SetData here overwrites the GPU's data and causes a stall.
 
-        // NOW dispatch in order: Clear → Visibility → Expand → FillArgs
+        // Clear (also zeroes the batch counter)
         int clearGroups = (bucketCount + 1 + 63) / 64;
         impostorSolverCompute.Dispatch(kernelClear, clearGroups, 1, 1);
 
+        // Visibility
         int chunkCount = chunkVisibilityBuffer?.count ?? 0;
         if (chunkCount > 0)
         {
@@ -573,11 +692,19 @@ public class ImpostorRenderer : MonoBehaviour
             impostorSolverCompute.Dispatch(kernelVisibility, vGroups, 1, 1);
         }
 
+        // Chunk-LOD expansion (trees + conflict-grid foliage). Skips distance-mode blotches.
+        if (globalBlotchBuffer != null)
+            impostorSolverCompute.Dispatch(kernelExpand, ConflictGridDefines.MaxVisibleChunks, 1, 1);
+
+        // Distance-mode grass: Phase A (count/emit batches) -> args -> Phase B (instance-parallel)
         if (globalBlotchBuffer != null)
         {
-            impostorSolverCompute.Dispatch(kernelExpand, ConflictGridDefines.MaxVisibleChunks, 1, 1);
+            impostorSolverCompute.Dispatch(kernelCountDistance, ConflictGridDefines.MaxVisibleChunks, 1, 1);
+            impostorSolverCompute.Dispatch(kernelFillBatchArgs, 1, 1, 1);
+            impostorSolverCompute.DispatchIndirect(kernelGenerateDistance, batchDispatchArgsBuffer);
         }
 
+        // Fill draw args
         if (bucketCount > 0)
         {
             int aGroups = (bucketCount + 63) / 64;
@@ -585,6 +712,29 @@ public class ImpostorRenderer : MonoBehaviour
         }
 
         DrawIndirect();
+    }
+
+    private System.Collections.IEnumerator LogInstanceAlwaysCounters()
+    {
+        // Read back debug counters from GPU
+        var request = AsyncGPUReadback.Request(atomicCounters);
+        yield return new WaitUntil(() => request.done);
+
+        if (request.hasError)
+        {
+            Debug.LogWarning("[ImpostorRenderer] Failed to read instanceAlways debug counters");
+            yield break;
+        }
+
+        var data = request.GetData<uint>();
+        uint lod0Blotches = data[4002];
+        uint lod1PlusBlotches = data[4003];
+        uint lod0Instances = data[4000];
+        uint lod1PlusInstances = data[4001];
+
+        Debug.Log($"[ImpostorRenderer] instanceAlways debug: " +
+            $"LOD0 blotches={lod0Blotches}, instances={lod0Instances} | " +
+            $"LOD1+ blotches={lod1PlusBlotches}, instances={lod1PlusInstances}");
     }
 
     // ===== CAMERA DATA (the only CPU→GPU upload every frame) =====
@@ -690,12 +840,16 @@ public class ImpostorRenderer : MonoBehaviour
         if (prototypeScalesBuffer != null)
             drawProps.SetBuffer("_PrototypeScales", prototypeScalesBuffer);
 
-         if (protoMaxLODBuffer != null)
+        if (protoMaxLODBuffer != null)
             drawProps.SetBuffer("_ProtoMaxLODs", protoMaxLODBuffer);
+
+        // ADD THIS: Bind the color params buffer!
+        if (protoColorParamsBuffer != null)
+            drawProps.SetBuffer("_ProtoColorParamsBuffer", protoColorParamsBuffer);
 
         drawProps.SetVector("_SphereCenter", sphereCenter);
         
-        // ADD THIS: Pass Camera Position for billboarding!
+        // Pass Camera Position for billboarding!
         Camera cam = GetActiveCamera();
         if (cam != null)
             drawProps.SetVector("_CameraPos", cam.transform.position);
@@ -709,21 +863,36 @@ public class ImpostorRenderer : MonoBehaviour
 
             drawProps.SetFloat("_InstanceOffset", i * MAX_INSTANCES_PER_BUCKET);
 
+            // LOD0 casts shadows; LOD1+ impostors don't (major shadow-pass savings).
+            var bucketShadowMode = (castShadows && bucket.lod == 0)
+                ? ShadowCastingMode.On
+                : ShadowCastingMode.Off;
+
             Graphics.DrawMeshInstancedIndirect(
                 bucket.mesh, 0, bucket.material,
                 planetBounds,
                 argsBuffer, bucket.argsBufferOffset,
-                drawProps, shadowMode, bucket.receiveShadows, 0, null);
+                drawProps, bucketShadowMode, bucket.receiveShadows, 0, null);
         }
-
-        if (protoFlagsBuffer != null)
-        drawProps.SetBuffer("_ProtoFlags", protoFlagsBuffer);
     }
 
     public void SetGlobalHeightmap(Texture2DArray heightmapArray, int gridSize)
     {
         this.globalHeightmapArray = heightmapArray;
         this.terrainGridSize = gridSize;
+        // Re-bind to the compute shader so the heightmap is available to the
+        // CSExpandBlotches kernel regardless of when this is called relative to Initialize().
+        if (IsInitialized && impostorSolverCompute != null && kernelExpand >= 0 && globalHeightmapArray != null)
+        {
+            impostorSolverCompute.SetTexture(kernelExpand, "_GlobalHeightmapArray", globalHeightmapArray);
+            impostorSolverCompute.SetInt("_TerrainGridSize", terrainGridSize);
+        }
+
+        if (IsInitialized && impostorSolverCompute != null && kernelGenerateDistance >= 0 && globalHeightmapArray != null)
+        {
+            impostorSolverCompute.SetTexture(kernelGenerateDistance, "_GlobalHeightmapArray", globalHeightmapArray);
+            impostorSolverCompute.SetInt("_TerrainGridSize", terrainGridSize);
+        }
     }
 
     public void SetChunkLOD(int storageSlot, byte lod)
@@ -757,18 +926,41 @@ public class ImpostorRenderer : MonoBehaviour
         int protoCount = entries.Length;
         var bucketList = new List<IndirectBucket>();
 
+        // DEBUG: Track instanceAlways prototypes
+        var instanceAlwaysProtos = new System.Text.StringBuilder();
+        instanceAlwaysProtos.AppendLine("[ImpostorRenderer] BuildBuckets - instanceAlways prototypes:");
+
         for (int pi = 0; pi < protoCount; pi++)
         {
             var entry = entries[pi];
             if (entry == null || !entry.shouldInstance) continue;
             if (entry.lodMeshes == null) continue;
 
+            // DEBUG: Log instanceAlways prototypes
+            if (entry.instanceAlways)
+            {
+                instanceAlwaysProtos.AppendLine($"  [{pi}] '{entry.name}': lodMeshes.Length={entry.lodMeshes.Length}, material={entry.material?.name ?? "null"}");
+                for (int lod = 0; lod < entry.lodMeshes.Length; lod++)
+                {
+                    instanceAlwaysProtos.AppendLine($"    LOD{lod}: mesh={entry.lodMeshes[lod]?.name ?? "null"}");
+                }
+            }
+
             // FIX: Only iterate up to the actual number of LODs!
             int maxLod = entry.lodMeshes.Length;
             for (int lod = 0; lod < maxLod; lod++)
             {
                 Mesh mesh = entry.lodMeshes[lod];
-                if (mesh == null) continue;
+                if (mesh == null)
+                {
+                    // DEBUG: Log if instanceAlways prototype is missing LOD0 mesh
+                    if (lod == 0 && entry.instanceAlways)
+                    {
+                        Debug.LogWarning($"[ImpostorRenderer] instanceAlways prototype '{entry.name}' (index {pi}) has no LOD0 mesh! " +
+                            $"It will not render at LOD0. Assign lodMeshes[0] to fix this.");
+                    }
+                    continue;
+                }
                 if (entry.material == null) continue;
 
                 int bucketIdx = bucketList.Count;
@@ -788,8 +980,53 @@ public class ImpostorRenderer : MonoBehaviour
             }
         }
 
+        // DEBUG: Log instanceAlways summary
+        Debug.Log(instanceAlwaysProtos.ToString());
+
         buckets = bucketList.ToArray();
         return buckets.Length;
+    }
+
+    private void BuildVariableLODBuffers()
+    {
+        int protoCount = prototypeRegistry.entries.Length;
+        var infoPacked   = new uint[protoCount * 2]; // (offset, count) per proto
+        var flatDistances = new List<float>();
+        var flatKeeps     = new List<float>();
+
+        for (int i = 0; i < protoCount; i++)
+        {
+            var e = prototypeRegistry.entries[i];
+            int offset = flatDistances.Count;
+            int count = 0;
+
+            if (e != null && e.useDistanceLOD &&
+                e.lodDistancesVariable != null && e.lodDistancesVariable.Length > 0)
+            {
+                count = e.lodDistancesVariable.Length;
+                for (int l = 0; l < count; l++)
+                {
+                    flatDistances.Add(e.lodDistancesVariable[l]);
+                    float keep = (e.lodKeepFractions != null && l < e.lodKeepFractions.Length)
+                        ? Mathf.Clamp01(e.lodKeepFractions[l]) : 1f;
+                    flatKeeps.Add(keep);
+                }
+            }
+            infoPacked[i * 2 + 0] = (uint)offset;
+            infoPacked[i * 2 + 1] = (uint)count;
+        }
+
+        // Buffers must be non-empty even if no prototype uses distance LOD.
+        if (flatDistances.Count == 0) { flatDistances.Add(0f); flatKeeps.Add(1f); }
+
+        protoLODInfoBuffer = new ComputeBuffer(protoCount, sizeof(uint) * 2, ComputeBufferType.Structured);
+        protoLODInfoBuffer.SetData(infoPacked);
+
+        protoLODDistancesFlatBuffer = new ComputeBuffer(flatDistances.Count, sizeof(float), ComputeBufferType.Structured);
+        protoLODDistancesFlatBuffer.SetData(flatDistances.ToArray());
+
+        protoKeepFractionsBuffer = new ComputeBuffer(flatKeeps.Count, sizeof(float), ComputeBufferType.Structured);
+        protoKeepFractionsBuffer.SetData(flatKeeps.ToArray());
     }
 
     private void ResetArgsBuffer()
@@ -811,7 +1048,7 @@ public class ImpostorRenderer : MonoBehaviour
 
     // ===== SHADER BINDING =====
 
-        private void BindComputeBuffers()
+    private void BindComputeBuffers()
     {
         // Visibility kernel.
         impostorSolverCompute.SetBuffer(kernelVisibility, ShaderIDs.ChunkVisibilityBuffer, chunkVisibilityBuffer);
@@ -842,6 +1079,10 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoBlotchParamsBuffer, protoBlotchParamsBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoSizeParamsBuffer, protoSizeParamsBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoSizeModeBuffer, protoSizeModeBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoColorParamsBuffer, protoColorParamsBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoLODModeBuffer, protoLODModeBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoLODDistancesBuffer, protoLODDistancesBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, "_ProtoMaxLODs", protoMaxLODBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -855,6 +1096,49 @@ public class ImpostorRenderer : MonoBehaviour
         //Clear kernel.
         impostorSolverCompute.SetBuffer(kernelClear, ShaderIDs.AtomicCounters, atomicCounters);
         impostorSolverCompute.SetBuffer(kernelClear, ShaderIDs.VisibilityCount, visibilityCountBuffer);
+        impostorSolverCompute.SetBuffer(kernelClear, "_BatchCounter", batchCounterBuffer);
+
+        // ---- Count kernel (Phase A) ----
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.ChunkVisibilityBuffer, chunkVisibilityBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.GlobalBlotchBuffer, globalBlotchBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.BlotchOffsetBuffer, blotchOffsetBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.VisibleChunkList, visibleChunkListBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.VisibilityCount, visibilityCountBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.ProtoBlotchParamsBuffer, protoBlotchParamsBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, ShaderIDs.ProtoLODModeBuffer, protoLODModeBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_ProtoLODInfo", protoLODInfoBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_ProtoLODDistancesFlat", protoLODDistancesFlatBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_BatchList", batchListBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_BatchCounter", batchCounterBuffer);
+
+        // ---- Fill batch dispatch args kernel ----
+        impostorSolverCompute.SetBuffer(kernelFillBatchArgs, "_BatchCounter", batchCounterBuffer);
+        impostorSolverCompute.SetBuffer(kernelFillBatchArgs, "_BatchDispatchArgs", batchDispatchArgsBuffer);
+
+        // ---- Generate kernel (Phase B) ----
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ChunkVisibilityBuffer, chunkVisibilityBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.GlobalBlotchBuffer, globalBlotchBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.AtomicCounters, atomicCounters);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ProtoHeightOffsetBuffer, protoHeightOffsetBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ProtoBlotchParamsBuffer, protoBlotchParamsBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ProtoSizeParamsBuffer, protoSizeParamsBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ProtoSizeModeBuffer, protoSizeModeBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ProtoLODModeBuffer, protoLODModeBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoLODInfo", protoLODInfoBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoLODDistancesFlat", protoLODDistancesFlatBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoKeepFractions", protoKeepFractionsBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ActiveLOD0SliceMap, activeLOD0SliceMap);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ActiveLOD0ResolutionMap, activeLOD0ResolutionMap);
+        impostorSolverCompute.SetTexture(kernelGenerateDistance, ShaderIDs.ActiveLOD0HeightmapArray, activeLOD0HeightmapArray);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_BatchList", batchListBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_BatchCounter", batchCounterBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoMaxLODs", protoMaxLODBuffer);
+        if (globalHeightmapArray != null)
+            impostorSolverCompute.SetTexture(kernelGenerateDistance, "_GlobalHeightmapArray", globalHeightmapArray);
 
         // Global constants.
         impostorSolverCompute.SetInt(ShaderIDs.BucketCount, bucketCount);
@@ -871,6 +1155,7 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetVector(ShaderIDs.SphereCenter, new Vector4(sphereCenter.x, sphereCenter.y, sphereCenter.z, 0f));
         impostorSolverCompute.SetFloat(ShaderIDs.SphereRadius, sphereRadius);
         impostorSolverCompute.SetFloat(ShaderIDs.HalfChunkLinearSize, halfChunkLinearSize);
+        impostorSolverCompute.SetInt("_MaxDistanceBatches", MAX_DISTANCE_BATCHES);
         
         int slabStrideUints = ConflictGridDefines.SlabHeaderUints +
             (ConflictGridDefines.resolution * ConflictGridDefines.resolution + ConflictGridDefines.CellsPerUint - 1) / ConflictGridDefines.CellsPerUint;
@@ -918,7 +1203,6 @@ public class ImpostorRenderer : MonoBehaviour
         argsBuffer?.Release();                argsBuffer = null;
         visibleChunkListBuffer?.Release();    visibleChunkListBuffer = null;
         visibilityCountBuffer?.Release();     visibilityCountBuffer = null;
-        chunkLODBuffer?.Release();            chunkLODBuffer = null;
         atomicCounters?.Release();            atomicCounters = null;
         bucketMapBuffer?.Release();           bucketMapBuffer = null;
         blotchOffsetBuffer?.Release();        blotchOffsetBuffer = null;
@@ -930,8 +1214,17 @@ public class ImpostorRenderer : MonoBehaviour
         protoBlotchParamsBuffer?.Release(); protoBlotchParamsBuffer = null;
         protoSizeParamsBuffer?.Release();    protoSizeParamsBuffer = null;
         protoSizeModeBuffer?.Release();     protoSizeModeBuffer = null;
+        protoColorParamsBuffer?.Release();  protoColorParamsBuffer = null;
         activeLOD0SliceMap?.Release();      activeLOD0SliceMap = null;
         activeLOD0ResolutionMap?.Release();  activeLOD0ResolutionMap = null;
+        protoLODModeBuffer?.Release();      protoLODModeBuffer = null;
+        protoLODDistancesBuffer?.Release(); protoLODDistancesBuffer = null;
+        batchListBuffer?.Release();            batchListBuffer = null;
+        batchCounterBuffer?.Release();         batchCounterBuffer = null;
+        batchDispatchArgsBuffer?.Release();    batchDispatchArgsBuffer = null;
+        protoLODInfoBuffer?.Release();         protoLODInfoBuffer = null;
+        protoLODDistancesFlatBuffer?.Release();protoLODDistancesFlatBuffer = null;
+        protoKeepFractionsBuffer?.Release();   protoKeepFractionsBuffer = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
@@ -1259,6 +1552,7 @@ public static class ShaderIDs
     public static readonly int ProtoBlotchParamsBuffer = Shader.PropertyToID("_ProtoBlotchParamsBuffer");
     public static readonly int ProtoSizeParamsBuffer = Shader.PropertyToID("_ProtoSizeParamsBuffer");
     public static readonly int ProtoSizeModeBuffer = Shader.PropertyToID("_ProtoSizeModeBuffer");
+    public static readonly int ProtoColorParamsBuffer = Shader.PropertyToID("_ProtoColorParamsBuffer");
 
     // Per-frame constants
     public static readonly int FrustumPlanes = Shader.PropertyToID("_FrustumPlanes");
@@ -1277,6 +1571,8 @@ public static class ShaderIDs
     public static readonly int ActiveLOD0SliceMap = Shader.PropertyToID("_ActiveLOD0SliceMap");
     public static readonly int ActiveLOD0ResolutionMap = Shader.PropertyToID("_ActiveLOD0ResolutionMap");
     public static readonly int ActiveLOD0HeightmapArray = Shader.PropertyToID("_ActiveLOD0HeightmapArray");
+    public static readonly int ProtoLODModeBuffer      = Shader.PropertyToID("_ProtoLODModeBuffer");
+    public static readonly int ProtoLODDistancesBuffer = Shader.PropertyToID("_ProtoLODDistancesBuffer");
 
     // Counts
     public static readonly int BucketCount = Shader.PropertyToID("_BucketCount");

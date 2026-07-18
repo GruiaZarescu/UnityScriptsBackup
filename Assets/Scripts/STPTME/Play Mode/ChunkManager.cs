@@ -288,7 +288,7 @@ public class ChunkManager : MonoBehaviour
             var chunkVisData = BuildChunkVisibilityData();
 
             Vector3 halfExtent = new Vector3(sphereRadius * 1.5f, sphereRadius * 1.5f, sphereRadius * 1.5f);
-            impostor.Initialize(mapObjectRegistry, sphereCenter, sphereRadius, allBlotches, chunkVisData, settings.halfChunkLinearSize, halfExtent, minX, numberOfChunks, mapsPerRow);
+            impostor.Initialize(mapObjectRegistry, sphereCenter, sphereRadius, allBlotches, chunkVisData, settings.halfChunkLinearSize, halfExtent, minX, numberOfChunks, mapsPerRow, globalHeightmapArray, terrainGridSize);
 
             allBlotches = null; // Free RAM copy (keep only in VRAM)
         }

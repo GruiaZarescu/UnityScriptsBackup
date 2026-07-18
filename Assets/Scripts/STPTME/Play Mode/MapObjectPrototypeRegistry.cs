@@ -256,6 +256,11 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         [Tooltip("Deterministic size variation per instance. Same seed = same size in both prefab and instanced pipelines.")]
         public SizeVariabilitySettings sizeVariability = new SizeVariabilitySettings();
 
+        // ── Material color override ─────────────────────────────────────────
+        [Header("Material Color Override")]
+        [Tooltip("Override the impostor material color. Leave white (1,1,1,1) to use the material's _Color property.")]
+        public Color impostorColorOverride = Color.white;
+
         // ── Prefab reference ───────────────────────────────────────────────
         [Tooltip("Original prefab reference (for editor/debug LOD0 spawning, not used at runtime)")]
         public GameObject sourcePrefab;
@@ -300,6 +305,28 @@ public class MapObjectPrototypeRegistry : ScriptableObject
             new CanopyMaskSettings { enabled = true,  maskSize = 16 },  // LOD 6
             new CanopyMaskSettings { enabled = true,  maskSize = 8  },  // LOD 7
         };
+
+        [Header("Density Gradient Across Blotch Radius")]
+        [Tooltip("Enable density gradient across the blotch radius.")]
+        public bool densityFadeEnabled = false;
+        [Range(0f, 1f), Tooltip("Density fade start radius (0 = center of blotch).")]
+        public float densityFadeStart = 0f;
+        
+        [Header("Use screen space LOD instead of per-chunk LOD")]
+        public bool useDistanceLOD = false;
+
+        [Tooltip("LEGACY. Kept for migration; the variable array below is what the GPU reads.")]
+        public Vector4 lodDistances = new Vector4(20f, 40f, 80f, 120f);
+
+        [Tooltip("Variable-length LOD distance thresholds (replaces the Vector4 limit). "
+            + "Element i = max screen-space distance for LOD i. The last element is the cull distance. "
+            + "Length is unbounded — add as many LODs as the mesh array supports.")]
+        public float[] lodDistancesVariable = new float[] { 20f, 40f, 80f, 120f };
+
+        [Tooltip("Per-LOD density keep fraction for distance-mode pruning. 1 = keep all. "
+            + "Length should match lodDistancesVariable. e.g. last entry 0.5 = 50% at the furthest LOD. "
+            + "Pruning is probabilistic and stable per-instance (no shimmer).")]
+        [Range(0f, 1f)] public float[] lodKeepFractions = new float[] { 1f, 1f, 1f, 1f };
 
         /// <summary>
         /// Returns canopy mask settings for this prototype at the given chunk LOD.

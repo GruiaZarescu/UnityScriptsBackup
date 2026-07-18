@@ -43,10 +43,25 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 5135898459180354558, guid: b95e5c02f5e9dd248910ceaf0067a5f0, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree02Rework
     lodMeshes:
     - {fileID: -8135553595718028330, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
@@ -77,10 +92,25 @@ MonoBehaviour:
       minWidthScale: 0.1
       maxWidthScale: 3
       distributionSteepness: 1
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 7072333792751790876, guid: 7e7bdb28726b78446b5aab44d583b021, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree03Rework
     lodMeshes:
     - {fileID: 2478876932983402796, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
@@ -111,10 +141,25 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 9211694676256713346, guid: ca6623be249b0d94b97444eeeb9ed753, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree01Rework
     lodMeshes:
     - {fileID: 811424468950150501, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
@@ -144,10 +189,25 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 9110096357674635966, guid: 8461c8693afe4314c9bf41623849df30, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree04Rework
     lodMeshes:
     - {fileID: 7607211279866533359, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
@@ -177,10 +237,25 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 5203936471834951886, guid: 4ed7c84e484e88a41b797bc333f93337, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree01ReworkSavana
     lodMeshes:
     - {fileID: 811424468950150501, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
@@ -210,10 +285,25 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 9110096357674635966, guid: e597d91e5f8674b4abb1d4527cd68791, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Rock05Rework
     lodMeshes:
     - {fileID: 6998286298243074622, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
@@ -242,10 +332,25 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 7804057445970482410, guid: bead088d78dea2b43a43d9f3bdecb4ff, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Palm146
     lodMeshes: []
     lodGameObjects: []
@@ -270,10 +375,25 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 7524002481145723867, guid: b86e3873fdca6344799a2871db0361ec, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Grass0
     lodMeshes:
     - {fileID: 7855247728046881105, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
@@ -300,10 +420,73 @@ MonoBehaviour:
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 3356751432538110193, guid: ffbddc4ef9676cc419e81e06aaa836d8, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 20
+    - 40
+    - 80
+    - 120
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Grass1
+    lodMeshes:
+    - {fileID: -8366505637189061574, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
+    - {fileID: -2626800035213257863, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
+    - {fileID: 7344318402331704891, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
+    - {fileID: 959071007824930055, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
+    - {fileID: -5630491982682799407, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 23a7c21d0f1186840aa7e101259e766b, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    blotchRadius: 20
+    blotchDensity: 25
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 0
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 0.8
+      maxHeightScale: 1.2
+      minWidthScale: 0.8
+      maxWidthScale: 1.2
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 5551323839619686096, guid: ada89d63c68e46c42a34312653479b7a, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 1
+    densityFadeStart: 0.75
+    useDistanceLOD: 1
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 10
+    - 20
+    - 30
+    - 40
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
   densityPerLOD: 640000005a000000500000004b00000046000000
   lodWidthMultipliers:
   - 1
