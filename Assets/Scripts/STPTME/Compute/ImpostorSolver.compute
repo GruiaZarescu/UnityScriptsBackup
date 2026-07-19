@@ -17,6 +17,8 @@ StructuredBuffer<uint> _ProtoFlags;
 StructuredBuffer<uint> _ProtoMaxLODs;
 StructuredBuffer<float4> _ProtoSizeParamsBuffer;
 StructuredBuffer<float2> _ProtoSizeModeBuffer;
+StructuredBuffer<float2> _ChunkWidthRatioBuffer; // per storage slot: (ratioX, ratioZ), 1.0 = nominal chunk size
+StructuredBuffer<float2> _CellStartPosBuffer;
 #define INST_PROTO_MASK   0xFFu
 #define INST_LOD_SHIFT    8
 #define INST_ROT_SHIFT    16
@@ -136,8 +138,7 @@ float2 ComputeSizeScales(uint protoIdx, uint seed)
     float2 modeSteep = _ProtoSizeModeBuffer[protoIdx];
     uint mode = (uint)modeSteep.x;
     float steepness = modeSteep.y;
-    if (abs(params.y - params.x) < 0.001)
-        return float2(1.0, 1.0);
+
     float t = BellCurveDistribution(seed, steepness);
     if (mode == 0)
     {
@@ -147,7 +148,7 @@ float2 ComputeSizeScales(uint protoIdx, uint seed)
     else
     {
         float heightScale = lerp(params.x, params.y, t);
-        float widthScale = lerp(params.z, params.w, t);
+        float widthScale  = lerp(params.z, params.w, t);
         return float2(heightScale, widthScale);
     }
 }
@@ -231,52 +232,28 @@ bool TryClaim(RWStructuredBuffer<uint> arena, uint slab, uint ci, uint want)
     return false;
 }
 
+static const float3 FACE_LOCAL_UP[6] = {
+    float3(0,1,0), float3(0,-1,0), float3(-1,0,0), float3(1,0,0), float3(0,0,1), float3(0,0,-1)
+};
+static const float3 FACE_AXIS_A_EXACT[6] = {
+    float3(1,0,0), float3(1,0,0), float3(0,0,1), float3(0,0,-1), float3(1,0,0), float3(-1,0,0)
+};
+static const float3 FACE_AXIS_B_EXACT[6] = {
+    float3(0,0,1), float3(0,0,-1), float3(0,1,0), float3(0,1,0), float3(0,1,0), float3(0,1,0)
+};
+
+
 void DirectionToFaceUV(float3 dir, uint face, out float globalLX, out float globalLZ)
 {
     float invMax = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
     float3 cubePt = dir / invMax;
-    float fx, fz;
-    if (face == 0)      { fx = cubePt.x; fz = cubePt.z; }
-    else if (face == 1) { fx = cubePt.x; fz = cubePt.z; }
-    else if (face == 2) { fx = cubePt.z; fz = cubePt.y; }
-    else if (face == 3) { fx = cubePt.z; fz = cubePt.y; }
-    else if (face == 4) { fx = cubePt.x; fz = cubePt.y; }
-    else                { fx = cubePt.x; fz = cubePt.y; }
+    float3 faceOffset = cubePt - FACE_LOCAL_UP[face];
+    float fx = dot(faceOffset, FACE_AXIS_A_EXACT[face]);
+    float fz = dot(faceOffset, FACE_AXIS_B_EXACT[face]);
     globalLX = fx * 0.5f + 0.5f;
     globalLZ = fz * 0.5f + 0.5f;
 }
 
-static const float3 FACE_AXIS_A[6] = {
-    float3(1,0,0), float3(1,0,0), float3(0,0,1),
-    float3(0,0,1), float3(1,0,0), float3(1,0,0)
-};
-static const float3 FACE_AXIS_B[6] = {
-    float3(0,0,1), float3(0,0,1), float3(0,1,0),
-    float3(0,1,0), float3(0,1,0), float3(0,1,0)
-};
-
-// Build the tangent frame for a chunk+face once. Hoisted out of the per-instance path.
-struct TangentFrame { float3 centerDir; float3 tangentU; float3 tangentV; float angHalf; };
-
-TangentFrame BuildTangentFrame(ChunkVisibilityData vis, uint face)
-{
-    TangentFrame tf;
-    tf.centerDir = float3(vis.centerDirX, vis.centerDirY, vis.centerDirZ);
-    float3 axisA = FACE_AXIS_A[face];
-    float3 axisB = FACE_AXIS_B[face];
-    tf.tangentU = normalize(axisA - dot(tf.centerDir, axisA) * tf.centerDir);
-    tf.tangentV = normalize(axisB - dot(tf.centerDir, axisB) * tf.centerDir);
-    tf.angHalf  = _HalfChunkLinearSize / _SphereRadius;
-    return tf;
-}
-
-// Direction from a prebuilt frame + local UV + angular scatter. No normalize of the frame.
-float3 InstanceDirFromFrame(TangentFrame tf, float lx, float lz, float aoX, float aoZ)
-{
-    float uOff = (lx - 0.5f) * 2.0f * tf.angHalf + aoX;
-    float vOff = (lz - 0.5f) * 2.0f * tf.angHalf + aoZ;
-    return normalize(tf.centerDir + tf.tangentU * uOff + tf.tangentV * vOff);
-}
 
 // Cheap approx world pos (no heightmap read) from a prebuilt frame.
 float3 ApproxWorldPosFromDir(float3 instanceDir, float boundCenterAlt)
@@ -303,18 +280,11 @@ uint ComputeStorageSlot(int mapX, int mapY, int chunkX, int chunkY, uint face)
     return (uint)(globalIndex * 6 + (int)face);
 }
 
-// Per-triangle planar interpolation — matches the terrain MESH, not bilinear.
-// Split along the ANTI-diagonal (0,1)-(1,0). If your terrain mesh triangulates
-// the other way, swap to the main-diagonal branch (commented below).
 float TriInterp(float h00, float h10, float h01, float h11, float2 f)
 {
-    if (f.x + f.y <= 1.0)
-        return h00 + (h10 - h00) * f.x + (h01 - h00) * f.y;
-    return h11 + (h01 - h11) * (1.0 - f.x) + (h10 - h11) * (1.0 - f.y);
-
-    // Main-diagonal (0,0)-(1,1) variant, if needed:
-    // if (f.y <= f.x) return h00 + (h10 - h00) * f.x + (h11 - h10) * f.y;
-    // return h00 + (h11 - h01) * f.x + (h01 - h00) * f.y;
+    if (f.y <= f.x)
+        return h00 + (h10 - h00) * f.x + (h11 - h10) * f.y;   // triangle {bl,br,tr}
+    return h00 + (h11 - h01) * f.x + (h01 - h00) * f.y;        // triangle {bl,tr,tl}
 }
 
 float SampleHeightActiveTri(float2 uv, uint2 res, uint slice)
@@ -329,6 +299,48 @@ float SampleHeightActiveTri(float2 uv, uint2 res, uint slice)
     float h01 = _ActiveLOD0HeightmapArray.Load(int4(i0.x, i1.y, slice, 0));
     float h11 = _ActiveLOD0HeightmapArray.Load(int4(i1.x, i1.y, slice, 0));
     return TriInterp(h00, h10, h01, h11, f);
+}
+
+float SampleHeightGlobalTri(float2 uv, uint slice)
+{
+    uint w, h, elems;
+    _GlobalHeightmapArray.GetDimensions(w, h, elems);
+    float2 res   = float2(w, h);
+    float2 coord = saturate(uv) * (res - 1.0);
+    int2   i0    = (int2)floor(coord);
+    int2   i1    = min(i0 + 1, (int2)res - 1);
+    float2 f     = coord - (float2)i0;
+
+    float h00 = _GlobalHeightmapArray.Load(int4(i0.x, i0.y, (int)slice, 0));
+    float h10 = _GlobalHeightmapArray.Load(int4(i1.x, i0.y, (int)slice, 0));
+    float h01 = _GlobalHeightmapArray.Load(int4(i0.x, i1.y, (int)slice, 0));
+    float h11 = _GlobalHeightmapArray.Load(int4(i1.x, i1.y, (int)slice, 0));
+    return TriInterp(h00, h10, h01, h11, f);   // same corrected diagonal
+}
+
+float3 ComputeExactInstanceDir(uint face, int chunkPacked, uint storageSlot, float dispLX, float dispLZ)
+{
+    uint raw = asuint(chunkPacked);
+    int chunkX = (int)((raw >> 8) & 0xFFu); if (chunkX > 127) chunkX -= 256;
+    int chunkY = (int)(raw & 0xFFu);        if (chunkY > 127) chunkY -= 256;
+
+    float chunkWorldSize = _HalfChunkLinearSize * 2.0;
+    float cellWorldSize  = chunkWorldSize * (float)_NumberOfChunks;
+    float faceWorldSize  = (float)_MapsPerFace * cellWorldSize;
+
+    float2 cellStart  = _CellStartPosBuffer[storageSlot];
+    float2 widthRatio = _ChunkWidthRatioBuffer[storageSlot]; // 1.0 unless this is an edge chunk
+
+    float px = cellStart.x + chunkWorldSize * (float)chunkX + dispLX * chunkWorldSize * widthRatio.x;
+    float pz = cellStart.y + chunkWorldSize * (float)chunkY + dispLZ * chunkWorldSize * widthRatio.y;
+
+    float percentX = faceWorldSize > 0.0 ? px / faceWorldSize : 0.0;
+    float percentY = faceWorldSize > 0.0 ? pz / faceWorldSize : 0.0;
+    float factorA = (percentX - 0.5) * 2.0;
+    float factorB = (percentY - 0.5) * 2.0;
+
+    float3 cubeVec = FACE_LOCAL_UP[face] + factorA * FACE_AXIS_A_EXACT[face] + factorB * FACE_AXIS_B_EXACT[face];
+    return normalize(cubeVec);
 }
 
 // =================================================================
@@ -392,8 +404,7 @@ float3 BlotchWorldPosDir(float3 instanceDir, uint face,
             terrainY = min(terrainY, _TerrainGridSize - 1);
             uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize)
                             + terrainY * _TerrainGridSize + terrainX;
-            terrainHeight = _GlobalHeightmapArray.SampleLevel(
-                sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
+            terrainHeight = SampleHeightGlobalTri(terrainUV, sliceIndex);
         }
     }
     else
@@ -407,8 +418,7 @@ float3 BlotchWorldPosDir(float3 instanceDir, uint face,
         terrainY = min(terrainY, _TerrainGridSize - 1);
         uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize)
                         + terrainY * _TerrainGridSize + terrainX;
-        terrainHeight = _GlobalHeightmapArray.SampleLevel(
-            sampler_GlobalHeightmapArray, float3(terrainUV, sliceIndex), 0);
+        terrainHeight = SampleHeightGlobalTri(terrainUV, sliceIndex);
     }
 
     float2 offsets = _ProtoHeightOffsetBuffer[protoIdx];
@@ -418,16 +428,6 @@ float3 BlotchWorldPosDir(float3 instanceDir, uint face,
     return _SphereCenter + instanceDir * (_SphereRadius + terrainHeight);
 }
 
-// Legacy wrapper used by the chunk-LOD kernel (builds the frame internally).
-float3 BlotchWorldPos(ChunkVisibilityData vis, uint face,
-                      float lx, float lz, float angularOffsetX, float angularOffsetZ,
-                      uint chunkLOD, uint storageSlot, uint protoIdx, int chunkPacked)
-{
-    TangentFrame tf = BuildTangentFrame(vis, face);
-    float3 instanceDir = InstanceDirFromFrame(tf, lx, lz, angularOffsetX, angularOffsetZ);
-    return BlotchWorldPosDir(instanceDir, face, lx, lz, angularOffsetX, angularOffsetZ,
-                             chunkLOD, storageSlot, protoIdx, chunkPacked);
-}
 
 // =================================================================
 // KERNEL 1: CSVisibility  (unchanged)
@@ -529,8 +529,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
             uint ic = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
 
-            // Hoisted: frame constant across all instances of this blotch.
-            TangentFrame tf = BuildTangentFrame(vis, face);
             uint selectedLOD = min(chunkLOD, _ProtoMaxLODs[protoIdx]);
 
             [loop] for (uint inst = 0; inst < ic; inst++)
@@ -555,9 +553,13 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                 float uv_dx = cos(ang) * angularDst;
                 float uv_dz = sin(ang) * angularDst;
 
-                float3 instanceDir = InstanceDirFromFrame(tf, base_lx, base_lz, uv_dx, uv_dz);
+                float chunkWorldSize_local = _HalfChunkLinearSize * 2.0;
+                float uvToAngular_local = chunkWorldSize_local / _SphereRadius;
+                float dispLX = base_lx + uv_dx / uvToAngular_local;
+                float dispLZ = base_lz + uv_dz / uvToAngular_local;
+                float3 instanceDir = ComputeExactInstanceDir(face, bl.chunkPacked, storageSlot, dispLX, dispLZ);
                 float3 wp = BlotchWorldPosDir(instanceDir, face, base_lx, base_lz, uv_dx, uv_dz,
-                                              chunkLOD, storageSlot, protoIdx, bl.chunkPacked);
+                                            chunkLOD, storageSlot, protoIdx, bl.chunkPacked);
 
                 bool wonClaim = true;
                 if (selectedLOD == 0 && radius >= 0.001)
@@ -630,9 +632,7 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
         float radius = params.x;
         float density = params.y;
 
-        // SAFE whole-blotch early-out: closest point still beyond max LOD dist.
-        TangentFrame tf = BuildTangentFrame(vis, face);
-        float3 centerDir = InstanceDirFromFrame(tf, base_lx, base_lz, 0, 0);
+        float3 centerDir = ComputeExactInstanceDir(face, bl.chunkPacked, storageSlot, base_lx, base_lz);
         float3 approxCenter = ApproxWorldPosFromDir(centerDir, vis.boundCenterAlt);
         float centerDist = length(approxCenter - _EyePos);
         if (centerDist - radius > GetMaxLODDistance(protoIdx)) continue;
@@ -704,9 +704,6 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     bool  fadeEnabled = params.w > 0.5;
     uint seed = bl.seedAndDensity & 0xFFFFu;
 
-    // Frame hoisted; identical for every thread in this batch.
-    TangentFrame tf = BuildTangentFrame(vis, face);
-
     uint hi = (seed << 16) | (inst & 0xFFFFu);
     uint h1 = pcg_hash(hi); uint h2 = pcg_hash(h1 + 1);
     float ang = (h1 / 4294967296.0) * 6.283185;
@@ -728,8 +725,11 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float uv_dx = cos(ang) * angularDst;
     float uv_dz = sin(ang) * angularDst;
 
-    // Direction built ONCE, reused for both the distance test and the height sample.
-    float3 instanceDir = InstanceDirFromFrame(tf, base_lx, base_lz, uv_dx, uv_dz);
+    float chunkWorldSize_local = _HalfChunkLinearSize * 2.0;
+    float uvToAngular_local = chunkWorldSize_local / _SphereRadius;
+    float dispLX = base_lx + uv_dx / uvToAngular_local;
+    float dispLZ = base_lz + uv_dz / uvToAngular_local;
+    float3 instanceDir = ComputeExactInstanceDir(face, bl.chunkPacked, storageSlot, dispLX, dispLZ);
 
     // Coarse real altitude for the distance test — kills the boundCenterAlt radial error.
     float globalLX, globalLZ;

@@ -73,6 +73,9 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer activeLOD0SliceMap;
     private ComputeBuffer activeLOD0ResolutionMap;
     private uint[] cpuActiveLOD0SliceMap;
+
+    private ComputeBuffer chunkWidthRatioBuffer;
+    private Vector2[] cpuChunkWidthRatio;
     private Vector2Int[] cpuActiveLOD0ResolutionMap;
     private Dictionary<int, int> slotToSliceMap = new Dictionary<int, int>();
     private Queue<int> freeSlices = new Queue<int>();
@@ -138,6 +141,7 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer protoLODInfoBuffer;
     private ComputeBuffer protoLODDistancesFlatBuffer;
     private ComputeBuffer protoKeepFractionsBuffer;
+    private ComputeBuffer cellStartPosBuffer;
 
     private int kernelCountDistance;
     private int kernelFillBatchArgs;
@@ -272,15 +276,16 @@ public class ImpostorRenderer : MonoBehaviour
     ///   5. Builds bucket metadata — mesh/material per prototype
     /// </summary>
     public void Initialize(
-        MapObjectPrototypeRegistry registry,
-        Vector3 sphereCenter,
-        float sphereRadius,
-        BlotchData[] allBlotches,
-        ChunkVisibilityData[] chunkData,
-        float halfChunkLinearSize,
-        Vector3 halfExtent,
-        int minX, int numberOfChunks, int mapsPerRow,
-        Texture2DArray globalHeightmap = null, int terrainGridSize = 0)
+    MapObjectPrototypeRegistry registry,
+    Vector3 sphereCenter,
+    float sphereRadius,
+    BlotchData[] allBlotches,
+    ChunkVisibilityData[] chunkData,
+    Vector2[] cellStartPositions,   // NEW
+    float halfChunkLinearSize,
+    Vector3 halfExtent,
+    int minX, int numberOfChunks, int mapsPerRow,
+    Texture2DArray globalHeightmap = null, int terrainGridSize = 0)
     {
         Instance = this;
         this.sphereCenter = sphereCenter;
@@ -428,6 +433,27 @@ public class ImpostorRenderer : MonoBehaviour
         activeLOD0HeightmapArray.wrapMode = TextureWrapMode.Clamp;
 
         for (int i = 0; i < MAX_LOD0_SLICES; i++) freeSlices.Enqueue(i);
+
+        // ---- 2c-ter. Chunk width ratio — corrects the last-chunk-in-a-cell sample-count
+        // deviation baked in by MeshSaver's cell-border overlap logic. Defaults to (1,1);
+        // only updated when a chunk's actual LOD0 sample count differs from the nominal.
+        cpuChunkWidthRatio = new Vector2[chunkData.Length];
+        for (int i = 0; i < cpuChunkWidthRatio.Length; i++) cpuChunkWidthRatio[i] = Vector2.one;
+        chunkWidthRatioBuffer = new ComputeBuffer(chunkData.Length, sizeof(float) * 2, ComputeBufferType.Structured);
+        chunkWidthRatioBuffer.SetData(cpuChunkWidthRatio);
+
+        // ---- 2d. Cell start position buffer — exact baked cell origin per storage slot.
+        // Feeds the exact cube-face reconstruction on GPU; replaces the tangent-plane approximation
+        // that only agreed with the mesh at chunk center.
+        if (cellStartPositions != null && cellStartPositions.Length > 0)
+        {
+            cellStartPosBuffer = new ComputeBuffer(cellStartPositions.Length, sizeof(float) * 2, ComputeBufferType.Structured);
+            cellStartPosBuffer.SetData(cellStartPositions);
+        }
+        else
+        {
+            cellStartPosBuffer = new ComputeBuffer(1, sizeof(float) * 2, ComputeBufferType.Structured);
+        }
 
         // ---- 3. Conflict grid arena ----
         int arenaSize = ConflictGridDefines.ArenaUints;
@@ -774,6 +800,15 @@ public class ImpostorRenderer : MonoBehaviour
         // impostorSolverCompute.SetVector(ShaderIDs.CameraPos, new Vector4(pos.x, pos.y, pos.z, 0f));  // unchanged
     }
 
+    public void SetChunkWidthRatio(int storageSlot, float ratioX, float ratioZ)
+    {
+        if (storageSlot < 0 || storageSlot >= cpuChunkWidthRatio.Length) return;
+        var r = new Vector2(ratioX, ratioZ);
+        if (cpuChunkWidthRatio[storageSlot] == r) return; // avoid redundant uploads
+        cpuChunkWidthRatio[storageSlot] = r;
+        chunkWidthRatioBuffer.SetData(cpuChunkWidthRatio);
+    }
+
     public void SetActiveLOD0Heightmap(int storageSlot, ushort[,] heights, float maxHeight, int xOffset, int yOffset, int width, int height)
     {
         if (slotToSliceMap.TryGetValue(storageSlot, out int existingSlice))
@@ -1092,6 +1127,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoLODModeBuffer, protoLODModeBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoLODDistancesBuffer, protoLODDistancesBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, "_ProtoMaxLODs", protoMaxLODBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, "_CellStartPosBuffer", cellStartPosBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, "_ChunkWidthRatioBuffer", chunkWidthRatioBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -1120,6 +1157,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelCountDistance, "_ProtoLODDistancesFlat", protoLODDistancesFlatBuffer);
         impostorSolverCompute.SetBuffer(kernelCountDistance, "_BatchList", batchListBuffer);
         impostorSolverCompute.SetBuffer(kernelCountDistance, "_BatchCounter", batchCounterBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_CellStartPosBuffer", cellStartPosBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_ChunkWidthRatioBuffer", chunkWidthRatioBuffer);
 
         // ---- Fill batch dispatch args kernel ----
         impostorSolverCompute.SetBuffer(kernelFillBatchArgs, "_BatchCounter", batchCounterBuffer);
@@ -1146,6 +1185,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_BatchList", batchListBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_BatchCounter", batchCounterBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoMaxLODs", protoMaxLODBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_CellStartPosBuffer", cellStartPosBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ChunkWidthRatioBuffer", chunkWidthRatioBuffer);
         if (globalHeightmapArray != null)
             impostorSolverCompute.SetTexture(kernelGenerateDistance, "_GlobalHeightmapArray", globalHeightmapArray);
 
@@ -1234,6 +1275,8 @@ public class ImpostorRenderer : MonoBehaviour
         protoLODInfoBuffer?.Release();         protoLODInfoBuffer = null;
         protoLODDistancesFlatBuffer?.Release();protoLODDistancesFlatBuffer = null;
         protoKeepFractionsBuffer?.Release();   protoKeepFractionsBuffer = null;
+        cellStartPosBuffer?.Release(); cellStartPosBuffer = null;
+        chunkWidthRatioBuffer?.Release(); chunkWidthRatioBuffer = null;
     }
 
     // ===== HELPERS (stubs — to be wired to ChunkManager data) =====
@@ -1512,7 +1555,16 @@ public class ImpostorRenderer : MonoBehaviour
             // 37 is the bucket index for Grass0 LOD0 from your previous debug report
             StartCoroutine(DebugSpecificBucket(37)); 
         }
+
+        if (freeSlices.Count == 0)
+        {
+            Debug.LogWarning($"[ImpostorRenderer] LOD0 heightmap slice pool EXHAUSTED " +
+                $"(cap={MAX_LOD0_SLICES}, active={slotToSliceMap.Count}). ");
+            return;
+        }
     }
+
+    
 
 }
 

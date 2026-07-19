@@ -275,23 +275,28 @@ public class ChunkManager : MonoBehaviour
 
         // Initialize impostor renderer for all LOD1+ GPU-instanced objects.
         // Loads all blotch data from baked cell files and uploads to GPU.
-        {
-            var impostor = GetComponent<ImpostorRenderer>();
-            if (impostor == null)
-                impostor = gameObject.AddComponent<ImpostorRenderer>();
+        
+        var impostor = GetComponent<ImpostorRenderer>();
+        if (impostor == null)
+            impostor = gameObject.AddComponent<ImpostorRenderer>();
 
-            string cellsFolder = System.IO.Path.Combine(
-                Application.streamingAssetsPath, "MapAssets/Cells");
-            BlotchData[] allBlotches = CellBlotchReader.LoadAllBlotches(cellsFolder);
+        string cellsFolder = System.IO.Path.Combine(
+            Application.streamingAssetsPath, "MapAssets/Cells");
+        BlotchData[] allBlotches = CellBlotchReader.LoadAllBlotches(cellsFolder);
 
-            // Build stub visibility data — real implementation pending ChunkManager integration.
-            var chunkVisData = BuildChunkVisibilityData();
+        // Build stub visibility data — real implementation pending ChunkManager integration.
+        var chunkVisData = BuildChunkVisibilityData();
+        var cellStartPositions = BuildChunkCellStartPositions(); 
 
-            Vector3 halfExtent = new Vector3(sphereRadius * 1.5f, sphereRadius * 1.5f, sphereRadius * 1.5f);
-            impostor.Initialize(mapObjectRegistry, sphereCenter, sphereRadius, allBlotches, chunkVisData, settings.halfChunkLinearSize, halfExtent, minX, numberOfChunks, mapsPerRow, globalHeightmapArray, terrainGridSize);
+        
+        Vector3 halfExtent = new Vector3(sphereRadius * 1.5f, sphereRadius * 1.5f, sphereRadius * 1.5f);
+        impostor.Initialize(mapObjectRegistry, sphereCenter, sphereRadius, allBlotches, chunkVisData,
+            cellStartPositions,   // NEW
+            settings.halfChunkLinearSize, halfExtent, minX, numberOfChunks, mapsPerRow,
+            globalHeightmapArray, terrainGridSize);
 
-            allBlotches = null; // Free RAM copy (keep only in VRAM)
-        }
+        allBlotches = null; // Free RAM copy (keep only in VRAM)
+    
 
         ChunkKey initialChunk = GetCurrentProjectedChunk(character.transform.position);
         packedCurrentIndices = initialChunk.packed;
@@ -313,6 +318,7 @@ public class ChunkManager : MonoBehaviour
         var uvCache = CanopyUVCache.LoadFromStreamingAssets(totalStorageSlots);
         if (uvCache != null)
             chunkRegistry.SetCanopyUVCache(uvCache);
+
     }
 
 
@@ -645,6 +651,34 @@ public class ChunkManager : MonoBehaviour
         return data;
     }
 
+    private Vector2[] BuildChunkCellStartPositions()
+    {
+        int totalSlots = totalStorageSlots;
+        var data = new Vector2[totalSlots];
+
+        int storageFaceCount = FaceIdUtility.StorageFaceCount;
+        int mapsPerRowLocal = (maxX - minX + 1);
+        int chunksPerMap = numberOfChunks * numberOfChunks;
+
+        for (int slot = 0; slot < totalSlots; slot++)
+        {
+            int face = slot % storageFaceCount;
+            int globalFlatIdx = slot / storageFaceCount;
+            int mapFlat = globalFlatIdx / chunksPerMap;
+
+            sbyte mapX = (sbyte)(minX + mapFlat / mapsPerRowLocal);
+            sbyte mapY = (sbyte)(minX + mapFlat % mapsPerRowLocal);
+
+            // MapFaceIndex resolves the same baked per-cell origin GenerateMeshData reads via
+            // TryGetStartPosition — includes the bake-time pixel-snap border correction.
+            int idx = MapFaceIndex(mapX, mapY, (FaceId)face);
+            data[slot] = (idx >= 0 && idx < heightmapsStartingPositions.Length)
+                ? heightmapsStartingPositions[idx]
+                : Vector2.zero;
+        }
+        return data;
+    }
+
     // ======== SCHEDULING =======
 
     private void SetHeightmapsToLoad(bool initialGeneration = false)
@@ -971,6 +1005,18 @@ public class ChunkManager : MonoBehaviour
         {
             int slot = FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(packed), face);
             ImpostorRenderer.Instance.SetActiveLOD0Heightmap(slot, currentHeightmapHeights, GetFaceMaxHeight(face),xOffset, yOffset, maxJ + 1, maxI + 1);
+
+            // Some chunks (the last chunk along X or Y within a cell) get a sample count that
+            // deviates from faceChunkStep due to the bake's cell-border overlap logic (MeshSaver's
+            // -1/+1 sample snap). ComputeExactInstanceDir on the GPU assumes every chunk spans the
+            // NOMINAL chunkWorldSize; for those edge chunks that's wrong by a sub-chunk fraction,
+            // which is invisible on flat ground but shows up as floating/sinking grass on slopes.
+            // This ratio corrects it: 1.0 for every ordinary chunk, only deviating exactly where
+            // the bake's sample count deviates.
+            float ratioX = (float)maxJ / faceChunkStep;
+            float ratioZ = (float)maxI / faceChunkStep;
+            ImpostorRenderer.Instance.SetChunkWidthRatio(slot, ratioX, ratioZ);
+            
         }
 
 
