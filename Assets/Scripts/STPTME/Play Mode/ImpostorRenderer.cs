@@ -763,6 +763,15 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetFloat(ShaderIDs.PlayerAltitude, alt);
         impostorSolverCompute.SetFloat(ShaderIDs.PlayerAltitude, alt);
         impostorSolverCompute.SetFloat("_ImpostorCullDistance", impostorCullDistance);
+
+        // LOD distance must come from a LIVE, per-frame position. lastPlayerPosition is only
+        // refreshed by ChunkManager on chunk transitions, which freezes the LOD band field
+        // between crossings — that's the "rings pinned to the map / camera does nothing" bug.
+        Vector3 eye = cam.transform.position;          // live every frame; billboards already prove this updates
+        impostorSolverCompute.SetVector("_EyePos", eye);
+
+        // Leave the horizon reference as the player position (must match VisibilitySystem):
+        // impostorSolverCompute.SetVector(ShaderIDs.CameraPos, new Vector4(pos.x, pos.y, pos.z, 0f));  // unchanged
     }
 
     public void SetActiveLOD0Heightmap(int storageSlot, ushort[,] heights, float maxHeight, int xOffset, int yOffset, int width, int height)

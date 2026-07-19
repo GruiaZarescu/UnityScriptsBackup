@@ -82,6 +82,7 @@ StructuredBuffer<float> _ProtoKeepFractions;   // per-LOD density keep fraction 
 
 float4 _FrustumPlanes[6];
 float3 _CameraPos; float _PlayerAltitude;
+float3 _EyePos;   // live eye, distance-LOD only
 float3 _SphereCenter; float _SphereRadius; float _HorizonMargin; float _ImpostorCullDistance;
 uint _MaxLODsPerBucket; uint _NumBuckets;
 uint _MinX; uint _NumberOfChunks; uint _MapsPerFace;
@@ -633,7 +634,7 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
         TangentFrame tf = BuildTangentFrame(vis, face);
         float3 centerDir = InstanceDirFromFrame(tf, base_lx, base_lz, 0, 0);
         float3 approxCenter = ApproxWorldPosFromDir(centerDir, vis.boundCenterAlt);
-        float centerDist = length(approxCenter - _CameraPos);
+        float centerDist = length(approxCenter - _EyePos);
         if (centerDist - radius > GetMaxLODDistance(protoIdx)) continue;
 
         // Full-density upper bound: stable, no per-frame cliff.
@@ -730,8 +731,25 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     // Direction built ONCE, reused for both the distance test and the height sample.
     float3 instanceDir = InstanceDirFromFrame(tf, base_lx, base_lz, uv_dx, uv_dz);
 
-    float3 approxWp = ApproxWorldPosFromDir(instanceDir, vis.boundCenterAlt);
-    float instDist = length(approxWp - _CameraPos);
+    // Coarse real altitude for the distance test — kills the boundCenterAlt radial error.
+    float globalLX, globalLZ;
+    DirectionToFaceUV(instanceDir, face, globalLX, globalLZ);
+
+    float coarseXf = globalLX * _TerrainGridSize;
+    float coarseYf = globalLZ * _TerrainGridSize;
+    uint  coarseX  = (uint)floor(coarseXf);
+    uint  coarseY  = (uint)floor(coarseYf);
+    float2 coarseUV = saturate(float2(coarseXf - coarseX, coarseYf - coarseY));
+    coarseX = min(coarseX, _TerrainGridSize - 1);
+    coarseY = min(coarseY, _TerrainGridSize - 1);
+    uint coarseSlice = face * (_TerrainGridSize * _TerrainGridSize)
+                    + coarseY * _TerrainGridSize + coarseX;
+
+    float coarseAlt = _GlobalHeightmapArray.SampleLevel(
+        sampler_GlobalHeightmapArray, float3(coarseUV, coarseSlice), 0);
+
+    float3 approxWp = _SphereCenter + instanceDir * (_SphereRadius + coarseAlt);
+    float instDist = length(approxWp - _EyePos);
 
     uint distBandLOD;
     if (!SelectLODByDistance(protoIdx, instDist, distBandLOD)) return; // beyond max -> cull

@@ -482,11 +482,13 @@ MonoBehaviour:
     - 20
     - 30
     - 40
+    - 50
     lodKeepFractions:
     - 1
     - 0.9
     - 0.8
     - 0.7
+    - 0.6
   densityPerLOD: 640000005a000000500000004b00000046000000
   lodWidthMultipliers:
   - 1
