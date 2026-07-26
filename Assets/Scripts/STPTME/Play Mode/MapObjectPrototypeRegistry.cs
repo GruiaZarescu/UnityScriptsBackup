@@ -231,7 +231,7 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         // For single trees: radius=0, density=1. For grass clumps: radius>0, density>1.
         // These are baked into BlotchData by MeshSaver for the procedural pipeline.
 
-        [Header("Blotch Parameters (all prototypes)")]
+        [Header("Blotch Parameters (all prototypes), radius and density are deprecated in favor of BlotchOverrideDatabase")]
         [Tooltip("Blotch radius in meters. 0 = single-instance (exact position). "
                + ">0 = procedural cluster around center.")]
         public float blotchRadius = 0f;

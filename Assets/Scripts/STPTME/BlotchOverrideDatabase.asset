@@ -12,4 +12,330 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4f93f9be546b7a94a9329ba199239f83, type: 3}
   m_Name: BlotchOverrideDatabase
   m_EditorClassIdentifier: Assembly-CSharp::BlotchOverrideDatabase
-  overrides: []
+  prototypeDefaults:
+  - prototypeIndex: 0
+    radius: 0
+    density: 1
+  - prototypeIndex: 1
+    radius: 0
+    density: 1
+  - prototypeIndex: 2
+    radius: 0
+    density: 1
+  - prototypeIndex: 3
+    radius: 0
+    density: 1
+  - prototypeIndex: 4
+    radius: 0
+    density: 1
+  - prototypeIndex: 5
+    radius: 0
+    density: 1
+  - prototypeIndex: 6
+    radius: 0
+    density: 1
+  - prototypeIndex: 7
+    radius: 0
+    density: 1
+  - prototypeIndex: 8
+    radius: 20
+    density: 200
+  - prototypeIndex: 9
+    radius: 20
+    density: 10
+  migrationSourceRegistry: {fileID: 11400000, guid: 7916b413633c42548b3465c821f60cd3, type: 2}
+  overrides:
+  - face: 0
+    terrainGridX: 2
+    terrainGridY: 2
+    seedHash: 844203887
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 2
+    terrainGridY: 2
+    seedHash: 844453127
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 771525212
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 771843368
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772055944
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772245902
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772413802
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772532946
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772633589
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772744723
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772837377
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772955950
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773115736
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773212819
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773330694
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773455303
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773648795
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773862187
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774037964
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774230511
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774413734
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774636720
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774909016
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775019806
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775080160
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775085542
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775079423
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775080690
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775103833
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775108488
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775071209
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 775031887
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774982736
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774853369
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774637040
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774419630
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 774145470
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773845390
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773519515
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773211099
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772977086
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772785927
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 772505419
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 3
+    seedHash: 752723457
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 3
+    seedHash: 752518233
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 771358419
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 773287118
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 2
+    seedHash: 776001071
+    radius: 10
+    density: 3
+  - face: 0
+    terrainGridX: 3
+    terrainGridY: 3
+    seedHash: 753885459
+    radius: 3
+    density: 2

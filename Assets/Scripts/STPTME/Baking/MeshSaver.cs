@@ -130,6 +130,7 @@ public class MeshSaver : MonoBehaviour
 
     private void SortTerrainsForGenerationInternal(bool forceRebake)
     {
+        BlotchBaker.ResetBakeWarnings();
         settings = TerrainManagementSettings.Instance;
         tilingFactor = settings.tilingFactor;
         sphereRadius = settings.sphereRadius;

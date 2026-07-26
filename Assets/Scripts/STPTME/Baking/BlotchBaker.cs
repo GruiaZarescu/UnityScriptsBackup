@@ -19,6 +19,11 @@ using CustomTypes;
 public static class BlotchBaker
 {
     public const int BLOTCH_INSTANCE_SIZE = 16; // BlotchData is 16 bytes
+    private static HashSet<int> _warnedMissingDefault = new HashSet<int>();
+
+    /// <summary>Call once at the start of a bake run so the missing-default warning fires
+    /// at most once per prototype per run, not once per tree.</summary>
+    public static void ResetBakeWarnings() => _warnedMissingDefault.Clear();
 
     /// <summary>
     /// Extracts blotches from all trees in the given terrain, writing them into
@@ -139,16 +144,30 @@ public static class BlotchBaker
             localZ = Mathf.Clamp(localZ, 0f, chunkSize);
 
             // Read blotch parameters from the prototype entry.
-            // These blotch parameters are read from MapObjectPrototypeEntry fields.
-            float blotchRadius = proto.blotchRadius;
-            float blotchDensity = proto.blotchDensity;
             byte conflictCategory = proto.conflictCategory;
 
-            if (overrideDatabase != null
-            && overrideDatabase.TryGetOverride(face, terrainGridX, terrainGridY, seed, out var blotchOverride))
+            float blotchRadius, blotchDensity;
+            BlotchOverrideDatabase.Entry blotchOverride = default;
+            bool hasOverride = overrideDatabase != null &&
+                overrideDatabase.TryGetOverride(face, terrainGridX, terrainGridY, seed, out blotchOverride);
+
+            if (hasOverride)
             {
                 blotchRadius = blotchOverride.radius;
                 blotchDensity = blotchOverride.density;
+            }
+            else if (overrideDatabase != null && overrideDatabase.TryGetPrototypeDefault(protoIdx, out var protoDefault))
+            {
+                blotchRadius = protoDefault.radius;
+                blotchDensity = protoDefault.density;
+            }
+            else
+            {
+                blotchRadius = 0f;
+                blotchDensity = 0f;
+                if (_warnedMissingDefault.Add(protoIdx))
+                    Debug.LogWarning($"[BlotchBaker] No override or prototype default for prototype {protoIdx} " +
+                        $"— baking as (radius=0, density=0). Set a default in BlotchOverrideDatabase.");
             }
 
             bool cullLODOverride = proto.cullLOD != 255;

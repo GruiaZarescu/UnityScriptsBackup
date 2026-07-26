@@ -24,12 +24,79 @@ public class BlotchOverrideDatabase : ScriptableObject
         public float density;
     }
 
+    [System.Serializable]
+    public struct PrototypeDefault
+    {
+        public int prototypeIndex;
+        public float radius;
+        public float density;
+    }
+
+    [SerializeField] private List<PrototypeDefault> prototypeDefaults = new List<PrototypeDefault>();
+    private Dictionary<int, PrototypeDefault> _protoDefaultLookup;
+    private bool _protoDefaultDirty = true;
+
+    private Dictionary<int, PrototypeDefault> ProtoDefaultLookup
+    {
+        get
+        {
+            if (_protoDefaultDirty || _protoDefaultLookup == null)
+            {
+                _protoDefaultLookup = new Dictionary<int, PrototypeDefault>(prototypeDefaults.Count);
+                foreach (var d in prototypeDefaults) _protoDefaultLookup[d.prototypeIndex] = d;
+                _protoDefaultDirty = false;
+            }
+            return _protoDefaultLookup;
+        }
+    }
+
+    public bool TryGetPrototypeDefault(int prototypeIndex, out PrototypeDefault entry)
+        => ProtoDefaultLookup.TryGetValue(prototypeIndex, out entry);
+
+    public void SetPrototypeDefault(int prototypeIndex, float radius, float density)
+    {
+        for (int i = 0; i < prototypeDefaults.Count; i++)
+        {
+            if (prototypeDefaults[i].prototypeIndex == prototypeIndex)
+            {
+                var e = prototypeDefaults[i]; e.radius = radius; e.density = density;
+                prototypeDefaults[i] = e;
+                _protoDefaultDirty = true;
+                return;
+            }
+        }
+        prototypeDefaults.Add(new PrototypeDefault { prototypeIndex = prototypeIndex, radius = radius, density = density });
+        _protoDefaultDirty = true;
+    }
+
+    [Header("Migration (one-time, editor only)")]
+    [SerializeField] private MapObjectPrototypeRegistry migrationSourceRegistry;
+
+    #if UNITY_EDITOR
+    [ContextMenu("Migrate Prototype Defaults From Registry")]
+    public void MigrateFromRegistry()
+    {
+        if (migrationSourceRegistry?.entries == null)
+        {
+            Debug.LogWarning("[BlotchOverrideDatabase] Assign migrationSourceRegistry before running migration.");
+            return;
+        }
+        for (int i = 0; i < migrationSourceRegistry.entries.Length; i++)
+        {
+            var e = migrationSourceRegistry.entries[i];
+            if (e == null) continue;
+            SetPrototypeDefault(i, e.blotchRadius, e.blotchDensity);
+        }
+        Debug.Log($"[BlotchOverrideDatabase] Migrated {migrationSourceRegistry.entries.Length} prototype defaults.");
+    }
+    #endif
+
     [SerializeField] private List<Entry> overrides = new List<Entry>();
 
     private Dictionary<(FaceId, sbyte, sbyte, uint), Entry> _lookup;
     private bool _dirty = true;
 
-    private void OnValidate() => _dirty = true;
+    private void OnValidate() {_dirty = true; _protoDefaultDirty = true;}
 
     private Dictionary<(FaceId, sbyte, sbyte, uint), Entry> Lookup
     {
@@ -51,7 +118,6 @@ public class BlotchOverrideDatabase : ScriptableObject
 
     public void SetOverride(FaceId face, sbyte terrainGridX, sbyte terrainGridY, uint seedHash, float radius, float density)
     {
-        var key = (face, terrainGridX, terrainGridY, seedHash);
         for (int i = 0; i < overrides.Count; i++)
         {
             var e = overrides[i];

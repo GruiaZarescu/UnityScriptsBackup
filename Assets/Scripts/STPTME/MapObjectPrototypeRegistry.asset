@@ -455,7 +455,7 @@ MonoBehaviour:
     shouldInstance: 1
     instanceAlways: 1
     blotchRadius: 20
-    blotchDensity: 10
+    blotchDensity: 1
     conflictCategory: 3
     cullLOD: 4
     sizeVariability:

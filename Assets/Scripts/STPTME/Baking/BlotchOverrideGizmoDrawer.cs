@@ -10,7 +10,6 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
 {
     [SerializeField] private Transform[] faceContainers = new Transform[6];
     [SerializeField] private BlotchOverrideDatabase database;
-    [SerializeField] private MapObjectPrototypeRegistry registryForGizmoPreview;
 
     [Header("Distance Tiers")]
     [SerializeField] private float nearDistance = 60f;   // 3D sphere handles, pickable
@@ -35,6 +34,8 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
     [Tooltip("Only auto-register newly placed trees whose prototype index is in this list. " +
              "Leave empty to apply to every newly placed tree.")]
     [SerializeField] private List<int> placementPrototypeFilter = new List<int>();
+    private Rect _selectedPanelScreenRect;
+    private bool _selectedPanelVisible;
 
     private struct TerrainCache
     {
@@ -193,6 +194,11 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
     {
         if (database == null) return;
 
+        if (pendingPlacementRadius <= 0f && pendingPlacementDensity <= 0f)
+            Debug.LogWarning("[BlotchOverrideGizmoDrawer] Placing with (radius=0, density=0) pending values. " +
+                "Convention for single-instance blotches is (radius=0, density=1) — if this was unintentional, " +
+                "set Pending Placement Density before painting.");
+
         for (int i = prevCount; i < currentTrees.Length; i++)
         {
             var tr = currentTrees[i];
@@ -200,6 +206,15 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
                 continue;
 
             uint seed = BlotchHash.PositionSeed(tr.position, tr.prototypeIndex);
+
+            // Skip writing an override entirely if the pending values match this prototype's
+            // default — keeps the override table small (only exceptions get an entry), which
+            // is the entire point of separating defaults from per-instance overrides.
+            bool matchesDefault = database.TryGetPrototypeDefault(tr.prototypeIndex, out var def)
+                && Mathf.Approximately(def.radius, pendingPlacementRadius)
+                && Mathf.Approximately(def.density, pendingPlacementDensity);
+            if (matchesDefault) continue;
+
             Undo.RecordObject(database, "Register Placed Tree Override");
             database.SetOverride(tc.face, tc.gridX, tc.gridY, seed, pendingPlacementRadius, pendingPlacementDensity);
             EditorUtility.SetDirty(database);
@@ -228,7 +243,7 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
                 bool hasOverride = database != null &&
                     database.TryGetOverride(tc.face, tc.gridX, tc.gridY, tc.treeSeeds[i], out ov);
                 float radius = hasOverride ? ov.radius : GetDefaultRadius(tc.treePrototypeIdx[i]);
-                float density = hasOverride ? ov.density : 0f;
+                float density = hasOverride ? ov.density : GetDefaultDensity(tc.treePrototypeIdx[i]);
                 if (radius <= 0.01f) radius = 0.5f;
 
                 Color color = hasOverride ? DensityColor(density) : defaultPrototypeColor;
@@ -298,9 +313,23 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
             DrawFarTerrainMarkers(camPos);
         }
 
+        // Draw the panel first so its rect is current before we decide whether to pick.
+        DrawSelectedPanel();
+
         if (!enablePicking || !_cacheBuilt) { _hoverTerrain = -1; return; }
 
         Event e = Event.current;
+
+        // If the cursor is over the floating panel, let its own controls handle the event —
+        // don't raycast/deselect underneath it. This is what let clicks on the panel "fall
+        // through" to the 3D pick logic and immediately deselect before the button could work.
+        bool overPanel = _selectedPanelVisible && _selectedPanelScreenRect.Contains(e.mousePosition);
+        if (overPanel)
+        {
+            _hoverTerrain = -1; // don't highlight a tree gizmo while interacting with its own panel
+            return;
+        }
+
         Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
         int bestTerrain = -1, bestTree = -1;
         float bestT = float.MaxValue;
@@ -316,6 +345,7 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
 
         if (bestTerrain < 0)
         {
+            if(_cache==null) RebuildCache();
             for (int ti = 0; ti < _cache.Count; ti++)
             {
                 var tc = _cache[ti];
@@ -351,16 +381,14 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
             if (bestTerrain >= 0)
             {
                 _selTerrain = bestTerrain; _selTree = bestTree;
+                e.Use();
             }
             else
             {
                 _selTerrain = -1; _selTree = -1;
             }
-            e.Use();
             view.Repaint();
         }
-
-        DrawSelectedPanel();
     }
 
     private void DrawNearSpheres()
@@ -394,17 +422,16 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
     }
 
     private float GetDefaultRadius(int protoIdx)
-    {
-        if (registryForGizmoPreview == null || protoIdx < 0 || protoIdx >= registryForGizmoPreview.entries.Length)
-            return 0f;
-        var proto = registryForGizmoPreview.entries[protoIdx];
-        return proto != null ? proto.blotchRadius : 0f;
-    }
+    => database != null && database.TryGetPrototypeDefault(protoIdx, out var d) ? d.radius : 0f;
 
-    // ===================== SELECTED-TREE FLOATING EDIT PANEL =====================
+    private float GetDefaultDensity(int protoIdx)
+        => database != null && database.TryGetPrototypeDefault(protoIdx, out var d) ? d.density : 0f;
 
     private void DrawSelectedPanel()
     {
+        _selectedPanelVisible = false;
+
+        if(_cache==null) RebuildCache();
         if (_selTerrain < 0 || _selTerrain >= _cache.Count) return;
         var tc = _cache[_selTerrain];
         if (_selTree < 0 || _selTree >= tc.treeWorldPos.Length) return;
@@ -416,12 +443,16 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
         BlotchOverrideDatabase.Entry ov = default;
         bool hasOverride = database != null && database.TryGetOverride(tc.face, tc.gridX, tc.gridY, seed, out ov);
         float curRadius = hasOverride ? ov.radius : GetDefaultRadius(proto);
-        float curDensity = hasOverride ? ov.density : 0f;
+        float curDensity = hasOverride ? ov.density : GetDefaultDensity(proto);
 
         Vector2 guiPos = HandleUtility.WorldToGUIPoint(wp + Vector3.up * (curRadius + 1f));
+        Rect panelRect = new Rect(guiPos.x - 90, guiPos.y - 90, 180, 90);
+
+        _selectedPanelScreenRect = panelRect;
+        _selectedPanelVisible = true;
 
         Handles.BeginGUI();
-        GUILayout.BeginArea(new Rect(guiPos.x - 90, guiPos.y - 90, 180, 90), GUI.skin.box);
+        GUILayout.BeginArea(panelRect, GUI.skin.box);
         GUILayout.Label($"Proto {proto}  seed 0x{seed:X8}");
 
         GUILayout.BeginHorizontal();
@@ -446,10 +477,21 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
             EditorUtility.SetDirty(database);
             _linesDirty = true;
             _selTerrain = -1; _selTree = -1;
+            _selectedPanelVisible = false;
         }
 
         GUILayout.EndArea();
         Handles.EndGUI();
+
+        // Absorb any mouse event still within the panel bounds so it never reaches the
+        // scene view's own click handling (which would otherwise deselect/move the camera focus).
+        Event e = Event.current;
+        if (panelRect.Contains(e.mousePosition) &&
+            (e.type == EventType.MouseDown || e.type == EventType.MouseUp || e.type == EventType.MouseDrag))
+        {
+            e.Use();
+        }
     }
+
 #endif
 }
