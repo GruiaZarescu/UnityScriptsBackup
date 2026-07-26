@@ -448,14 +448,14 @@ MonoBehaviour:
     - {fileID: -5630491982682799407, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 23a7c21d0f1186840aa7e101259e766b, type: 2}
-    baseWidth: 0.1
+    baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 1
     blotchRadius: 20
-    blotchDensity: 25
+    blotchDensity: 10
     conflictCategory: 3
     cullLOD: 4
     sizeVariability:
@@ -473,7 +473,7 @@ MonoBehaviour:
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
-    densityFadeEnabled: 0
+    densityFadeEnabled: 1
     densityFadeStart: 0.75
     useDistanceLOD: 1
     lodDistances: {x: 10, y: 20, z: 30, w: 40}

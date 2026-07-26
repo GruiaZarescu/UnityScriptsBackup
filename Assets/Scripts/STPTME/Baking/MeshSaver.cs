@@ -48,6 +48,7 @@ public class MeshSaver : MonoBehaviour
     [SerializeField, Tooltip("Optional mirror applied AFTER rotation, in plane space.")]
     private FaceContainerMirror backFaceMirror = FaceContainerMirror.None;
     [SerializeField] private MapObjectPrototypeRegistry prototypeRegistryForBake;
+    [SerializeField] private BlotchOverrideDatabase blotchOverrideDatabase;
     [Header("Splatmap Bake Settings")]
     [SerializeField, Tooltip("Per-tier splatmap resolutions. Index = splat tier. Use 0 for native, positive for absolute pixels, negative for fractions of native (e.g., -2 = half).")]
     private int[] splatTierResolutions = new int[] { -1, -2, -4, -8 };
@@ -932,11 +933,13 @@ public class MeshSaver : MonoBehaviour
                     cellKeyBaseX,
                     cellKeyBaseZ,
                     prototypeRegistryForBake,
-                    chunkSizeForBlotch
+                    chunkSizeForBlotch,
+                    blotchOverrideDatabase,                       // single shared asset reference
+                    (sbyte)terrain.terrainGridX,                   // grid coords already known here
+                    (sbyte)terrain.terrainGridY
                 );
             }
         }
-
         // Phase 3: Write grouped cell files (one file per original unsubdivided terrain).
         // Group cells by original terrain grid position. Each terrain contributes
         // subdivisionsPowerOf2² subcells, all written into a single group file.

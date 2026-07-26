@@ -203,6 +203,11 @@ void BuildChunkSphere(ChunkVisibilityData c, out float3 center, out float radius
 uint UnpackProto(uint m)    { return (m >> 8) & 0xFFu; }
 uint UnpackConflict(uint m) { return (m >> 16) & 0xFFu; }
 bool IsInstanceAlways(uint protoIdx) { return (_ProtoFlags[protoIdx] & 2u) != 0; }
+// Mirrors BlotchData.RadiusMeters / DensityPerSqM in BlotchTypes.cs exactly — same
+// shift/scale, so these MUST stay in lock-step with the C# properties.
+// seedAndDensity bit layout: [0:16)=seed, [16:24)=density*2, [24:32)=radius*4
+float UnpackBlotchDensity(uint seedAndDensity) { return ((seedAndDensity >> 16) & 0xFFu) * 0.5; }
+float UnpackBlotchRadius(uint seedAndDensity)  { return ((seedAndDensity >> 24) & 0xFFu) * 0.25; }
 
 uint PackMeta(uint p, uint l, uint r, uint s)
 {
@@ -520,9 +525,9 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
 
             float4 params = _ProtoBlotchParamsBuffer[protoIdx];
-            float radius   = params.x;
-            float density  = params.y;
-            float fadeStart = params.z;
+            float radius   = UnpackBlotchRadius(bl.seedAndDensity);   // per-blotch, no longer per-prototype
+            float density  = UnpackBlotchDensity(bl.seedAndDensity);  // per-blotch, no longer per-prototype
+            float fadeStart = params.z;      // fade shape stays prototype-level (by design)
             bool  fadeEnabled = params.w > 0.5;
             uint conflict = UnpackConflict(bl.packedMeta);
             uint seed = bl.seedAndDensity & 0xFFFFu;
@@ -629,8 +634,8 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
         float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
         float4 params = _ProtoBlotchParamsBuffer[protoIdx];
-        float radius = params.x;
-        float density = params.y;
+        float radius = UnpackBlotchRadius(bl.seedAndDensity);
+        float density = UnpackBlotchDensity(bl.seedAndDensity);
 
         float3 centerDir = ComputeExactInstanceDir(face, bl.chunkPacked, storageSlot, base_lx, base_lz);
         float3 approxCenter = ApproxWorldPosFromDir(centerDir, vis.boundCenterAlt);
@@ -699,7 +704,7 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
     float4 params = _ProtoBlotchParamsBuffer[protoIdx];
-    float radius    = params.x;
+    float radius    = UnpackBlotchRadius(bl.seedAndDensity);
     float fadeStart = params.z;
     bool  fadeEnabled = params.w > 0.5;
     uint seed = bl.seedAndDensity & 0xFFFFu;

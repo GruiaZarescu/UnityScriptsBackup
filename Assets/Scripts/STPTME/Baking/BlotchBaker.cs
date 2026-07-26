@@ -33,23 +33,26 @@ public static class BlotchBaker
     /// procedural system; the tree is NOT added to the instanced tree list.
     /// </summary>
     public static void ExtractBlotchesFromTerrain(
-        Terrain terrain,
-        FaceId face,
-        FaceContainerOrientation orientation,
-        Dictionary<Vector2SByte, List<BlotchData>> blotchBuffers,
-        int subdivisionsPowerOf2,
-        int numberOfChunks,
-        int tilingFactor,
-        Vector3 sphereCenter,
-        float sphereRadius,
-        float maxHeight,
-        float faceWorldSize,
-        float planeTerrainOriginX,
-        float planeTerrainOriginZ,
-        sbyte cellKeyBaseX,
-        sbyte cellKeyBaseZ,
-        MapObjectPrototypeRegistry prototypeRegistry,
-        float chunkSizeMeters)
+    Terrain terrain,
+    FaceId face,
+    FaceContainerOrientation orientation,
+    Dictionary<Vector2SByte, List<BlotchData>> blotchBuffers,
+    int subdivisionsPowerOf2,
+    int numberOfChunks,
+    int tilingFactor,
+    Vector3 sphereCenter,
+    float sphereRadius,
+    float maxHeight,
+    float faceWorldSize,
+    float planeTerrainOriginX,
+    float planeTerrainOriginZ,
+    sbyte cellKeyBaseX,
+    sbyte cellKeyBaseZ,
+    MapObjectPrototypeRegistry prototypeRegistry,
+    float chunkSizeMeters,
+    BlotchOverrideDatabase overrideDatabase = null,   // CHANGED from BlotchOverrideAuthoring
+    sbyte terrainGridX = 0,                            // NEW — needed to key the lookup
+    sbyte terrainGridY = 0)  
     {
         TerrainData td = terrain.terrainData;
         float terrainSize = td.size.x;
@@ -57,6 +60,8 @@ public static class BlotchBaker
 
         if (trees == null || trees.Length == 0) return;
         if (prototypeRegistry == null || prototypeRegistry.entries == null) return;
+
+        
 
         float cellSize = terrainSize / subdivisionsPowerOf2;
 
@@ -119,7 +124,7 @@ public static class BlotchBaker
             // Generate a deterministic seed from the tree instance index.
             // Since TreeInstance doesn't have a stable ID, we use position
             // hash so the blotch is stable across re-bakes.
-            uint seed = (uint)(tree.position.x * 73856093f + tree.position.z * 19349663f + tree.prototypeIndex * 83492791f);
+            uint seed = BlotchHash.PositionSeed(tree.position, tree.prototypeIndex);
 
              // Compute chunk origin in face-plane space (cell origin + chunk offset inside the cell)
             float chunkOriginX = planeTerrainOriginX + cellLocalX * cellSize + chunkLocalX * chunkSize;
@@ -138,6 +143,13 @@ public static class BlotchBaker
             float blotchRadius = proto.blotchRadius;
             float blotchDensity = proto.blotchDensity;
             byte conflictCategory = proto.conflictCategory;
+
+            if (overrideDatabase != null
+            && overrideDatabase.TryGetOverride(face, terrainGridX, terrainGridY, seed, out var blotchOverride))
+            {
+                blotchRadius = blotchOverride.radius;
+                blotchDensity = blotchOverride.density;
+            }
 
             bool cullLODOverride = proto.cullLOD != 255;
             bool instanceAlways = proto.instanceAlways;

@@ -547,5 +547,20 @@ namespace CustomTypes
             float rand2 = h2 / 4294967296.0f;
             outDistance = radius * Mathf.Sqrt(rand2);
         }
+
+        /// <summary>
+        /// Deterministic per-tree seed derived purely from local terrain-space position and
+        /// prototype index. Stable regardless of tree array ordering/compaction, terrain tile,
+        /// or orientation — Unity's TreeInstance array indices are NOT stable across edits, so
+        /// nothing may be keyed by index. This is the single source of truth for that hash:
+        /// BlotchBaker (bake-time) and BlotchOverrideAuthoring (authoring-time lookup/gizmos)
+        /// MUST both call this exact method so their hashes always agree.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint PositionSeed(Vector3 treePosition, int prototypeIndex)
+        {
+            return (uint)(treePosition.x * 73856093f + treePosition.z * 19349663f + prototypeIndex * 83492791f);
+        }
+
     }
 }
