@@ -86,123 +86,86 @@ public class MapObjectBaker : MonoBehaviour
     private Dictionary<(FaceId face, int tgX, int tgY),
         Dictionary<Vector2SByte, List<BakedObject>[]>> _groups;
 
-    // ── Entry point ─────────────────────────────────────────────────────────
+    [SerializeField, Tooltip("Live authoring database to export from.")]
+    private MapObjectDatabase database;
 
     [ContextMenu("Bake Map Objects")]
     public void BakeMapObjects()
     {
-        
-        var settings           = TerrainManagementSettings.Instance;
-        int   subdivPow2       = 1 << settings.heightmapSubdivisions;
-        int   numberOfChunks   = settings.numberOfChunks;
-        sbyte minX             = settings.minX;
-        sbyte maxX             = settings.maxX;
-        float sphereRadius     = settings.sphereRadius;
-        Vector3 sphereCenter   = settings.sphereCenter;
-        float terrainSize      = settings.terrainSize;
-        float tilingFactor     = settings.tilingFactor;
-        float chunkSize        = terrainSize / tilingFactor;   // world units per chunk side
-        int   faceSpanInChunks = (maxX - minX + 1) * numberOfChunks;
-        float faceWorldSize    = (maxX - minX + 1) * (terrainSize / subdivPow2);
-
-        _groups = new Dictionary<(FaceId, int, int),
-            Dictionary<Vector2SByte, List<BakedObject>[]>>();
-
-        int skipped = 0;
-
-        // ── Build GUID → prototypeIndex lookup ──────────────────────────
-        var guidToIndex = new System.Collections.Generic.Dictionary<string, byte>();
-        if (prototypeRegistry != null && prototypeRegistry.entries != null)
+        if (database == null)
         {
-            for (int i = 0; i < prototypeRegistry.entries.Length && i <= 255; i++)
-            {
-                var p = prototypeRegistry.entries[i];
-                if (p == null || p.sourcePrefab == null) continue;
-                string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(p.sourcePrefab));
-                if (!string.IsNullOrEmpty(guid))
-                    guidToIndex[guid] = (byte)i;
-            }
+            Debug.LogError("[MapObjectBaker] No MapObjectDatabase assigned. Cannot bake.");
+            return;
         }
 
-        // ── Assign each container child to a chunk ──────────────────────────────
-        for (int i = 0; i < container.childCount; i++)
+        var settings         = TerrainManagementSettings.Instance;
+        int   subdivPow2     = 1 << settings.heightmapSubdivisions;
+        int   numberOfChunks = settings.numberOfChunks;
+        sbyte minX           = settings.minX;
+        sbyte maxX           = settings.maxX;
+        Vector3 sphereCenter = settings.sphereCenter;
+        float terrainSize    = settings.terrainSize;
+        float tilingFactor   = settings.tilingFactor;
+        float chunkSize      = terrainSize / tilingFactor;
+        float faceWorldSize  = (maxX - minX + 1) * (terrainSize / subdivPow2);
+
+        _groups = new Dictionary<(FaceId, int, int), Dictionary<Vector2SByte, List<BakedObject>[]>>();
+
+        int skipped = 0;
+        int protoCount = (prototypeRegistry != null && prototypeRegistry.entries != null)
+            ? prototypeRegistry.entries.Length : int.MaxValue;
+
+        foreach (var entry in database.All)
         {
-            Transform child = container.GetChild(i);
-            GameObject prefabAsset = PrefabUtility.GetCorrespondingObjectFromOriginalSource(child.gameObject);
-            if (prefabAsset == null)
+            if (entry.prototypeIndex < 0 || entry.prototypeIndex >= protoCount)
             {
-                Debug.LogWarning($"[MapObjectBaker] '{child.name}' is not a prefab instance — skipped.", child.gameObject);
+                Debug.LogWarning($"[MapObjectBaker] Entry id={entry.id} has out-of-range prototypeIndex={entry.prototypeIndex} — skipped.");
                 skipped++; continue;
             }
 
-            string assetPath = AssetDatabase.GetAssetPath(prefabAsset);
-            if (string.IsNullOrEmpty(assetPath))
+            if (!MapObjectChunkMath.TryResolve(entry.worldPosition, sphereCenter, chunkSize, faceWorldSize,
+                    numberOfChunks, minX, maxX, out var addr))
             {
-                Debug.LogWarning($"[MapObjectBaker] Prefab source for '{child.name}' has no asset path — skipped.", child.gameObject);
+                Debug.LogWarning($"[MapObjectBaker] Could not project entry id={entry.id} onto any face — skipped.");
                 skipped++; continue;
             }
 
-            string prefabGuid = AssetDatabase.AssetPathToGUID(assetPath);
-            if (!guidToIndex.TryGetValue(prefabGuid, out byte protoIdx))
-            {
-                Debug.LogWarning($"[MapObjectBaker] No registry entry for prefab '{prefabAsset.name}' — skipped.");
-                skipped++; continue;
-            }
+            int tgX = (addr.heightmapX - minX) / subdivPow2;
+            int tgY = (addr.heightmapY - minX) / subdivPow2;
 
-            FaceId face = FaceIdUtility.GetClosestFace(child.position, sphereCenter);
-
-            if (!FaceIdUtility.TryProjectWorldPointToFacePlane(
-                    child.position, face, faceWorldSize, sphereCenter, out Vector2 plane))
-            {
-                Debug.LogWarning($"[MapObjectBaker] Could not project '{child.name}' onto face {face} — skipped.");
-                skipped++; continue;
-            }
-
-            int globalChunkX = Mathf.Clamp(Mathf.FloorToInt(plane.x / chunkSize), 0, faceSpanInChunks - 1);
-            int globalChunkY = Mathf.Clamp(Mathf.FloorToInt(plane.y / chunkSize), 0, faceSpanInChunks - 1);
-
-            sbyte heightmapX = (sbyte)(minX + (globalChunkX / numberOfChunks));
-            sbyte heightmapY = (sbyte)(minX + (globalChunkY / numberOfChunks));
-            sbyte chunkX     = (sbyte)(globalChunkX % numberOfChunks);
-            sbyte chunkY     = (sbyte)(globalChunkY % numberOfChunks);
-
-            int tgX = (heightmapX - minX) / subdivPow2;
-            int tgY = (heightmapY - minX) / subdivPow2;
-
-            var groupKey = (face, tgX, tgY);
+            var groupKey = (addr.face, tgX, tgY);
             if (!_groups.TryGetValue(groupKey, out var cellDict))
             {
                 cellDict = new Dictionary<Vector2SByte, List<BakedObject>[]>();
                 _groups[groupKey] = cellDict;
             }
 
-            var cellKey = new Vector2SByte(heightmapX, heightmapY);
+            var cellKey = new Vector2SByte(addr.heightmapX, addr.heightmapY);
             if (!cellDict.TryGetValue(cellKey, out List<BakedObject>[] chunks))
             {
                 chunks = new List<BakedObject>[numberOfChunks * numberOfChunks];
                 cellDict[cellKey] = chunks;
             }
 
-            int chunkFlat = chunkY * numberOfChunks + chunkX;
+            int chunkFlat = addr.chunkY * numberOfChunks + addr.chunkX;
             if (chunks[chunkFlat] == null)
                 chunks[chunkFlat] = new List<BakedObject>();
 
             chunks[chunkFlat].Add(new BakedObject
             {
-                prototypeIndex = protoIdx,
-                position = child.position,
-                rotation = child.rotation,
-                scale    = child.localScale,
+                prototypeIndex = (byte)entry.prototypeIndex,
+                position = entry.worldPosition,
+                rotation = entry.worldRotation,
+                scale    = entry.localScale,
             });
         }
 
-        // ── Write files ──────────────────────────────────────────────────────
+        // ── Write files — unchanged from here on ──
         string outFolder = Path.Combine(Application.streamingAssetsPath, "MapAssets/CellObjects");
         if (!Directory.Exists(outFolder))
             Directory.CreateDirectory(outFolder);
 
         int filesWritten = 0;
-
         foreach (var kvp in _groups)
         {
             var (face, tgX, tgY) = kvp.Key;
@@ -218,8 +181,8 @@ public class MapObjectBaker : MonoBehaviour
         _groups = null;
         AssetDatabase.Refresh();
 
-        Debug.Log($"[MapObjectBaker] Baked {container.childCount - skipped} object(s) into {filesWritten} file(s)." +
-                  (skipped > 0 ? $" {skipped} skipped." : string.Empty));
+        Debug.Log($"[MapObjectBaker] Baked {database.Count - skipped} object(s) into {filesWritten} file(s)." +
+                (skipped > 0 ? $" {skipped} skipped." : string.Empty));
     }
 
     // ── Binary writer ────────────────────────────────────────────────────────

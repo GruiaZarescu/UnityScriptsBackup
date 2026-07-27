@@ -21,6 +21,8 @@ namespace STPTME.MapObjects
         [SerializeField] private bool useObjectPooling = true;
         [SerializeField] private int poolSizePerPrototype = 50;
 
+        public ulong id;
+
         // Per-prototype object pools
         private Dictionary<int, Queue<GameObject>> objectPools;
 
@@ -123,7 +125,8 @@ namespace STPTME.MapObjects
             float heightScale,
             uint seed,
             Vector3 sphereCenter,
-            float widthScale = 1f)
+            float widthScale = 1f,
+            ulong mapObjectId = 0)
         {
             //Final stage of streaming pipeline, CPU/Object branch. Start of debug to see where it's broken.
             STPTMEUtils.ReadFourSBytesFromInt(chunkPacked,out var map1, out var map2, out var chunk1, out var chunk2);
@@ -178,6 +181,7 @@ namespace STPTME.MapObjects
             var metaComponent = obj.GetComponent<MapObjectMetadata>() ?? obj.AddComponent<MapObjectMetadata>();
             metaComponent.prototypeIndex = (byte)prototypeIndex;
             metaComponent.seed = seed;
+            metaComponent.id = mapObjectId;
             return obj;
         }
 
@@ -231,5 +235,6 @@ namespace STPTME.MapObjects
     {
         public byte prototypeIndex;
         public uint seed;
+        public ulong id;
     }
 }

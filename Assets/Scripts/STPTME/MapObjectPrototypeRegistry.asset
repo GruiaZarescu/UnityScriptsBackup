@@ -489,6 +489,51 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+  - name: Fence0
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 569840946655350902, guid: 1f9cbca3307064d43810b3cd42a450b2, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 1
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 10
+    - 20
+    - 30
+    - 40
+    - 50
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
   densityPerLOD: 640000005a000000500000004b00000046000000
   lodWidthMultipliers:
   - 1

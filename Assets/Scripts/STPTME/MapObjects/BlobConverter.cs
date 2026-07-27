@@ -62,49 +62,6 @@ namespace STPTME.MapObjects
         {
             return !IsSingleInstance(blob);
         }
-
-        /// <summary>
-        /// Calculates world position from blob's quantized local coordinates.
-        /// Converts face-local plane coordinates to world space on the sphere surface.
-        /// </summary>
-        /*public static Vector3 CalculateBlotchWorldPosition(
-        BlotchData blob,
-        Vector3 sphereCenter,
-        float sphereRadius,
-        int numberOfChunks,
-        sbyte minX,
-        float faceWorldSize,       // NEW: Added to fix projection
-        float chunkSize = 75f)
-        {
-            // Extract local plane coordinates from packed position
-            blob.GetLocalPosition(chunkSize, out float localX, out float localZ);
-
-            // Extract chunk grid coordinates from packed value
-            STPTMEUtils.ReadFourSBytesFromInt(blob.chunkPacked,
-                out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
-
-            // Calculate cell size (one cell contains numberOfChunks * numberOfChunks chunks)
-            float cellSize = numberOfChunks * chunkSize;
-
-            // Calculate absolute position on the face plane:
-            // 1. (mapX - minX) * cellSize  -> Offset to the correct Cell on the face
-            // 2. chunkX * chunkSize        -> Offset to the correct Chunk inside that Cell
-            // 3. localX                    -> Exact offset inside that Chunk
-            float worldPlaneX = (mapX - minX) * cellSize + chunkX * chunkSize + localX;
-            float worldPlaneZ = (mapY - minX) * cellSize + chunkY * chunkSize + localZ;
-            Debug.Log($"Obtained worldPlaneX from mapX {mapX}, minX {minX}, cellSize {cellSize}, chunkX {chunkX}, chunkSize {chunkSize}, localX {localX} => worldPlaneX {worldPlaneX}");
-            Debug.Log($"Obtained worldPlaneZ from mapY {mapY}, minX {minX}, cellSize {cellSize}, chunkY {chunkY}, chunkSize {chunkSize}, localZ {localZ} => worldPlaneZ {worldPlaneZ}");
-
-            // Project the 2D plane coordinate onto the 3D sphere
-            var worldPos = FaceIdUtility.ProjectFacePlanePoint(
-                blob.Face,
-                worldPlaneX,
-                worldPlaneZ,
-                faceWorldSize,           // FIXED: Pass true face size, not cellSize
-                sphereCenter,
-                sphereRadius);
-            Debug.Log($"Obtained worldPos from parameters blob face {blob.Face}, worldPlaneX {worldPlaneX}, worldPlaneZ {worldPlaneZ}, faceWorldSize {faceWorldSize}, sphereCenter {sphereCenter}, sphereRadius {sphereRadius} => worldPos {worldPos}");
-            return worldPos;
-        }*/
+        
     }
 }

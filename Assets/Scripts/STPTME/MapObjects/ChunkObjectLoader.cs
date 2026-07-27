@@ -46,11 +46,47 @@ public class ChunkObjectLoader : MonoBehaviour
     // Key format: (packed, face, lod) encoded as single long
     private HashSet<long> _processedChunks = new HashSet<long>();
 
+    [SerializeField, Tooltip("Live authoring database. Assigned = editor authoring is available. " +
+    "NEVER read in shipped builds regardless of this field's value — see forceUseBakedFiles.")]
+    private MapObjectDatabase mapObjectDatabase;
+
+    [SerializeField, Tooltip("Force the baked-file path even in-editor, for testing shipped-build behavior.")]
+    private bool forceUseBakedFiles = false;
+
+    private STPTME.MapObjects.IMapObjectSource _objectSource;
+
     // ===== LIFECYCLE =====
 
     private void Awake()
     {
         _gpuBlotches = new List<BlotchData>();
+    }
+
+    public void ForceReprocessChunkObjects(int packed, FaceId face, byte lod)
+    {
+        if (!_initialized) return;
+        prefabStreamer.DespawnChunkObjects(packed, face, lod);
+        ProcessCellObjects(packed, face, lod);
+    }
+
+    /// <summary>
+    /// Resolves the (packed, face) chunk address for a world position and force-reprocesses
+    /// its standalone objects. Convenience wrapper for authoring tools that only have a
+    /// hit point, not a chunk address, on hand.
+    /// </summary>
+    public bool ForceReprocessChunkObjectsAt(Vector3 worldPosition, byte lod = 0)
+    {
+        var settings = TerrainManagementSettings.Instance;
+        float chunkSize = settings.terrainSize / settings.tilingFactor;
+        int subdivPow2 = 1 << _heightmapSubdivisions;
+        float faceWorldSize = (settings.maxX - settings.minX + 1) * (settings.terrainSize / subdivPow2);
+
+        if (!MapObjectChunkMath.TryResolve(worldPosition, settings.sphereCenter, chunkSize, faceWorldSize,
+                _numberOfChunks, settings.minX, settings.maxX, out var addr))
+            return false;
+
+        ForceReprocessChunkObjects(addr.packed, addr.face, lod);
+        return true;
     }
 
     private void Start()
@@ -62,9 +98,30 @@ public class ChunkObjectLoader : MonoBehaviour
         _minX = settings.minX;
         Debug.Log($"[ChunkObjectLoader::Start] Loaded settings: chunks={_numberOfChunks}, subdivisions={_heightmapSubdivisions}, minX={_minX}");
 
-        // Initialize data readers
         _cellObjectReader = new CellObjectReader();
         _cellObjectReader.Init(1 << _heightmapSubdivisions, _minX);
+
+        bool useLiveDatabase = false;
+        #if UNITY_EDITOR
+        useLiveDatabase = mapObjectDatabase != null && !forceUseBakedFiles;
+        #endif
+
+        if (useLiveDatabase)
+        {
+            float chunkSize = settings.terrainSize / settings.tilingFactor;
+            int subdivPow2 = 1 << _heightmapSubdivisions;
+            float faceWorldSize = (settings.maxX - settings.minX + 1) * (settings.terrainSize / subdivPow2);
+
+            _objectSource = new STPTME.MapObjects.LiveDatabaseObjectSource(
+                mapObjectDatabase, settings.sphereCenter, chunkSize, faceWorldSize,
+                _numberOfChunks, _minX, settings.maxX);
+
+            Debug.Log("[ChunkObjectLoader] Using LIVE MapObjectDatabase — editor authoring mode.");
+        }
+        else
+        {
+            _objectSource = new STPTME.MapObjects.BakedFileObjectSource(_cellObjectReader);
+        }
 
         // Initialize global blob cache (CellBlotchReader is static, so use CellBlotchQuery static methods)
         string cellsFolder = System.IO.Path.Combine(UnityEngine.Application.streamingAssetsPath, "MapAssets", "Cells");
@@ -184,7 +241,7 @@ public class ChunkObjectLoader : MonoBehaviour
 
     private void ProcessCellObjects(int packed, FaceId face, byte lod)
     {
-        var segment = _cellObjectReader.GetObjectsForChunk(packed, face, _numberOfChunks, lod);
+        var segment = _objectSource.GetObjectsForChunk(packed, face, _numberOfChunks, lod);
         if (segment.Count == 0) return;
 
         // Get the chunk's GameObject for parenting
@@ -195,12 +252,12 @@ public class ChunkObjectLoader : MonoBehaviour
 
         Debug.Log($"[ChunkObjectLoader] Processing {segment.Count} cell objects for chunk {packed} LOD {lod}");
 
-        foreach (var cellObj in segment)
+        foreach (var sourcedObjectInstance in segment)
         {
-            var entry = prototypeRegistry.GetEntry(cellObj.prototypeIndex);
+            var entry = prototypeRegistry.GetEntry(sourcedObjectInstance.prototypeIndex);
             if (entry == null)
             {
-                Debug.LogWarning($"[ChunkObjectLoader] No registry entry for prototypeIndex={cellObj.prototypeIndex}");
+                Debug.LogWarning($"[ChunkObjectLoader] No registry entry for prototypeIndex={sourcedObjectInstance.prototypeIndex}");
                 continue;
             }
 
@@ -210,7 +267,7 @@ public class ChunkObjectLoader : MonoBehaviour
                 // Convert to GPU buffer format (if we support cell objects in GPU buffer)
                 // For now, cell objects are only LOD0 objects, which shouldn't be GPU instanced
                 // (unless instanceAlways, but that requires a GameObject with colliders anyway)
-                Debug.LogWarning($"[ChunkObjectLoader] Cell object marked for instancing (should be rare): proto {cellObj.prototypeIndex} at LOD {lod}");
+                Debug.LogWarning($"[ChunkObjectLoader] Cell object marked for instancing (should be rare): proto {sourcedObjectInstance.prototypeIndex} at LOD {lod}");
                 continue;
             }
 
@@ -219,21 +276,22 @@ public class ChunkObjectLoader : MonoBehaviour
             
             // Compute deterministic size scales for cell objects
             // Use position hash as seed for cell objects (they don't have blotch seeds)
-            uint cellSeed = (uint)cellObj.position.GetHashCode();
+            uint cellSeed = (uint)sourcedObjectInstance.position.GetHashCode();
             Vector2 cellScales = entry.sizeVariability.ComputeSizeScalesCPU(cellSeed);
             
             var spawned = prefabStreamer.SpawnObject(
-                cellObj.prototypeIndex,
-                parentTransform,
-                packed,
-                face,
-                lod,
-                cellObj.position,
-                cellObj.rotation.eulerAngles.y,
-                cellScales.x,  // heightScale
-                cellSeed,
-                settings.sphereCenter,
-                cellScales.y);  // widthScale
+            sourcedObjectInstance.prototypeIndex,
+            parentTransform,
+            packed,
+            face,
+            lod,
+            sourcedObjectInstance.position,
+            sourcedObjectInstance.rotation.eulerAngles.y,
+            cellScales.x,
+            cellSeed,
+            settings.sphereCenter,
+            cellScales.y,
+            mapObjectId: sourcedObjectInstance.mapObjectId);
         }
     }
 
