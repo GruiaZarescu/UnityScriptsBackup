@@ -25,6 +25,10 @@ namespace STPTME.MapObjects
     public interface IMapObjectSource
     {
         ArraySegment<SourcedObjectInstance> GetObjectsForChunk(int packed, FaceId face, int numberOfChunks, byte lodLevel);
+
+        /// <summary>The live database this source reads from, or null if it's reading baked
+        /// files (which carry no live identity to write moves/deletes back to).</summary>
+        MapObjectDatabase SourceDatabaseOrNull { get; }
     }
 
     /// <summary>Production path: reads the shipped, baked CellObjectGroup_*.bytes files.</summary>
@@ -32,6 +36,8 @@ namespace STPTME.MapObjects
     {
         private readonly CellObjectReader _reader;
         private SourcedObjectInstance[] _convertBuffer = Array.Empty<SourcedObjectInstance>();
+
+         public MapObjectDatabase SourceDatabaseOrNull => null;
 
         public BakedFileObjectSource(CellObjectReader reader) { _reader = reader; }
 
@@ -69,6 +75,8 @@ namespace STPTME.MapObjects
     public class LiveDatabaseObjectSource : IMapObjectSource
     {
         private readonly MapObjectDatabase _database;
+
+         public MapObjectDatabase SourceDatabaseOrNull => _database;
         private readonly Vector3 _sphereCenter;
         private readonly float _chunkSize;
         private readonly float _faceWorldSize;
@@ -119,6 +127,7 @@ namespace STPTME.MapObjects
                 });
             }
             _cachedVersion = _database.Version;
+            Debug.Log($"[LiveDatabaseObjectSource] Rebuilt index: {_database.Count} total entries → {_byChunk.Count} distinct chunks (frame {Time.frameCount})");
         }
 
         public ArraySegment<SourcedObjectInstance> GetObjectsForChunk(int packed, FaceId face, int numberOfChunks, byte lodLevel)

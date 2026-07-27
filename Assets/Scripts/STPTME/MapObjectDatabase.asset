@@ -13,9 +13,39 @@ MonoBehaviour:
   m_Name: MapObjectDatabase
   m_EditorClassIdentifier: Assembly-CSharp::MapObjectDatabase
   entries:
-  - id: 1
+  - id: 18
     prototypeIndex: 10
-    worldPosition: {x: 1724.0266, y: 8031.4546, z: 1642.2369}
-    worldRotation: {x: 0.09904767, y: 0, z: -0.103980616, w: 0.9896351}
+    worldPosition: {x: 1719.5208, y: 8030.439, z: 1647.8966}
+    worldRotation: {x: 0.09939916, y: 0, z: -0.10371944, w: 0.98962724}
     localScale: {x: 1, y: 1, z: 1}
-  nextId: 2
+  - id: 19
+    prototypeIndex: 10
+    worldPosition: {x: 1723.6637, y: 8029.9297, z: 1646.9579}
+    worldRotation: {x: 0.09934249, y: 0, z: -0.10396929, w: 0.98960674}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 20
+    prototypeIndex: 10
+    worldPosition: {x: 1728.98, y: 8034.45, z: 1642.389}
+    worldRotation: {x: -0.09795752, y: 0.010411423, z: 0.10517414, w: -0.9895627}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 21
+    prototypeIndex: 10
+    worldPosition: {x: 1724.5156, y: 8032.242, z: 1639.428}
+    worldRotation: {x: 0.09887315, y: 0, z: -0.10400475, w: 0.98965}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 22
+    prototypeIndex: 10
+    worldPosition: {x: 1720.9114, y: 8031.8994, z: 1643.2834}
+    worldRotation: {x: 0.09910952, y: 0, z: -0.10379141, w: 0.98964876}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 23
+    prototypeIndex: 10
+    worldPosition: {x: 1727.7845, y: 8029.6616, z: 1645.471}
+    worldRotation: {x: 0.09925092, y: 0, z: -0.10421588, w: 0.98959}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 24
+    prototypeIndex: 10
+    worldPosition: {x: 1724.7522, y: 8028.807, z: 1649.7373}
+    worldRotation: {x: 0.09951629, y: 0, z: -0.104041375, w: 0.9895817}
+    localScale: {x: 1, y: 1, z: 1}
+  nextId: 25

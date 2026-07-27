@@ -24,6 +24,8 @@ public class MapObjectAuthoringWindow : EditorWindow
 
     private void OnEnable()
     {
+
+         STPTME.MapObjects.MapObjectMetadata.ShowAuthoringGizmos = true;
         _tools = new IMapObjectAuthoringTool[]
         {
             new SimplePlacementTool(),
@@ -34,6 +36,7 @@ public class MapObjectAuthoringWindow : EditorWindow
 
     private void OnDisable()
     {
+        STPTME.MapObjects.MapObjectMetadata.ShowAuthoringGizmos = false;
         SceneView.duringSceneGui -= OnSceneGUI;
     }
 

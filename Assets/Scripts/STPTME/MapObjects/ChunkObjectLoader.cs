@@ -122,6 +122,7 @@ public class ChunkObjectLoader : MonoBehaviour
         {
             _objectSource = new STPTME.MapObjects.BakedFileObjectSource(_cellObjectReader);
         }
+        Debug.Log($"[ChunkObjectLoader] Using object source: {_objectSource.GetType().Name}");
 
         // Initialize global blob cache (CellBlotchReader is static, so use CellBlotchQuery static methods)
         string cellsFolder = System.IO.Path.Combine(UnityEngine.Application.streamingAssetsPath, "MapAssets", "Cells");
@@ -163,7 +164,21 @@ public class ChunkObjectLoader : MonoBehaviour
         chunkRegistry.OnChunkRemoved += HandleChunkRemoved;
 
         _initialized = true;
-        //Debug.Log($"[ChunkObjectLoader] Initialized. Registry has {chunkRegistry.ToString() != null} - Awaiting chunks...");
+        Debug.Log($"[ChunkObjectLoader] Start() finished subscribing at frame {Time.frameCount}");
+
+        // Catch up on chunks that already exist. The center chunk (the one the player spawns on)
+        // is created synchronously during ChunkManager's initial generation cycle, which can
+        // complete before this Start() runs — that event is missed entirely, which is why objects
+        // on the spawn chunk only appeared after walking away and back.
+        var preExisting = chunkRegistry.GetAllLoadedChunks();
+        if (preExisting.Count > 0)
+            Debug.Log($"[ChunkObjectLoader] Catching up on {preExisting.Count} pre-existing chunk record(s).");
+        for (int i = 0; i < preExisting.Count; i++)
+        {
+            var (packed, face, lod) = preExisting[i];
+            HandleChunkCreated(packed, face, lod);
+        }
+
     }
 
     private void OnDestroy()
@@ -189,6 +204,7 @@ public class ChunkObjectLoader : MonoBehaviour
     private int debugCallCountHandleChunkCreated = 0; 
     private void HandleChunkCreated(int packed, FaceId face, byte lod)
     {
+        Debug.Log($"[ChunkObjectLoader] HandleChunkCreated FIRED for packed={packed} face={face} lod={lod} at frame {Time.frameCount}");
         if (!_initialized) 
         {
             Debug.LogWarning($"[ChunkObjectLoader::HandleChunkCreated] Called but not initialized!");
@@ -224,6 +240,7 @@ public class ChunkObjectLoader : MonoBehaviour
 
     private void HandleChunkRemoved(int packed, FaceId face, byte lod)
     {
+         Debug.Log($"[ChunkObjectLoader] HandleChunkRemoved FIRED for packed={packed} face={face} lod={lod} at frame {Time.frameCount}");
         if (!_initialized) return;
 
         // Remove from processed set so it can be re-processed if recreated
@@ -242,6 +259,7 @@ public class ChunkObjectLoader : MonoBehaviour
     private void ProcessCellObjects(int packed, FaceId face, byte lod)
     {
         var segment = _objectSource.GetObjectsForChunk(packed, face, _numberOfChunks, lod);
+        Debug.Log($"[ChunkObjectLoader] ProcessCellObjects packed={packed} face={face} lod={lod} → segment.Count={segment.Count} (frame {Time.frameCount})");
         if (segment.Count == 0) return;
 
         // Get the chunk's GameObject for parenting
@@ -291,7 +309,8 @@ public class ChunkObjectLoader : MonoBehaviour
             cellSeed,
             settings.sphereCenter,
             cellScales.y,
-            mapObjectId: sourcedObjectInstance.mapObjectId);
+            mapObjectId: sourcedObjectInstance.mapObjectId,
+            sourceDatabase: _objectSource.SourceDatabaseOrNull);
         }
     }
 

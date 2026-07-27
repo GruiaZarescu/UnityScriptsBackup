@@ -541,6 +541,36 @@ public class ChunkRegistry : MonoBehaviour
         return FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(packed), face);
     }
 
+    /// <summary>
+    /// Enumerates every chunk currently resident, so late subscribers (e.g. ChunkObjectLoader)
+    /// can catch up on chunks created before they attached to OnChunkCreated. The center chunk
+    /// is created synchronously in RunGenerationCycle's collision phase ("Process center chunk
+    /// first without yielding"), which can complete before another component's Start() runs —
+    /// its OnChunkCreated fires with nobody listening, so its objects never spawn.
+    ///
+    /// Mirrors the half-sphere cleanup sweep's flat→(packed,face) reversal, since chunks[] is
+    /// keyed by storage index and has no direct inverse.
+    /// </summary>
+    public List<(int packed, FaceId face, byte lod)> GetAllLoadedChunks()
+    {
+        var result = new List<(int, FaceId, byte)>();
+        if (chunks == null || flatGridBFS == null) return result;
+
+        for (int f = 0; f < flatGridBFS.totalCells; f++)
+        {
+            int storageIdx = flatGridBFS.GetStorageIndex(f);
+            if (storageIdx < 0 || storageIdx >= chunks.Length) continue;
+            if (chunks[storageIdx].IsEmpty) continue;
+
+            int packed = flatGridBFS.GetPacked(f);
+            FaceId face = flatGridBFS.GetFace(f);
+
+            for (int i = 0; i < chunks[storageIdx].Count; i++)
+                result.Add((packed, face, chunks[storageIdx][i].lod));
+        }
+        return result;
+    }
+
     // ===== PHASE B: BATCH VISIBILITY HELPERS =====
 
     /// <summary>
@@ -886,6 +916,7 @@ public class ChunkRegistry : MonoBehaviour
         if (ImpostorRenderer.Instance != null)
         ImpostorRenderer.Instance.SetChunkLOD(slotIdx, lod);
     }
+
 
     // ========= REMOVAL ===========
 

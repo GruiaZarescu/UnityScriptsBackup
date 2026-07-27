@@ -115,6 +115,7 @@ public class CellObjectReader
         string path   = Path.Combine(
             Application.streamingAssetsPath,
             $"MapAssets/CellObjects/CellObjectGroup_{prefix}_{tgX}_{tgY}.bytes");
+        Debug.Log($"[CellObjectReader] Looking for file: {path} — exists={File.Exists(path)}");
 
         if (!File.Exists(path))
             return default;
@@ -128,6 +129,7 @@ public class CellObjectReader
             Debug.LogError($"[CellObjectReader] Failed to parse '{path}': {ex.Message}");
             return default;
         }
+        
     }
 
     private static CellObjectData ParseGroupFile(string path, sbyte targetHmX, sbyte targetHmY)
@@ -180,6 +182,10 @@ public class CellObjectReader
 
         var e = entries[target];
 
+        Debug.Log($"[CellObjectReader] '{path}': subCellCount={subCellCount}, target hm=({targetHmX},{targetHmY})");
+        for (int i = 0; i < subCellCount; i++)
+            Debug.Log($"  subcell[{i}] map=({entries[i].mapX},{entries[i].mapY}) objCount={entries[i].objCount}");
+
         // Chunk index table
         var chunkIndex = new (uint start, ushort count)[totalChunks];
         fs.Seek(e.idxOff, SeekOrigin.Begin);
@@ -189,6 +195,9 @@ public class CellObjectReader
             chunkIndex[c].count = br.ReadUInt16(); // 2
             br.ReadUInt16();                        // 2 reserved
         }
+
+        for (int c = 0; c < chunkIndex.Length; c++)
+    Debug.Log($"  chunkIndex[{c}] → start={chunkIndex[c].start} count={chunkIndex[c].count}");
 
         // Object data
         var objects = new CellObjectInstance[e.objCount];

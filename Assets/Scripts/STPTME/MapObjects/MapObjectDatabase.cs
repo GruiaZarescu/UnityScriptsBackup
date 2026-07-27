@@ -34,6 +34,8 @@ public class MapObjectDatabase : ScriptableObject
     [SerializeField] private List<MapObjectEntry> entries = new List<MapObjectEntry>();
     [SerializeField] private ulong nextId = 1; // 0 reserved as "invalid / not from this database"
 
+    MapObjectDatabase SourceDatabaseOrNull => null;
+
     public IReadOnlyList<MapObjectEntry> All => entries;
     public int Count => entries.Count;
 

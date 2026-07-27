@@ -12,6 +12,7 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
 
     private int _selectedPrototypeIndex = 0;
     private string[] _prototypeNames = new string[0];
+    private static int PickMask => 1 << LayerMask.NameToLayer("MapObjectPicking");
 
     public void OnDashboardGUI(MapObjectDatabase database, MapObjectPrototypeRegistry registry)
     {
@@ -59,7 +60,7 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
         if (e.alt)
         {
             // Alt+Click: try to remove an existing placed object under the cursor.
-            if (Physics.Raycast(ray, out RaycastHit objHit, 2000f))
+            if (Physics.Raycast(ray, out RaycastHit objHit, 2000f, PickMask, QueryTriggerInteraction.Collide))
             {
                 var meta = objHit.collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>();
                 if (meta != null && meta.id != 0)
@@ -78,8 +79,10 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
             return;
         }
 
-        // Plain click: place on terrain.
-        if (Physics.Raycast(ray, out RaycastHit hit, 2000f))
+        // Plain click placement — EXCLUDE the pick layer so an invisible pick sphere near a fence
+        // doesn't block you from placing something on the terrain behind/around it.
+        int placementMask = ~PickMask;
+        if (Physics.Raycast(ray, out RaycastHit hit, 2000f, placementMask))
         {
             // Only place on terrain chunk colliders, not on already-placed objects.
             if (hit.collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>() != null)
@@ -99,4 +102,6 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
             view.Repaint();
         }
     }
+
+    
 }
