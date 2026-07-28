@@ -102,28 +102,21 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
 
         Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
 
-        // ── Ctrl+Click: remove ──
         if (e.control || e.command)
         {
-            int mask = PickMask;
-            if (mask == 0) return;
-
-            if (Physics.Raycast(ray, out RaycastHit objHit, 2000f, mask, QueryTriggerInteraction.Collide))
+            Ray pickRay = HandleUtility.GUIPointToWorldRay(e.mousePosition);
+            if (TryPickMapObject(pickRay, 2000f, out var meta, out Vector3 hitPoint))
             {
-                var meta = objHit.collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>();
-                if (meta != null && meta.id != 0)
-                {
-                    Vector3 removedPos = objHit.point;
-                    database.Remove(meta.id);
-                    Debug.Log($"[SimplePlacementTool] Removed entry id={meta.id}");
+                Vector3 removedPos = meta.transform.position;   // use the object's own position, not the surface hit
+                database.Remove(meta.id);
+                Debug.Log($"[SimplePlacementTool] Removed entry id={meta.id} ('{meta.gameObject.name}')");
 
-                    var loader = UnityEngine.Object.FindAnyObjectByType<ChunkObjectLoader>();
-                    loader?.ForceReprocessChunkObjectsAt(removedPos);
+                var loader = UnityEngine.Object.FindAnyObjectByType<ChunkObjectLoader>();
+                loader?.ForceReprocessChunkObjectsAt(removedPos);
 
-                    GUIUtility.hotControl = 0;
-                    e.Use();
-                    view.Repaint();
-                }
+                GUIUtility.hotControl = 0;
+                e.Use();
+                view.Repaint();
             }
             return;
         }
@@ -149,6 +142,63 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
             e.Use();
             view.Repaint();
         }
+    }
+
+    /// <summary>
+    /// Resolves which placed map object is under the ray. Mesh geometry first (accurate, and
+    /// unambiguous when bounding volumes overlap), falling back to pick spheres only when no
+    /// real geometry was hit — e.g. clicking through a gap in a fence. In the fallback the
+    /// SMALLEST sphere wins, so a small object enclosed by a larger object's sphere stays
+    /// selectable instead of always losing to the enclosing volume.
+    /// </summary>
+    public static bool TryPickMapObject(Ray ray, float maxDist, out STPTME.MapObjects.MapObjectMetadata meta, out Vector3 hitPoint)
+    {
+        meta = null;
+        hitPoint = Vector3.zero;
+
+        int pickLayer = LayerMask.NameToLayer("MapObjectPicking");
+        int pickMask = pickLayer >= 0 ? 1 << pickLayer : 0;
+        int meshMask = ~pickMask;
+
+        // ── Pass 1: real geometry ──
+        RaycastHit[] hits = Physics.RaycastAll(ray, maxDist, meshMask, QueryTriggerInteraction.Ignore);
+        float bestDist = float.MaxValue;
+        for (int i = 0; i < hits.Length; i++)
+        {
+            var m = hits[i].collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>();
+            if (m == null || m.id == 0) continue;
+            if (hits[i].distance < bestDist)
+            {
+                bestDist = hits[i].distance;
+                meta = m;
+                hitPoint = hits[i].point;
+            }
+        }
+        if (meta != null) return true;
+
+        // ── Pass 2: pick spheres, smallest wins ──
+        if (pickMask == 0) return false;
+        RaycastHit[] sphereHits = Physics.RaycastAll(ray, maxDist, pickMask, QueryTriggerInteraction.Collide);
+        float smallestRadius = float.MaxValue;
+        for (int i = 0; i < sphereHits.Length; i++)
+        {
+            var m = sphereHits[i].collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>();
+            if (m == null || m.id == 0) continue;
+
+            var sc = sphereHits[i].collider as SphereCollider;
+            float worldRadius = sc != null
+                ? sc.radius * Mathf.Max(Mathf.Abs(sc.transform.lossyScale.x),
+                    Mathf.Max(Mathf.Abs(sc.transform.lossyScale.y), Mathf.Abs(sc.transform.lossyScale.z)))
+                : float.MaxValue;
+
+            if (worldRadius < smallestRadius)
+            {
+                smallestRadius = worldRadius;
+                meta = m;
+                hitPoint = sphereHits[i].point;
+            }
+        }
+        return meta != null;
     }
 
     private void DrawModeBanner(SceneView view)
