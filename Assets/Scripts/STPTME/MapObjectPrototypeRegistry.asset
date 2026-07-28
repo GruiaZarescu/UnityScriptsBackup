@@ -490,9 +490,11 @@ MonoBehaviour:
     - 0.7
     - 0.6
   - name: Fence0
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: -2173118628331998079, guid: 5516e868e87af1d4cbd912f1fe7b37a8, type: 3}
+    - {fileID: 6344693156608189947, guid: 5516e868e87af1d4cbd912f1fe7b37a8, type: 3}
     lodGameObjects: []
-    material: {fileID: 0}
+    material: {fileID: 2100000, guid: 4ac3cc2baa46d154ba587ffd124b2915, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -520,7 +522,7 @@ MonoBehaviour:
     canopyMaskByLOD: []
     densityFadeEnabled: 0
     densityFadeStart: 0.75
-    useDistanceLOD: 1
+    useDistanceLOD: 0
     lodDistances: {x: 10, y: 20, z: 30, w: 40}
     lodDistancesVariable:
     - 10

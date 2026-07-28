@@ -12,5 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c88b5b699fe7d640bf84f4bd93e9cb8, type: 3}
   m_Name: MapObjectDatabase
   m_EditorClassIdentifier: Assembly-CSharp::MapObjectDatabase
-  entries: []
-  nextId: 133
+  entries:
+  - id: 136
+    prototypeIndex: 10
+    worldPosition: {x: 1724.0128, y: 8031.67, z: 1641.5737}
+    worldRotation: {x: 0.09900636, y: 0, z: -0.10397841, w: 0.98963946}
+    localScale: {x: 1, y: 1, z: 1}
+  nextId: 141

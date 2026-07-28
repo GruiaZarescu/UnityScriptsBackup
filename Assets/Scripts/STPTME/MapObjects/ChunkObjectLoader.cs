@@ -275,7 +275,14 @@ public class ChunkObjectLoader : MonoBehaviour
 
     private void ProcessCellObjects(int packed, FaceId face, byte lod)
     {
-        var segment = _objectSource.GetObjectsForChunk(packed, face, _numberOfChunks, lod);
+        // NOTE: every stored object's lodLevel field is hardcoded to 0 at bake time —
+        // objects aren't actually per-LOD-tagged on disk (see MapObjectBaker.WriteGroupFile).
+        // Passing the CHUNK's actual `lod` here as the filter was wrong: it required an exact
+        // match against that always-0 field, so ANY object silently stopped being found the
+        // moment its chunk left LOD0 — including !shouldInstance objects that are supposed to
+        // persist as a prefab at EVERY LOD forever. Always query the sentinel value (0); the
+        // real per-chunk-LOD spawn decision is entry.ShouldSpawnAsPrefabAtLOD(lod) below.
+        var segment = _objectSource.GetObjectsForChunk(packed, face, _numberOfChunks, 0);
         Debug.Log($"[ChunkObjectLoader] ProcessCellObjects packed={packed} face={face} lod={lod} → segment.Count={segment.Count} (frame {Time.frameCount})");
         if (segment.Count == 0) return;
 

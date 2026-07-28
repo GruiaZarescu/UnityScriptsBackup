@@ -64,7 +64,15 @@ public class MapObjectBaker : MonoBehaviour
     private const int    OBJ_HEADER_SIZE    = 64;
     private const int    SUBCELL_ENTRY_SIZE = 32;
     private const int    CHUNK_INDEX_SIZE   = 8;
-    private const int    OBJECT_SIZE        = 40;
+    private const int    OBJECT_SIZE        = 46; // prototypeIndex(1)+pos(12)+rot(16)+scale(12)+5 reserved.
+    // Was 40 — a stale value that never matched the actual write below. This constant drives
+    // cursor advancement between subcells in WriteGroupFile; being wrong meant every subcell
+    // AFTER one containing objects got its stored data/index offsets computed from a drifted
+    // cursor, silently corrupting them. Invisible under the old single-target-subcell lookup
+    // (subcell 0 often read fine by coincidence), but produces garbage/duplicate reads under
+    // any full-table scan — e.g. MapContentOrchestrator's bulk load for GPU-instancing.
+    // REQUIRES A FULL REBAKE — existing .bytes files were written with the wrong stride and
+    // stay corrupted until regenerated.
 
     [SerializeField, Tooltip("Root transform whose direct children are prefab instances to bake.")]
     private Transform container;

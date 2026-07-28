@@ -21,7 +21,7 @@ public class CellObjectReader
     private const int   OBJ_HEADER_SIZE = 64;
     private const int   SUBCELL_ENTRY_SIZE = 32;
     private const int   CHUNK_INDEX_SIZE   = 8;
-    private const int   OBJECT_SIZE        = 41;
+    private const int   OBJECT_SIZE        = 46; // matches MapObjectBaker's write layout exactly; not used for offset math here (fields read sequentially), kept for documentation parity.
 
     // ── Per-object runtime representation ───────────────────────────────────
 
