@@ -114,7 +114,7 @@ namespace STPTME.MapObjects
         /// Registers it under the chunk for later cleanup.
         /// </summary>
 
-        public GameObject SpawnObject(
+       public GameObject SpawnObject(
     int prototypeIndex,
     Transform parentTransform,
     int chunkPacked,
@@ -127,10 +127,9 @@ namespace STPTME.MapObjects
     Vector3 sphereCenter,
     float widthScale = 1f,
     ulong mapObjectId = 0,
-    MapObjectDatabase sourceDatabase = null)   // NEW
+    MapObjectDatabase sourceDatabase = null)
     {
-        //Final stage of streaming pipeline, CPU/Object branch. Start of debug to see where it's broken.
-        STPTMEUtils.ReadFourSBytesFromInt(chunkPacked,out var map1, out var map2, out var chunk1, out var chunk2);
+        STPTMEUtils.ReadFourSBytesFromInt(chunkPacked, out var map1, out var map2, out var chunk1, out var chunk2);
 
         MapObjectPrototypeRegistry.MapObjectPrototypeEntry entry = prototypeRegistry?.GetEntry(prototypeIndex);
 
@@ -141,7 +140,8 @@ namespace STPTME.MapObjects
         }
 
         GameObject obj = GetOrCreatePooledObject(prototypeIndex, entry.sourcePrefab);
-        if (obj == null) {
+        if (obj == null)
+        {
             Debug.LogWarning($"[MapPrefabStreamer] Failed to spawn object for prototypeIndex={prototypeIndex}");
             return null;
         }
@@ -170,7 +170,13 @@ namespace STPTME.MapObjects
         metaComponent.prototypeIndex = (byte)prototypeIndex;
         metaComponent.seed = seed;
         metaComponent.id = mapObjectId;
-        metaComponent.sourceDatabase = sourceDatabase;   // NEW — null for baked-file spawns, real asset for live-authoring spawns
+        metaComponent.sourceDatabase = sourceDatabase;
+
+        // Must run AFTER transform is final and AFTER parenting. Awake() alone is insufficient:
+        // pooled reuse finds an existing MapObjectMetadata, so AddComponent (and therefore Awake)
+        // never fires again, leaving a stale collider from a previous spawn's position/layer.
+        metaComponent.EnsurePickCollider();
+
         return obj;
     }
 
@@ -216,71 +222,103 @@ namespace STPTME.MapObjects
         }
     }
 
-    /// <summary>
-    /// Lightweight metadata attached to spawned objects for runtime queries.
-    /// </summary>
-    [System.Serializable]
     public class MapObjectMetadata : MonoBehaviour
     {
         public byte prototypeIndex;
         public uint seed;
         public ulong id;
+        public MapObjectDatabase sourceDatabase;
 
-        public MapObjectDatabase sourceDatabase; // null if spawned from a baked file, not live-editable
+        public static bool ShowAuthoringGizmos = false;
+        public static bool SnapToGroundEnabled = false;
 
-        public static bool ShowAuthoringGizmos = false; // toggled by MapObjectAuthoringWindow
+        private const string PickChildName = "__PickCollider";
 
         private void Awake()
         {
             EnsurePickCollider();
         }
 
-        private void EnsurePickCollider()
+        /// <summary>
+        /// Creates or re-syncs the bounding-sphere pick collider. Safe to call repeatedly —
+        /// call it on every spawn, not just Awake, since pooled reuse skips Awake entirely.
+        /// </summary>
+        public void EnsurePickCollider()
         {
-            if (transform.Find("__PickCollider") != null) return;
+            Transform pick = transform.Find(PickChildName);
+            if (pick == null)
+            {
+                var pickObj = new GameObject(PickChildName);
+                pickObj.transform.SetParent(transform, false);
+                var sc = pickObj.AddComponent<SphereCollider>();
+                sc.isTrigger = true;
+                pick = pickObj.transform;
+            }
 
-            var renderers = GetComponentsInChildren<Renderer>();
-            if (renderers.Length == 0) return;
+            // Bounds computed from renderers only — exclude the pick child itself so it can
+            // never feed its own size back into the calculation.
+            Renderer[] renderers = GetComponentsInChildren<Renderer>();
+            bool any = false;
+            Bounds b = default;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i].transform.IsChildOf(pick)) continue;
+                if (!any) { b = renderers[i].bounds; any = true; }
+                else b.Encapsulate(renderers[i].bounds);
+            }
+            if (!any) return;
 
-            Bounds b = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++) b.Encapsulate(renderers[i].bounds);
+            pick.position = b.center;
 
-            var pickObj = new GameObject("__PickCollider");
-            pickObj.transform.SetParent(transform, false);
-            pickObj.transform.position = b.center;
+            var sphere = pick.GetComponent<SphereCollider>();
+            if (sphere != null)
+            {
+                // Collider radius is in LOCAL space, so divide out the parent's scale —
+                // otherwise a scaled prefab gets a sphere scaled twice over.
+                float maxScale = Mathf.Max(Mathf.Abs(transform.lossyScale.x),
+                                Mathf.Max(Mathf.Abs(transform.lossyScale.y), Mathf.Abs(transform.lossyScale.z)));
+                if (maxScale < 0.0001f) maxScale = 1f;
+                sphere.radius = b.extents.magnitude / maxScale;
+            }
 
             int pickLayer = LayerMask.NameToLayer("MapObjectPicking");
             if (pickLayer < 0)
                 Debug.LogWarning("[MapObjectMetadata] Layer 'MapObjectPicking' not found — add it in " +
-                    "Project Settings > Tags and Layers, or pick raycasts will fall back to Default.");
-            pickObj.layer = pickLayer >= 0 ? pickLayer : gameObject.layer;
-
-            var sphere = pickObj.AddComponent<SphereCollider>();
-            sphere.isTrigger = true;
-            sphere.radius = b.extents.magnitude; // encloses full renderer bounds regardless of mesh holes
+                    "Project Settings > Tags and Layers. Pick raycasts will not work.");
+            else
+                pick.gameObject.layer = pickLayer;   // re-asserted every call, fixes colliders made before the layer existed
         }
 
+    #if UNITY_EDITOR
         private void OnDrawGizmos()
         {
             if (!ShowAuthoringGizmos) return;
-            var pick = transform.Find("__PickCollider");
-            if (pick == null) return;
-            var sc = pick.GetComponent<SphereCollider>();
-            if (sc == null) return;
+
+            // Derived live from renderer bounds rather than read off the cached child, so the
+            // gizmo is correct even if the collider hasn't been re-synced yet.
+            Renderer[] renderers = GetComponentsInChildren<Renderer>();
+            Transform pick = transform.Find(PickChildName);
+            bool any = false;
+            Bounds b = default;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (pick != null && renderers[i].transform.IsChildOf(pick)) continue;
+                if (!any) { b = renderers[i].bounds; any = true; }
+                else b.Encapsulate(renderers[i].bounds);
+            }
+            if (!any) return;
 
             Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.5f);
-            Gizmos.DrawWireSphere(pick.position, sc.radius);
+            Gizmos.DrawWireSphere(b.center, b.extents.magnitude);
         }
 
-        #if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
             if (!ShowAuthoringGizmos) return;
             UnityEditor.Handles.Label(transform.position + Vector3.up * 1.5f,
-                $"id={id}  proto={(sourceDatabase != null ? "live" : "baked")}");
+                $"id={id}  {(sourceDatabase != null ? "live" : "baked")}");
         }
-        #endif
-
+    #endif
     }
 
 }

@@ -62,11 +62,24 @@ public class ChunkObjectLoader : MonoBehaviour
         _gpuBlotches = new List<BlotchData>();
     }
 
+    /// <summary>
+    /// Forces both object passes to re-run for a specific chunk, bypassing the
+    /// "already processed" guard. Used by editor-time authoring tools so a newly Add()'d or
+    /// Remove()'d MapObjectDatabase entry shows up immediately.
+    ///
+    /// MUST mirror HandleChunkCreated's full sequence (cell objects AND blobs), because
+    /// DespawnChunkObjects clears the entire chunk bucket — which is shared by both spawn
+    /// paths. Re-running only ProcessCellObjects would permanently delete every
+    /// single-instance blotch prefab (trees, etc.) in the chunk until it reloaded.
+    /// </summary>
     public void ForceReprocessChunkObjects(int packed, FaceId face, byte lod)
     {
         if (!_initialized) return;
+
         prefabStreamer.DespawnChunkObjects(packed, face, lod);
+
         ProcessCellObjects(packed, face, lod);
+        ProcessBlobs(packed, face, lod);
     }
 
     /// <summary>

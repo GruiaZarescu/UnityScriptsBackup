@@ -47,6 +47,8 @@ public class MapObjectAuthoringWindow : EditorWindow
         registry = (MapObjectPrototypeRegistry)EditorGUILayout.ObjectField("Prototype Registry", registry, typeof(MapObjectPrototypeRegistry), false);
 
         EditorGUILayout.Space();
+        STPTME.MapObjects.MapObjectMetadata.SnapToGroundEnabled = EditorGUILayout.ToggleLeft(
+            "Snap To Ground When Moved", STPTME.MapObjects.MapObjectMetadata.SnapToGroundEnabled);
 
         if (database == null)
         {

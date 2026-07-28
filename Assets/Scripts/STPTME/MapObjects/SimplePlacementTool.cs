@@ -1,18 +1,30 @@
 using UnityEditor;
 using UnityEngine;
 
-/// <summary>
-/// Minimal single-object placement tool — the smallest thing that exercises the whole
-/// Add/Remove/stream pipeline end to end. Click terrain to place the selected prototype,
-/// Alt+Click an existing placed object to remove it.
-/// </summary>
 public class SimplePlacementTool : IMapObjectAuthoringTool
 {
     public string DisplayName => "Simple Placement";
 
+    private enum EditMode { Off, Place }
+    private EditMode _mode = EditMode.Off;
+
     private int _selectedPrototypeIndex = 0;
     private string[] _prototypeNames = new string[0];
-    private static int PickMask => 1 << LayerMask.NameToLayer("MapObjectPicking");
+
+    private static int PickMask
+    {
+        get
+        {
+            int layer = LayerMask.NameToLayer("MapObjectPicking");
+            if (layer < 0)
+            {
+                Debug.LogError("[SimplePlacementTool] Layer 'MapObjectPicking' does not exist. " +
+                    "Add it in Project Settings > Tags and Layers.");
+                return 0;
+            }
+            return 1 << layer;
+        }
+    }
 
     public void OnDashboardGUI(MapObjectDatabase database, MapObjectPrototypeRegistry registry)
     {
@@ -29,38 +41,74 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
                 _prototypeNames[i] = $"[{i}] {(registry.entries[i]?.name ?? "null")}";
         }
 
+        // ── Mode toggle ──
+        bool placing = _mode == EditMode.Place;
+        GUI.backgroundColor = placing ? new Color(0.4f, 1f, 0.5f) : Color.white;
+        if (GUILayout.Button(placing ? "PLACEMENT MODE: ON  (click to exit)" : "Placement Mode: OFF  (click to enter)",
+                GUILayout.Height(30)))
+        {
+            _mode = placing ? EditMode.Off : EditMode.Place;
+            SceneView.RepaintAll();
+        }
+        GUI.backgroundColor = Color.white;
+
+        EditorGUILayout.Space();
         EditorGUILayout.LabelField("Prototype To Place", EditorStyles.boldLabel);
         _selectedPrototypeIndex = EditorGUILayout.Popup(_selectedPrototypeIndex, _prototypeNames);
         _selectedPrototypeIndex = Mathf.Clamp(_selectedPrototypeIndex, 0, Mathf.Max(0, registry.entries.Length - 1));
 
         EditorGUILayout.Space();
         EditorGUILayout.HelpBox(
-            "Click on terrain (Scene view, Play Mode) to place the selected prototype.\n" +
-            "Alt+Click an existing placed object to remove it.",
+            "PLACEMENT MODE ON:\n" +
+            "  Click terrain → place selected prototype\n" +
+            "  Ctrl+Click an object → remove it\n" +
+            "  Escape → exit placement mode\n" +
+            "Transform gizmos still work on the selected object while placing.\n\n" +
+            "PLACEMENT MODE OFF: normal Unity selection and editing.",
             MessageType.Info);
     }
 
     public void OnSceneGUI(SceneView view, MapObjectDatabase database, MapObjectPrototypeRegistry registry)
     {
         if (database == null || registry == null) return;
-        if (!Application.isPlaying)
+
+        if (_mode == EditMode.Place)
+            DrawModeBanner(view);
+
+        if (!Application.isPlaying || _mode != EditMode.Place) return;
+
+        Event e = Event.current;
+
+        // Register as the FALLBACK control. Unity's transform handles register their own
+        // control IDs with real screen distances, so whenever the cursor is over a move/rotate
+        // arrow, that handle becomes nearestControl and receives the click instead of us.
+        // This is what makes "placement mode" and "dragging a selected object" coexist.
+        int controlID = GUIUtility.GetControlID(FocusType.Passive);
+        if (e.type == EventType.Layout)
+            HandleUtility.AddDefaultControl(controlID);
+
+        if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
         {
-            Handles.BeginGUI();
-            GUILayout.Label("Simple Placement Tool: requires Play Mode (raycasts against live terrain colliders).",
-                EditorStyles.helpBox);
-            Handles.EndGUI();
+            _mode = EditMode.Off;
+            e.Use();
+            view.Repaint();
             return;
         }
 
-        Event e = Event.current;
         if (e.type != EventType.MouseDown || e.button != 0) return;
+
+        // Only act if nothing else (a handle, a collider gizmo) claimed this click.
+        if (HandleUtility.nearestControl != controlID) return;
 
         Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
 
-        if (e.alt)
+        // ── Ctrl+Click: remove ──
+        if (e.control || e.command)
         {
-            // Alt+Click: try to remove an existing placed object under the cursor.
-            if (Physics.Raycast(ray, out RaycastHit objHit, 2000f, PickMask, QueryTriggerInteraction.Collide))
+            int mask = PickMask;
+            if (mask == 0) return;
+
+            if (Physics.Raycast(ray, out RaycastHit objHit, 2000f, mask, QueryTriggerInteraction.Collide))
             {
                 var meta = objHit.collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>();
                 if (meta != null && meta.id != 0)
@@ -72,6 +120,7 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
                     var loader = UnityEngine.Object.FindAnyObjectByType<ChunkObjectLoader>();
                     loader?.ForceReprocessChunkObjectsAt(removedPos);
 
+                    GUIUtility.hotControl = 0;
                     e.Use();
                     view.Repaint();
                 }
@@ -79,12 +128,10 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
             return;
         }
 
-        // Plain click placement — EXCLUDE the pick layer so an invisible pick sphere near a fence
-        // doesn't block you from placing something on the terrain behind/around it.
+        // ── Plain click: place ──
         int placementMask = ~PickMask;
         if (Physics.Raycast(ray, out RaycastHit hit, 2000f, placementMask))
         {
-            // Only place on terrain chunk colliders, not on already-placed objects.
             if (hit.collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>() != null)
                 return;
 
@@ -98,10 +145,21 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
             var loader = UnityEngine.Object.FindAnyObjectByType<ChunkObjectLoader>();
             loader?.ForceReprocessChunkObjectsAt(hit.point);
 
+            GUIUtility.hotControl = 0;
             e.Use();
             view.Repaint();
         }
     }
 
-    
+    private void DrawModeBanner(SceneView view)
+    {
+        Handles.BeginGUI();
+        var rect = new Rect(10, 10, 280, 46);
+        EditorGUI.DrawRect(rect, new Color(0.1f, 0.5f, 0.2f, 0.85f));
+        GUI.Label(new Rect(rect.x + 8, rect.y + 4, rect.width - 16, 18),
+            "● PLACEMENT MODE ACTIVE", EditorStyles.whiteBoldLabel);
+        GUI.Label(new Rect(rect.x + 8, rect.y + 24, rect.width - 16, 18),
+            "Click = place · Ctrl+Click = remove · Esc = exit", EditorStyles.whiteMiniLabel);
+        Handles.EndGUI();
+    }
 }
