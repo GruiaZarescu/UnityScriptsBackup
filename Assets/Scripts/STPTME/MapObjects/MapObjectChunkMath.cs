@@ -15,6 +15,9 @@ public static class MapObjectChunkMath
         public sbyte heightmapX, heightmapY;
         public sbyte chunkX, chunkY;
         public int packed;
+        /// <summary>Position within the chunk, in meters, range [0, chunkSize). Needed when
+        /// converting a map object into a BlotchData, which stores position this way.</summary>
+        public float localXMeters, localZMeters;
     }
 
     public static bool TryResolve(
@@ -41,12 +44,16 @@ public static class MapObjectChunkMath
         sbyte chunkX = (sbyte)(globalChunkX % numberOfChunks);
         sbyte chunkY = (sbyte)(globalChunkY % numberOfChunks);
 
+        float localX = plane.x - globalChunkX * chunkSize;
+        float localZ = plane.y - globalChunkY * chunkSize;
+
         address = new ChunkAddress
         {
             face = face,
             heightmapX = heightmapX, heightmapY = heightmapY,
             chunkX = chunkX, chunkY = chunkY,
-            packed = STPTMEUtils.WriteFourSBytesInInt(heightmapX, heightmapY, chunkX, chunkY)
+            packed = STPTMEUtils.WriteFourSBytesInInt(heightmapX, heightmapY, chunkX, chunkY),
+            localXMeters = localX, localZMeters = localZ
         };
         return true;
     }

@@ -16,11 +16,18 @@ namespace CustomTypes
     // the blotch parameters (radius, density, conflictCategory). MeshSaver serializes
     // each such tree as a BlotchData instead of an STPTMETreeInstance.
     //
-    // Layout (16 bytes, GPU-aligned):
+    // Layout (20 bytes, GPU-aligned):
     //   chunkPacked     4B  — (mapX<<24)|(mapY<<16)|(chunkX<<8)|chunkY  [matches STPTMEUtils]
     //   packedMeta      4B  — face|prototypeIndex|conflictCategory|flags
     //   seedAndDensity  4B  — seed|densityQuantized|radiusQuantized
     //   packedPos       4B  — localX|localZ (quantized position within chunk)
+    //   packedRotation  4B  — bit0: hasExplicitRotation; bits8-15: quantized yaw (0-255→0..360°)
+    //
+    // packedRotation is NOT present in the on-disk format for terrain-authored blotches
+    // (CellFileBaking/CellBlotchReader still read/write the original 16-byte layout — no
+    // rebake needed). It is only ever set in-memory, by MapContentOrchestrator, when
+    // converting a placed map object (which has a real authored rotation) into a
+    // single-instance blotch. Terrain trees keep their hash-derived yaw, unchanged.
     // =========================================================================
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -51,6 +58,10 @@ namespace CustomTypes
         // The GPU converts this to a world position via FaceIdUtility.ProjectFacePlanePoint.
         public uint packedPos;
 
+        // bit0: hasExplicitRotation. bits8-15: quantized yaw (0-255 -> 0..360 degrees,
+        // SAME convention as InstanceData's rotationQuantized so the two agree bit-for-bit).
+        public uint packedRotation;
+
         // ===== Pack/Unpack helpers =====
 
         public BlotchData(
@@ -63,7 +74,8 @@ namespace CustomTypes
             float radiusMeters,
             float localXMeters,
             float localZMeters,
-            float chunkSizeMeters)
+            float chunkSizeMeters,
+            float? explicitYawDegrees = null)
         {
             this.chunkPacked = chunkPacked;
 
@@ -78,6 +90,16 @@ namespace CustomTypes
             this.seedAndDensity = s | (d << 16) | (r << 24);
 
             this.packedPos = PackLocalPos(localXMeters, localZMeters, chunkSizeMeters);
+
+            if (explicitYawDegrees.HasValue)
+            {
+                uint yawQ = QuantizeYaw(explicitYawDegrees.Value);
+                this.packedRotation = 1u | (yawQ << 8);
+            }
+            else
+            {
+                this.packedRotation = 0u;
+            }
         }
 
         public FaceId Face => (FaceId)(packedMeta & 0xFF);
@@ -87,6 +109,9 @@ namespace CustomTypes
         public uint Seed => seedAndDensity & 0xFFFF;
         public float DensityPerSqM => ((seedAndDensity >> 16) & 0xFF) * 0.5f;
         public float RadiusMeters => ((seedAndDensity >> 24) & 0xFF) * 0.25f;
+
+        public bool HasExplicitRotation => (packedRotation & 1u) != 0;
+        public float ExplicitYawDegrees => ((packedRotation >> 8) & 0xFF) / 255f * 360f;
 
         public void GetLocalPosition(float chunkSizeMeters, out float localX, out float localZ)
         {
@@ -111,6 +136,16 @@ namespace CustomTypes
             // 0..63.75 meters → 0..255
             float clamped = Mathf.Clamp(radiusMeters, 0f, 63.75f);
             return (uint)Mathf.RoundToInt(clamped / 0.25f);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint QuantizeYaw(float degrees)
+        {
+            // Same 0-255 -> 0..360 convention as InstanceData's rotationQuantized bits,
+            // so a stored explicit yaw and a hash-derived one are directly comparable.
+            float wrapped = degrees % 360f;
+            if (wrapped < 0f) wrapped += 360f;
+            return (uint)Mathf.Clamp(Mathf.RoundToInt(wrapped / 360f * 255f), 0, 255);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

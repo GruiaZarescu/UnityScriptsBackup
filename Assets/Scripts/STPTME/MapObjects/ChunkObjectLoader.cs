@@ -137,9 +137,13 @@ public class ChunkObjectLoader : MonoBehaviour
         }
         Debug.Log($"[ChunkObjectLoader] Using object source: {_objectSource.GetType().Name}");
 
-        // Initialize global blob cache (CellBlotchReader is static, so use CellBlotchQuery static methods)
-        string cellsFolder = System.IO.Path.Combine(UnityEngine.Application.streamingAssetsPath, "MapAssets", "Cells");
-        CellBlotchQuery.Initialize(cellsFolder, 1 << _heightmapSubdivisions, _minX);
+        // Terrain blotch data is no longer loaded/reloaded here — ChunkManager.Awake already
+        // ran MapContentOrchestrator.Build (once) and populated TerrainBlotchIndex from that
+        // single pass. Loading it again here would be a second, entirely redundant full scan
+        // of every cell file.
+        if (!STPTME.MapObjects.TerrainBlotchIndex.IsInitialized)
+            Debug.LogWarning("[ChunkObjectLoader] TerrainBlotchIndex not initialized yet — " +
+                "ensure ChunkManager.Awake runs before this component's Start().");
         
         // Debug: If current chunk available, check if it has blobs
         var chunkMgr = ChunkManager.Instance;
@@ -293,14 +297,12 @@ public class ChunkObjectLoader : MonoBehaviour
             }
 
             // Decide: GPU instance or spawn GameObject?
+            // Reaching this branch is now the EXPECTED outcome, not an edge case: if this
+            // object's prototype is shouldInstance, MapContentOrchestrator already converted
+            // it into a blotch and merged it into the GPU buffer at scene load — spawning a
+            // GameObject here too would double-render it. No warning needed.
             if (entry.IsInstancedAtLOD(lod))
-            {
-                // Convert to GPU buffer format (if we support cell objects in GPU buffer)
-                // For now, cell objects are only LOD0 objects, which shouldn't be GPU instanced
-                // (unless instanceAlways, but that requires a GameObject with colliders anyway)
-                Debug.LogWarning($"[ChunkObjectLoader] Cell object marked for instancing (should be rare): proto {sourcedObjectInstance.prototypeIndex} at LOD {lod}");
                 continue;
-            }
 
             // Spawn as GameObject
             var settings = TerrainManagementSettings.Instance;
@@ -334,7 +336,10 @@ public class ChunkObjectLoader : MonoBehaviour
         if (chunkRegistry != null && chunkRegistry.TryGetChunkGameObject(packed, face, lod, out GameObject chunkGO))
             parentTransform = chunkGO.transform;
 
-        var blobs = CellBlotchQuery.GetBlobsForChunk(packed);
+        // NOTE: keyed by (packed, face) — the old CellBlotchQuery keyed by packed alone,
+        // which doesn't encode face, so two faces sharing the same (mapX,mapY,chunkX,chunkY)
+        // coordinates could silently have their blotches merged. Fixed by TerrainBlotchIndex.
+        var blobs = STPTME.MapObjects.TerrainBlotchIndex.GetBlobsForChunk(packed, face);
         int spawnedCount = 0;
 
         foreach (var blob in blobs)

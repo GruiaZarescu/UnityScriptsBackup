@@ -282,7 +282,28 @@ public class ChunkManager : MonoBehaviour
 
         string cellsFolder = System.IO.Path.Combine(
             Application.streamingAssetsPath, "MapAssets/Cells");
-        BlotchData[] allBlotches = CellBlotchReader.LoadAllBlotches(cellsFolder);
+        BlotchData[] rawTerrainBlotches = CellBlotchReader.LoadAllBlotches(cellsFolder);
+
+        string cellObjectsFolder = System.IO.Path.Combine(
+            Application.streamingAssetsPath, "MapAssets/CellObjects");
+        var rawMapObjects = CellObjectReader.LoadAllObjects(cellObjectsFolder);
+
+        // The orchestrator is the single decision point for GPU-buffer eligibility: it prunes
+        // terrain blotches whose prototype is never GPU-instanced (they become prefab-only,
+        // via TerrainBlotchIndex below), converts GPU-eligible map objects into single-instance
+        // blotches, and validates/drops any terrain blotch that's a cluster but not
+        // instanceAlways (which would otherwise render as one wrong prefab — see the warning
+        // it logs). This is what keeps the GPU buffer free of prototypes that will never be
+        // GPU-instanced, rather than uploading everything and filtering at draw time.
+        float faceWorldSizeForOrchestrator = (maxX - minX + 1) * (terrainSize / subdivisionsPowerOf2);
+        var orchestratorResult = STPTME.MapObjects.MapContentOrchestrator.Build(
+            rawTerrainBlotches, rawMapObjects, mapObjectRegistry,
+            sphereCenter, settings.halfChunkLinearSize * 2f, faceWorldSizeForOrchestrator,
+            numberOfChunks, minX, maxX);
+
+        STPTME.MapObjects.TerrainBlotchIndex.SetIndex(orchestratorResult.TerrainBlotchesByChunk);
+
+        BlotchData[] allBlotches = orchestratorResult.GpuBlotches;
 
         // Build stub visibility data — real implementation pending ChunkManager integration.
         var chunkVisData = BuildChunkVisibilityData();
@@ -296,6 +317,8 @@ public class ChunkManager : MonoBehaviour
             globalHeightmapArray, terrainGridSize);
 
         allBlotches = null; // Free RAM copy (keep only in VRAM)
+        rawTerrainBlotches = null;
+        rawMapObjects = null;
     
 
         ChunkKey initialChunk = GetCurrentProjectedChunk(character.transform.position);

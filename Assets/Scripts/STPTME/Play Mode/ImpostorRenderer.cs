@@ -86,7 +86,7 @@ public class ImpostorRenderer : MonoBehaviour
 
     private const int MAX_LODS_PER_BUCKET = 16;
     private const int MAX_INSTANCES_PER_BUCKET = 65536;
-    private const int BLOTCH_STRIDE = 16; // BlotchData is 16 bytes
+    private const int BLOTCH_STRIDE = 20; // BlotchData is 20 bytes (added packedRotation for explicit-yaw objects)
     private const int INSTANCE_STRIDE = 32; // InstanceData is 32 bytes on GPU
     private const int LOD0_HM_RES = 128;//CHUNKS HAVE VARIABLE RESOLUTION, so we'll need to make this variable at some point pehaps. A chunk can either be 64 or 128 
 

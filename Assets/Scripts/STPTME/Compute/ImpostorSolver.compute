@@ -46,9 +46,24 @@ StructuredBuffer<ChunkVisibilityData> _ChunkVisibilityBuffer;
 
 struct BlotchData
 {
-    int chunkPacked; uint packedMeta; uint seedAndDensity; uint packedPos;
+    int chunkPacked; uint packedMeta; uint seedAndDensity; uint packedPos; uint packedRotation;
 };
 StructuredBuffer<BlotchData> _GlobalBlotchBuffer;
+
+// bit0: hasExplicitRotation. bits8-15: quantized yaw (0-255 -> 0..360), same convention
+// as InstanceData.packedMeta's rotationQuantized bits. Mirrors BlotchData.HasExplicitRotation
+// / ExplicitYawDegrees on the C# side exactly.
+bool BlotchHasExplicitRotation(uint packedRotation) { return (packedRotation & 1u) != 0; }
+uint BlotchExplicitRotQ(uint packedRotation) { return (packedRotation >> 8) & 0xFFu; }
+
+// Resolves the final quantized rotation for an instance: the blotch's stored explicit yaw
+// if it has one (map objects — fences etc., which need to keep their authored orientation),
+// otherwise the existing hash-derived yaw (terrain trees — random facing looks natural and
+// was never meant to be controlled).
+uint ResolveRotQ(BlotchData bl, uint hashDerivedRotQ)
+{
+    return BlotchHasExplicitRotation(bl.packedRotation) ? BlotchExplicitRotQ(bl.packedRotation) : hashDerivedRotQ;
+}
 
 struct BlotchRange { uint start; uint count; };
 StructuredBuffer<BlotchRange> _BlotchOffsetBuffer;
@@ -581,7 +596,7 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
                 if (wonClaim)
                 {
-                    uint rotQ = (h1 >> 24) & 0xFFu;
+                    uint rotQ = ResolveRotQ(bl, (h1 >> 24) & 0xFFu);
                     uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + selectedLOD];
                     if (bucketIdx != 0xFFFFFFFF)
                     {
@@ -775,7 +790,7 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float3 wp = BlotchWorldPosDir(instanceDir, face, base_lx, base_lz, uv_dx, uv_dz,
                                   chunkLOD, storageSlot, protoIdx, bl.chunkPacked);
 
-    uint rotQ = (h1 >> 24) & 0xFFu;
+    uint rotQ = ResolveRotQ(bl, (h1 >> 24) & 0xFFu);
     uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + selectedLOD];
     if (bucketIdx == 0xFFFFFFFF) return;
 

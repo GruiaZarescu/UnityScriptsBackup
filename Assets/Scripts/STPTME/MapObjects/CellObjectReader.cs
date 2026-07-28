@@ -8,6 +8,11 @@ using CustomTypes;
 /// Runtime reader for CellObjectGroup binary files written by <see cref="MapObjectBaker"/>.
 /// Mirrors <see cref="CellReader"/> in structure: synchronous load, dictionary cache,
 /// zero-copy per-chunk query via <see cref="GetObjectsForChunk"/>.
+///
+/// Also provides <see cref="LoadAllObjects"/>, a bulk scan of every group file — used once,
+/// at scene load, by MapContentOrchestrator to find every object whose prototype should be
+/// GPU-instanced. This is a genuinely different traversal from the per-chunk lazy path
+/// (every subcell, not just one target), so it shares only the header/subcell-entry parsing.
 /// </summary>
 public class CellObjectReader
 {
@@ -27,6 +32,12 @@ public class CellObjectReader
         public Quaternion rotation;
         public Vector3   scale;
         public byte      lodLevel;
+    }
+
+    private struct SubCellEntry
+    {
+        public sbyte mapX, mapY;
+        public uint objCount, idxOff, dataOff;
     }
 
     // ── Per-cell cached data ─────────────────────────────────────────────────
@@ -55,7 +66,7 @@ public class CellObjectReader
         _minX       = minX;
     }
 
-    // ── Public query ─────────────────────────────────────────────────────────
+    // ── Public query (per-chunk, lazy, used by ChunkObjectLoader streaming) ──
 
     /// <summary>
     /// Returns all objects assigned to the chunk encoded in <paramref name="packed"/>,
@@ -86,8 +97,6 @@ public class CellObjectReader
         var (start, count) = data.chunkIndex[chunkFlat];
         if (count == 0) return default;
 
-        // Filter by LOD: count matching entries into a temporary buffer.
-        // In practice most chunks will have only a handful of objects, so this is fine.
         if (_filterBuffer == null || _filterBuffer.Length < count)
             _filterBuffer = new CellObjectInstance[count * 2];
 
@@ -105,7 +114,75 @@ public class CellObjectReader
     public void Evict(Vector2SByte map, FaceId face)
         => _cache.Remove(new MapFaceKey(map, face));
 
-    // ── File loading ─────────────────────────────────────────────────────────
+    // ── Public bulk load (used once, at scene load, by MapContentOrchestrator) ──
+
+    /// <summary>
+    /// Scans every CellObjectGroup_*.bytes file in <paramref name="folder"/> and returns
+    /// EVERY object across every subcell — not just one target, unlike the per-chunk path.
+    /// Each result item carries its own resolved (chunkPacked, face) so the caller doesn't
+    /// need to re-derive chunk addressing.
+    /// </summary>
+    public static List<(int chunkPacked, FaceId face, CellObjectInstance instance)> LoadAllObjects(string folder)
+    {
+        var result = new List<(int, FaceId, CellObjectInstance)>();
+
+        if (!Directory.Exists(folder))
+        {
+            Debug.LogWarning($"[CellObjectReader] CellObjects folder not found: {folder}");
+            return result;
+        }
+
+        string[] files = Directory.GetFiles(folder, "CellObjectGroup_*.bytes");
+        foreach (string path in files)
+        {
+            try
+            {
+                LoadAllObjectsFromFile(path, result);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[CellObjectReader] Bulk parse failed for '{Path.GetFileName(path)}': {ex.Message}");
+            }
+        }
+
+        return result;
+    }
+
+    private static void LoadAllObjectsFromFile(string path, List<(int, FaceId, CellObjectInstance)> result)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var br = new BinaryReader(fs);
+
+        if (!ReadHeader(br, path, out byte face, out ushort subCellCount, out ushort chunksPerAxis))
+            return;
+
+        SubCellEntry[] entries = ReadSubCellEntries(br, subCellCount);
+        int totalChunks = chunksPerAxis * chunksPerAxis;
+
+        for (int si = 0; si < subCellCount; si++)
+        {
+            var e = entries[si];
+            if (e.objCount == 0) continue;
+
+            var chunkIndex = ReadChunkIndex(fs, br, e.idxOff, totalChunks);
+            var objects = ReadObjects(fs, br, e.dataOff, e.objCount);
+
+            for (int c = 0; c < totalChunks; c++)
+            {
+                var (start, count) = chunkIndex[c];
+                if (count == 0) continue;
+
+                sbyte chunkX = (sbyte)(c % chunksPerAxis);
+                sbyte chunkY = (sbyte)(c / chunksPerAxis);
+                int packed = STPTMEUtils.WriteFourSBytesInInt(e.mapX, e.mapY, chunkX, chunkY);
+
+                for (int i = (int)start; i < (int)start + count; i++)
+                    result.Add((packed, (FaceId)face, objects[i]));
+            }
+        }
+    }
+
+    // ── File loading (per-chunk lazy path) ──────────────────────────────────
 
     private CellObjectData LoadCell(sbyte hmX, sbyte hmY, FaceId face)
     {
@@ -115,7 +192,6 @@ public class CellObjectReader
         string path   = Path.Combine(
             Application.streamingAssetsPath,
             $"MapAssets/CellObjects/CellObjectGroup_{prefix}_{tgX}_{tgY}.bytes");
-        Debug.Log($"[CellObjectReader] Looking for file: {path} — exists={File.Exists(path)}");
 
         if (!File.Exists(path))
             return default;
@@ -129,7 +205,6 @@ public class CellObjectReader
             Debug.LogError($"[CellObjectReader] Failed to parse '{path}': {ex.Message}");
             return default;
         }
-        
     }
 
     private static CellObjectData ParseGroupFile(string path, sbyte targetHmX, sbyte targetHmY)
@@ -137,29 +212,56 @@ public class CellObjectReader
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var br = new BinaryReader(fs);
 
-        // Header
+        if (!ReadHeader(br, path, out _, out ushort subCellCount, out ushort chunksPerAxis))
+            return default;
+
+        SubCellEntry[] entries = ReadSubCellEntries(br, subCellCount);
+        int totalChunks = chunksPerAxis * chunksPerAxis;
+
+        int target = -1;
+        for (int i = 0; i < subCellCount; i++)
+            if (entries[i].mapX == targetHmX && entries[i].mapY == targetHmY)
+            { target = i; break; }
+
+        if (target == -1 || entries[target].objCount == 0)
+            return default;
+
+        var e = entries[target];
+        var chunkIndex = ReadChunkIndex(fs, br, e.idxOff, totalChunks);
+        var objects = ReadObjects(fs, br, e.dataOff, e.objCount);
+
+        return new CellObjectData { objects = objects, chunkIndex = chunkIndex };
+    }
+
+    // ── Shared parsing helpers ───────────────────────────────────────────────
+
+    private static bool ReadHeader(BinaryReader br, string path, out byte face, out ushort subCellCount, out ushort chunksPerAxis)
+    {
+        face = 0; subCellCount = 0; chunksPerAxis = 0;
+
         ulong magic = br.ReadUInt64();
         if (magic != OBJ_MAGIC)
         {
             Debug.LogError($"[CellObjectReader] Bad magic in '{path}'");
-            return default;
+            return false;
         }
         br.ReadUInt16(); // formatVersion
         br.ReadUInt16(); // headerSize
         br.ReadUInt32(); // flags
-        br.ReadByte();   // face
+        face = br.ReadByte();
         br.ReadByte();   // origTerrainX
         br.ReadByte();   // origTerrainY
         br.ReadByte();   // subdivPow2
-        ushort subCellCount  = br.ReadUInt16();
-        ushort chunksPerAxis = br.ReadUInt16();
-        br.ReadUInt32(); // totalObjects (skip; we only need our subcell)
-        fs.Seek(OBJ_HEADER_SIZE, SeekOrigin.Begin);
+        subCellCount  = br.ReadUInt16();
+        chunksPerAxis = br.ReadUInt16();
+        br.ReadUInt32(); // totalObjects
+        br.BaseStream.Seek(OBJ_HEADER_SIZE, SeekOrigin.Begin);
+        return true;
+    }
 
-        int totalChunks = chunksPerAxis * chunksPerAxis;
-
-        // SubCellEntry scan — find the entry matching the requested cell
-        var entries = new (sbyte mapX, sbyte mapY, uint objCount, uint idxOff, uint dataOff)[subCellCount];
+    private static SubCellEntry[] ReadSubCellEntries(BinaryReader br, ushort subCellCount)
+    {
+        var entries = new SubCellEntry[subCellCount];
         for (int i = 0; i < subCellCount; i++)
         {
             entries[i].mapX    = br.ReadSByte();   // 1
@@ -170,39 +272,27 @@ public class CellObjectReader
             entries[i].dataOff  = br.ReadUInt32(); // 4
             for (int p = 0; p < 16; p++) br.ReadByte(); // 16 reserved
         }
+        return entries;
+    }
 
-        // Find our subcell
-        int target = -1;
-        for (int i = 0; i < subCellCount; i++)
-            if (entries[i].mapX == targetHmX && entries[i].mapY == targetHmY)
-            { target = i; break; }
-
-        if (target == -1 || entries[target].objCount == 0)
-            return default;
-
-        var e = entries[target];
-
-        Debug.Log($"[CellObjectReader] '{path}': subCellCount={subCellCount}, target hm=({targetHmX},{targetHmY})");
-        for (int i = 0; i < subCellCount; i++)
-            Debug.Log($"  subcell[{i}] map=({entries[i].mapX},{entries[i].mapY}) objCount={entries[i].objCount}");
-
-        // Chunk index table
+    private static (uint start, ushort count)[] ReadChunkIndex(FileStream fs, BinaryReader br, uint idxOff, int totalChunks)
+    {
         var chunkIndex = new (uint start, ushort count)[totalChunks];
-        fs.Seek(e.idxOff, SeekOrigin.Begin);
+        fs.Seek(idxOff, SeekOrigin.Begin);
         for (int c = 0; c < totalChunks; c++)
         {
             chunkIndex[c].start = br.ReadUInt32(); // 4
             chunkIndex[c].count = br.ReadUInt16(); // 2
             br.ReadUInt16();                        // 2 reserved
         }
+        return chunkIndex;
+    }
 
-        for (int c = 0; c < chunkIndex.Length; c++)
-    Debug.Log($"  chunkIndex[{c}] → start={chunkIndex[c].start} count={chunkIndex[c].count}");
-
-        // Object data
-        var objects = new CellObjectInstance[e.objCount];
-        fs.Seek(e.dataOff, SeekOrigin.Begin);
-        for (int i = 0; i < (int)e.objCount; i++)
+    private static CellObjectInstance[] ReadObjects(FileStream fs, BinaryReader br, uint dataOff, uint objCount)
+    {
+        var objects = new CellObjectInstance[objCount];
+        fs.Seek(dataOff, SeekOrigin.Begin);
+        for (int i = 0; i < (int)objCount; i++)
         {
             objects[i].prototypeIndex = br.ReadByte();                 // 1
             objects[i].position = new Vector3(
@@ -215,7 +305,6 @@ public class CellObjectReader
             objects[i].lodLevel = br.ReadByte();   // 1
             br.ReadByte(); br.ReadByte(); br.ReadByte(); br.ReadByte(); // 4 reserved
         }
-
-        return new CellObjectData { objects = objects, chunkIndex = chunkIndex };
+        return objects;
     }
 }
