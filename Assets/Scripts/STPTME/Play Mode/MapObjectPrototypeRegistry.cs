@@ -226,7 +226,23 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                + "Ignored when shouldInstance=false.")]
         public bool instanceAlways = false;
 
-        // ── Blotch parameters ──────────────────────────────────────────────
+        [Header("Connector Points (authoring only — NEVER read at runtime)")]
+        [Tooltip("Does this prototype have two connector points for spline/fence-line placement? " +
+                 "This is the gate, not a default-zero value: leaving it false means 'not a fence-like " +
+                 "prototype' unambiguously, so the spline tool can refuse to offer it rather than silently " +
+                 "letting someone chain a hundred skyscrapers 1m apart.")]
+        public bool hasConnectors = false;
+
+        [Tooltip("Local-space offset of this prefab's 'start' connector, relative to its own pivot.")]
+        public Vector3 connectorStartLocal = new Vector3(-0.5f, 0f, 0f);
+
+        [Tooltip("Local-space offset of this prefab's 'end' connector, relative to its own pivot.")]
+        public Vector3 connectorEndLocal = new Vector3(0.5f, 0f, 0f);
+
+        /// <summary>Native segment length along the connector axis — the spacing the spline
+        /// tool places instances at when hasConnectors is true.</summary>
+        public float ConnectorSpacing => hasConnectors ? Vector3.Distance(connectorStartLocal, connectorEndLocal) : 0f;
+
         // ALL prototypes have blotch parameters, even non-instanced ones.
         // For single trees: radius=0, density=1. For grass clumps: radius>0, density>1.
         // These are baked into BlotchData by MeshSaver for the procedural pipeline.

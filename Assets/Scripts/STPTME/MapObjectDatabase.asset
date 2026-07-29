@@ -18,4 +18,199 @@ MonoBehaviour:
     worldPosition: {x: 1724.0128, y: 8031.67, z: 1641.5737}
     worldRotation: {x: 0.09900636, y: 0, z: -0.10397841, w: 0.98963946}
     localScale: {x: 1, y: 1, z: 1}
-  nextId: 141
+  - id: 320
+    prototypeIndex: 10
+    worldPosition: {x: 1749.8107, y: 8027.82, z: 1637.9972}
+    worldRotation: {x: 0.15946046, y: 0.9707348, z: 0.08676799, w: 0.1572188}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 321
+    prototypeIndex: 10
+    worldPosition: {x: 1748.0095, y: 8028.467, z: 1637.4366}
+    worldRotation: {x: 0.14643516, y: 0.9726841, z: 0.08458241, w: 0.15902284}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 322
+    prototypeIndex: 10
+    worldPosition: {x: 1746.1893, y: 8029.0376, z: 1636.8591}
+    worldRotation: {x: 0.12006947, y: 0.9763503, z: 0.080303416, w: 0.16085656}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 323
+    prototypeIndex: 10
+    worldPosition: {x: 1744.3627, y: 8029.588, z: 1636.2802}
+    worldRotation: {x: 0.13638507, y: 0.9743841, z: 0.08312067, w: 0.15832137}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 324
+    prototypeIndex: 10
+    worldPosition: {x: 1742.5276, y: 8030.105, z: 1635.6993}
+    worldRotation: {x: 0.102866575, y: 0.97869825, z: 0.07784778, w: 0.1597121}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 325
+    prototypeIndex: 10
+    worldPosition: {x: 1740.6821, y: 8030.588, z: 1635.1182}
+    worldRotation: {x: 0.11902925, y: 0.97718143, z: 0.08076249, w: 0.15628782}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 326
+    prototypeIndex: 10
+    worldPosition: {x: 1738.8335, y: 8031.0693, z: 1634.5481}
+    worldRotation: {x: 0.10249788, y: 0.97958744, z: 0.07866023, w: 0.15399754}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 327
+    prototypeIndex: 10
+    worldPosition: {x: 1737.0005, y: 8031.622, z: 1634.0017}
+    worldRotation: {x: 0.1562599, y: 0.97254896, z: 0.087074056, w: 0.14882706}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 328
+    prototypeIndex: 10
+    worldPosition: {x: 1735.1935, y: 8032.281, z: 1633.4758}
+    worldRotation: {x: 0.15678987, y: 0.97221714, z: 0.086997665, w: 0.15047324}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 329
+    prototypeIndex: 10
+    worldPosition: {x: 1733.355, y: 8032.798, z: 1632.9219}
+    worldRotation: {x: 0.08312616, y: 0.9815904, z: 0.075802416, w: 0.15435155}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 330
+    prototypeIndex: 10
+    worldPosition: {x: 1731.5073, y: 8033.301, z: 1632.3843}
+    worldRotation: {x: 0.15093169, y: 0.97455114, z: 0.08706388, w: 0.14103052}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 331
+    prototypeIndex: 10
+    worldPosition: {x: 1729.646, y: 8033.79, z: 1631.8835}
+    worldRotation: {x: 0.07608462, y: 0.9848558, z: 0.07822025, w: 0.13472864}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 332
+    prototypeIndex: 10
+    worldPosition: {x: 1727.745, y: 8034.17, z: 1631.4225}
+    worldRotation: {x: 0.09715869, y: 0.9851247, z: 0.083838575, w: 0.11428337}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 333
+    prototypeIndex: 10
+    worldPosition: {x: 1725.8354, y: 8034.615, z: 1631.0667}
+    worldRotation: {x: 0.11202706, y: 0.9860489, z: 0.08904125, w: 0.08502485}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 334
+    prototypeIndex: 10
+    worldPosition: {x: 1723.9138, y: 8035.0796, z: 1630.8119}
+    worldRotation: {x: 0.110194445, y: 0.9875886, z: 0.091334656, w: 0.06468368}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 335
+    prototypeIndex: 10
+    worldPosition: {x: 1721.9797, y: 8035.529, z: 1630.6394}
+    worldRotation: {x: 0.1079759, y: 0.9887849, z: 0.093697086, w: 0.04320258}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 336
+    prototypeIndex: 10
+    worldPosition: {x: 1720.0289, y: 8035.9224, z: 1630.5326}
+    worldRotation: {x: 0.084259056, y: 0.9914932, z: 0.094819136, w: 0.0291719}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 337
+    prototypeIndex: 10
+    worldPosition: {x: 1718.0674, y: 8036.2754, z: 1630.47}
+    worldRotation: {x: 0.089672744, y: 0.99113256, z: 0.09615221, w: 0.019230606}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 338
+    prototypeIndex: 10
+    worldPosition: {x: 1716.1156, y: 8036.6797, z: 1630.4362}
+    worldRotation: {x: 0.11181728, y: 0.9888763, z: 0.096521154, w: 0.017444324}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 339
+    prototypeIndex: 10
+    worldPosition: {x: 1714.155, y: 8037.0273, z: 1630.3961}
+    worldRotation: {x: 0.06035983, y: 0.9933641, z: 0.09591724, w: 0.019603958}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 340
+    prototypeIndex: 10
+    worldPosition: {x: 1712.1907, y: 8037.354, z: 1630.3888}
+    worldRotation: {x: 0.10329062, y: 0.9897815, z: 0.09830417, w: 0.000022224003}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 341
+    prototypeIndex: 10
+    worldPosition: {x: 1710.2303, y: 8037.696, z: 1630.4783}
+    worldRotation: {x: 0.072365515, y: 0.9917354, z: 0.10226026, w: -0.02769441}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 342
+    prototypeIndex: 10
+    worldPosition: {x: 1708.2926, y: 8038.054, z: 1630.7383}
+    worldRotation: {x: 0.122006945, y: 0.9834161, z: 0.10417046, w: -0.08459116}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 343
+    prototypeIndex: 10
+    worldPosition: {x: 1706.4037, y: 8038.4062, z: 1631.2454}
+    worldRotation: {x: 0.084165, y: 0.9781438, z: 0.113423996, w: -0.15259749}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 344
+    prototypeIndex: 10
+    worldPosition: {x: 1704.5665, y: 8038.5376, z: 1631.9873}
+    worldRotation: {x: 0.029804446, y: 0.9670215, z: 0.13001157, w: -0.21697478}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 345
+    prototypeIndex: 10
+    worldPosition: {x: 1702.8152, y: 8038.464, z: 1632.9272}
+    worldRotation: {x: 0.0012742844, y: 0.9517952, z: 0.1436407, w: -0.2710198}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 346
+    prototypeIndex: 10
+    worldPosition: {x: 1701.1716, y: 8038.307, z: 1634.0394}
+    worldRotation: {x: 0.006455907, y: 0.9361034, z: 0.1469223, w: -0.3195036}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 347
+    prototypeIndex: 10
+    worldPosition: {x: 1699.6929, y: 8038.1343, z: 1635.3544}
+    worldRotation: {x: 0.014283842, y: 0.9064405, z: 0.14902155, w: -0.39491037}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 348
+    prototypeIndex: 10
+    worldPosition: {x: 1698.5221, y: 8037.828, z: 1636.9154}
+    worldRotation: {x: 0.023681277, y: -0.8442917, z: -0.17371358, w: 0.5063935}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 349
+    prototypeIndex: 10
+    worldPosition: {x: 1697.6213, y: 8037.4526, z: 1638.6517}
+    worldRotation: {x: -0.004999169, y: -0.82713515, z: -0.15596962, w: 0.53990376}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 350
+    prototypeIndex: 10
+    worldPosition: {x: 1696.7887, y: 8037.094, z: 1640.4272}
+    worldRotation: {x: 0.011832867, y: -0.82540023, z: -0.16692817, w: 0.53917485}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 351
+    prototypeIndex: 10
+    worldPosition: {x: 1696, y: 8036.786, z: 1642.2295}
+    worldRotation: {x: -0.028609997, y: -0.8165757, z: -0.13936864, w: 0.55943006}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 352
+    prototypeIndex: 10
+    worldPosition: {x: 1695.2507, y: 8036.4434, z: 1644.0408}
+    worldRotation: {x: 0.024485035, y: -0.8116434, z: -0.17549452, w: 0.55663025}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 353
+    prototypeIndex: 10
+    worldPosition: {x: 1694.5195, y: 8036.0547, z: 1645.8522}
+    worldRotation: {x: -0.010690492, y: -0.808914, z: -0.15097219, w: 0.568112}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 354
+    prototypeIndex: 10
+    worldPosition: {x: 1693.8042, y: 8035.647, z: 1647.6656}
+    worldRotation: {x: 0.031865392, y: -0.8055401, z: -0.18071188, w: 0.56341195}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 355
+    prototypeIndex: 10
+    worldPosition: {x: 1693.0966, y: 8035.1274, z: 1649.4552}
+    worldRotation: {x: 0.035698768, y: -0.799826, z: -0.18355243, w: 0.57036155}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 356
+    prototypeIndex: 10
+    worldPosition: {x: 1692.4218, y: 8034.5874, z: 1651.2515}
+    worldRotation: {x: 0.038348094, y: -0.7941102, z: -0.18559659, w: 0.57747066}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 357
+    prototypeIndex: 10
+    worldPosition: {x: 1691.8013, y: 8034.1753, z: 1653.095}
+    worldRotation: {x: -0.020058876, y: -0.7911004, z: -0.14220443, w: 0.5945888}
+    localScale: {x: 1, y: 1, z: 1}
+  - id: 358
+    prototypeIndex: 10
+    worldPosition: {x: 1691.211, y: 8033.844, z: 1654.9697}
+    worldRotation: {x: 0.0036444839, y: -0.7901729, z: -0.15986167, w: 0.5916568}
+    localScale: {x: 1, y: 1, z: 1}
+  nextId: 359

@@ -29,6 +29,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -78,6 +81,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: -1
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -127,6 +133,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -175,6 +184,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -223,6 +235,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -271,6 +286,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -318,6 +336,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -361,6 +382,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
@@ -406,6 +430,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 20
     blotchDensity: 200
     conflictCategory: 3
@@ -454,6 +481,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 1
     instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
     blotchRadius: 20
     blotchDensity: 1
     conflictCategory: 3
@@ -501,6 +531,9 @@ MonoBehaviour:
     lod1PlusHeightOffset: 0
     shouldInstance: 0
     instanceAlways: 0
+    hasConnectors: 1
+    connectorStartLocal: {x: -0.992, y: 0.565, z: 0.0049}
+    connectorEndLocal: {x: 1.002, y: 0.565, z: 0.0049}
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3

@@ -332,7 +332,12 @@ public class ChunkObjectLoader : MonoBehaviour
             settings.sphereCenter,
             cellScales.y,
             mapObjectId: sourcedObjectInstance.mapObjectId,
-            sourceDatabase: _objectSource.SourceDatabaseOrNull);
+            sourceDatabase: _objectSource.SourceDatabaseOrNull,
+            // Map objects carry a REAL authored orientation. Passing the full quaternion here
+            // bypasses SpawnObject's upright+yaw reconstruction, which would otherwise discard
+            // pitch and roll entirely (the reason spline-placed fences never tilted on slopes,
+            // no matter how correct the spline tool's own math was).
+            explicitRotation: sourcedObjectInstance.rotation);
         }
     }
 

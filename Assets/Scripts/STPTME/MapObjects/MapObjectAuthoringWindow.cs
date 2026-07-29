@@ -29,7 +29,7 @@ public class MapObjectAuthoringWindow : EditorWindow
         _tools = new IMapObjectAuthoringTool[]
         {
             new SimplePlacementTool(),
-            // Future: new SplinePlacementTool(),
+            new SplinePlacementTool(),
         };
         SceneView.duringSceneGui += OnSceneGUI;
     }

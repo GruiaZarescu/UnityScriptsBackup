@@ -127,7 +127,8 @@ namespace STPTME.MapObjects
     Vector3 sphereCenter,
     float widthScale = 1f,
     ulong mapObjectId = 0,
-    MapObjectDatabase sourceDatabase = null)
+    MapObjectDatabase sourceDatabase = null,
+    Quaternion? explicitRotation = null)
     {
         STPTMEUtils.ReadFourSBytesFromInt(chunkPacked, out var map1, out var map2, out var chunk1, out var chunk2);
 
@@ -148,8 +149,23 @@ namespace STPTME.MapObjects
 
         Transform t = obj.transform;
         t.position = worldPosition;
-        Vector3 radialUp = (worldPosition - sphereCenter).normalized;
-        t.rotation = Quaternion.FromToRotation(Vector3.up, radialUp) * Quaternion.Euler(0f, rotationDeg, 0f);
+
+        // Blotch-derived content (trees etc.) has no meaningful authored orientation — it
+        // wants "upright along the sphere radial, spun by a per-instance yaw", which is what
+        // the rotationDeg path below builds. Map objects are different: they carry a REAL
+        // authored quaternion (pitch and roll included — e.g. a fence tilted to follow a
+        // slope), and rebuilding that from yaw alone silently discards everything but the
+        // yaw. explicitRotation lets those callers pass the true orientation through intact.
+        if (explicitRotation.HasValue)
+        {
+            t.rotation = explicitRotation.Value;
+        }
+        else
+        {
+            Vector3 radialUp = (worldPosition - sphereCenter).normalized;
+            t.rotation = Quaternion.FromToRotation(Vector3.up, radialUp) * Quaternion.Euler(0f, rotationDeg, 0f);
+        }
+
         Vector3 baseScale = entry.sourcePrefab.transform.localScale;
         t.localScale = new Vector3(baseScale.x * widthScale, baseScale.y * heightScale, baseScale.z * widthScale);
         obj.name = "prefab " + entry.sourcePrefab.name;
@@ -322,4 +338,3 @@ namespace STPTME.MapObjects
     }
 
 }
-
