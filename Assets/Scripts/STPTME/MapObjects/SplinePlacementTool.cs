@@ -213,13 +213,12 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
             return;
         }
 
-        if (Mathf.Abs(entry.connectorStartLocal.y) > 0.05f || Mathf.Abs(entry.connectorEndLocal.y) > 0.05f)
+        if (Mathf.Abs(entry.connectorStartLocal.y - entry.connectorEndLocal.y) > 0.05f)
         {
-            Debug.LogWarning($"[SplinePlacementTool] Prototype '{entry.name}' has a non-zero connector height " +
-                $"(start.y={entry.connectorStartLocal.y:F3}, end.y={entry.connectorEndLocal.y:F3}). This is " +
-                "IGNORED by placement — the connector is only used for horizontal (X/Z) spacing, since vertical " +
-                "position always comes from the terrain sample, not the connector. If your fence looks buried or " +
-                "floating, re-measure the connector at ground level (Y=0), not at rail/visual-join height.");
+            Debug.LogWarning($"[SplinePlacementTool] Prototype '{entry.name}' has connectors at DIFFERENT heights " +
+                $"(start.y={entry.connectorStartLocal.y:F3}, end.y={entry.connectorEndLocal.y:F3}). The chain runs at " +
+                "their average height, so a large mismatch will make consecutive rails meet imprecisely. Both " +
+                "connectors should sit at the same height on the prefab (the height where fences visually join).");
         }
 
         Vector3 sphereCenter = TerrainManagementSettings.Instance.sphereCenter;
@@ -230,32 +229,26 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         int subdivPow2 = 1 << settings.heightmapSubdivisions;
         float faceWorldSize = (settings.maxX - settings.minX + 1) * (settings.terrainSize / subdivPow2);
 
-        // Segment length along the connector axis (horizontal in the prefab's local space).
-        float segmentLength = Vector3.Distance(
-            new Vector3(entry.connectorStartLocal.x, 0f, entry.connectorStartLocal.z),
-            new Vector3(entry.connectorEndLocal.x, 0f, entry.connectorEndLocal.z));
+        // Connector axis in the prefab's local space, and the height the connectors sit at.
+        // The chain is run at THIS height (not ground level) so that each fence's end
+        // connector and the next fence's start connector are the same point by construction —
+        // anchoring at ground level instead leaves a gap of h·(up_i − up_i+1) between the
+        // elevated rails whenever two neighbours differ in pitch.
+        Vector3 connectorAxis = entry.connectorEndLocal - entry.connectorStartLocal;
+        float segmentLength = connectorAxis.magnitude;
+        float connectorHeight = (entry.connectorStartLocal.y + entry.connectorEndLocal.y) * 0.5f;
 
-        // Start the chain on the terrain at the path's origin.
-        Vector3 chainPos = SampleAtArcLength(_waypoints, arcTable, 0f, out _);
+        // Start the chain at connector height above the terrain at the path's origin.
+        Vector3 pathStart = SampleAtArcLength(_waypoints, arcTable, 0f, out _);
+        Vector3 railChain = SnapToHeightAboveSurface(pathStart, connectorHeight);
 
-        // For each fence: its START is held EXACTLY at the previous fence's END (so joints are
-        // exact by construction and never corrected afterward), and its END is SOLVED for —
-        // we search along the curve's heading for the point that is simultaneously (a) on the
-        // terrain surface and (b) exactly segmentLength away from the start. Because that
-        // point already satisfies both conditions, there is no post-hoc snap to displace the
-        // joint, and both of the fence's legs land on the ground. Earlier versions picked an
-        // end point and then snapped it to the terrain, which is what silently broke joint
-        // continuity on slopes (the visible vertical step between adjacent fences).
         for (int i = 0; i < fenceCount; i++)
         {
             float targetLen = (i + 0.5f) * spacing;
             SampleAtArcLength(_waypoints, arcTable, targetLen, out Vector3 tangent);
 
-            Vector3 radialUp = (chainPos - sphereCenter).normalized;
+            Vector3 radialUp = (railChain - sphereCenter).normalized;
 
-            // Heading = the curve's local direction, flattened into the tangent plane at the
-            // chain's current position. Pitch is NOT taken from here — it falls out of the
-            // solved end point below, which is what makes the fence follow real slope.
             Vector3 heading = Vector3.ProjectOnPlane(tangent, radialUp);
             if (heading.sqrMagnitude < 1e-8f)
             {
@@ -264,9 +257,9 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
             }
             heading.Normalize();
 
-            Vector3 endPoint = SolveGroundPointAtDistance(chainPos, heading, segmentLength, radialUp);
+            Vector3 endRail = SolveSurfacePointAtDistance(railChain, heading, segmentLength, connectorHeight);
 
-            Vector3 forward3D = endPoint - chainPos;
+            Vector3 forward3D = endRail - railChain;
             if (forward3D.sqrMagnitude < 1e-8f) continue; // degenerate solve — skip this one
             forward3D.Normalize();
 
@@ -281,8 +274,9 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
             Vector3 lookForward = Vector3.Cross(forward3D, up).normalized;
             Quaternion rot = Quaternion.LookRotation(lookForward, up);
 
-            Vector3 connectorStartFlat = new Vector3(entry.connectorStartLocal.x, 0f, entry.connectorStartLocal.z);
-            Vector3 worldPos = chainPos - (rot * connectorStartFlat);
+            // Full connector (Y included) — this is the whole point of the change. The pivot
+            // lands on the ground because railChain sits exactly connectorHeight above it.
+            Vector3 worldPos = railChain - (rot * entry.connectorStartLocal);
 
             ulong id = database.Add(protoIndex, worldPos, rot, Vector3.one);
             placedIds.Add(id);
@@ -291,11 +285,11 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
                     settings.numberOfChunks, settings.minX, settings.maxX, out var addr))
                 touchedChunks.Add((addr.packed, addr.face));
 
-            // Advance the chain to the SOLVED end point exactly. No re-snap here — that is
-            // precisely what broke joint continuity before. endPoint is already on the terrain
-            // (the solve guaranteed it) AND already exactly segmentLength from the start, so
-            // there is nothing left to correct.
-            chainPos = endPoint;
+            // Advance to the solved end connector exactly. This IS the next fence's start
+            // connector — worldPos + rot·connectorEndLocal == railChain + L·forward == endRail
+            // — so adjacent rails coincide by construction at any pitch, with nothing to
+            // correct afterward.
+            railChain = endRail;
         }
 
         var loader = Object.FindAnyObjectByType<ChunkObjectLoader>();
@@ -374,39 +368,45 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
     // ═══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Finds a point that is simultaneously (a) on the terrain surface, and (b) exactly
-    /// <paramref name="targetDistance"/> away in 3-D from <paramref name="start"/>, searching
-    /// along <paramref name="heading"/> (a unit vector in the tangent plane at start).
-    ///
-    /// This is what lets a fence's start stay pinned to the previous fence's end (exact joint)
-    /// while both of its legs still land on the ground: rather than picking an end point and
-    /// then snapping it down — which displaces the joint — we solve directly for the end that
-    /// already satisfies both conditions.
-    ///
-    /// On sloped ground the 3-D distance to the snapped surface point grows monotonically with
-    /// horizontal travel, so plain bisection on horizontal distance converges reliably.
+    /// Snaps to the terrain surface, then lifts by <paramref name="height"/> along the local
+    /// radial. Used to run the fence chain at CONNECTOR height rather than ground height —
+    /// which is what makes adjacent rails meet exactly regardless of pitch difference.
     /// </summary>
-    private static Vector3 SolveGroundPointAtDistance(Vector3 start, Vector3 heading, float targetDistance, Vector3 radialUp)
+    private static Vector3 SnapToHeightAboveSurface(Vector3 rawPoint, float height)
     {
-        // Horizontal travel needed is at most targetDistance (flat ground) and less on slopes,
-        // so bracket [0, targetDistance] — with a little headroom for numerical slack.
+        Vector3 ground = SnapToSurface(rawPoint);
+        Vector3 up = (ground - TerrainManagementSettings.Instance.sphereCenter).normalized;
+        return ground + up * height;
+    }
+
+    /// <summary>
+    /// Finds a point that is simultaneously (a) at <paramref name="height"/> above the terrain
+    /// surface, and (b) exactly <paramref name="targetDistance"/> away in 3-D from
+    /// <paramref name="start"/>, searching along <paramref name="heading"/>.
+    ///
+    /// Running this at connector height (rather than ground height) is what lets each fence's
+    /// end connector and the next fence's start connector be the SAME point by construction,
+    /// at any pitch — while the pivot still lands on the ground, since it sits exactly
+    /// `height` below the chain.
+    /// </summary>
+    private static Vector3 SolveSurfacePointAtDistance(Vector3 start, Vector3 heading, float targetDistance, float height)
+    {
         float lo = 0f;
         float hi = targetDistance * 1.05f;
-        Vector3 best = SnapToSurface(start + heading * targetDistance);
+        Vector3 best = SnapToHeightAboveSurface(start + heading * targetDistance, height);
 
         for (int iter = 0; iter < GROUND_SOLVE_ITERATIONS; iter++)
         {
             float mid = (lo + hi) * 0.5f;
-            Vector3 candidate = SnapToSurface(start + heading * mid);
+            Vector3 candidate = SnapToHeightAboveSurface(start + heading * mid, height);
             float dist = Vector3.Distance(start, candidate);
 
             best = candidate;
             if (dist < targetDistance) lo = mid; else hi = mid;
         }
 
-        // Fallback: if the solve produced something degenerate (e.g. no terrain under the
-        // whole search span), fall back to a flat step so the run still completes rather
-        // than collapsing into a zero-length segment.
+        // Degenerate fallback (e.g. no terrain anywhere under the search span): step flat so
+        // the run still completes rather than collapsing into a zero-length segment.
         if (Vector3.Distance(start, best) < targetDistance * 0.25f)
             best = start + heading * targetDistance;
 
