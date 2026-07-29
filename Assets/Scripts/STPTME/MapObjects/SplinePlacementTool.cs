@@ -202,7 +202,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
             return;
         }
 
-        var arcTable = BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT * 2);
+        var arcTable = SplineMath.BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT * 2);
         float totalLength = arcTable[arcTable.Count - 1].cumulativeLength;
         int fenceCount = Mathf.FloorToInt(totalLength / spacing);
         if (fenceCount < 1)
@@ -238,13 +238,13 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         float connectorHeight = (entry.connectorStartLocal.y + entry.connectorEndLocal.y) * 0.5f;
 
         // Start the chain at connector height above the terrain at the path's origin.
-        Vector3 pathStart = SampleAtArcLength(_waypoints, arcTable, 0f, out _);
+        Vector3 pathStart = SplineMath.SampleAtArcLength(_waypoints, arcTable, 0f, out _);
         Vector3 railChain = SnapToHeightAboveSurface(pathStart, connectorHeight);
 
         for (int i = 0; i < fenceCount; i++)
         {
             float targetLen = (i + 0.5f) * spacing;
-            SampleAtArcLength(_waypoints, arcTable, targetLen, out Vector3 tangent);
+            SplineMath.SampleAtArcLength(_waypoints, arcTable, targetLen, out Vector3 tangent);
 
             Vector3 radialUp = (railChain - sphereCenter).normalized;
 
@@ -329,7 +329,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
 
         if (_waypoints.Count < 2) return;
 
-        var arcTable = BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT);
+        var arcTable = SplineMath.BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT);
         var linePoints = new Vector3[arcTable.Count];
         for (int i = 0; i < arcTable.Count; i++) linePoints[i] = arcTable[i].point;
         Handles.color = Color.cyan;
@@ -344,7 +344,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         for (int i = 0; i < fenceCount; i++)
         {
             float targetLen = (i + 0.5f) * spacing;
-            Vector3 p = SampleAtArcLength(_waypoints, arcTable, targetLen, out _);
+            Vector3 p = SplineMath.SampleAtArcLength(_waypoints, arcTable, targetLen, out _);
             Vector3 up = (p - TerrainManagementSettings.Instance.sphereCenter).normalized;
             Handles.DrawWireDisc(p, up, spacing * 0.3f);
         }
@@ -373,7 +373,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
     /// </summary>
     private static Vector3 SnapToHeightAboveSurface(Vector3 rawPoint, float height)
     {
-        Vector3 ground = SnapToSurface(rawPoint);
+        Vector3 ground = SplineMath.SnapToSurface(rawPoint);
         Vector3 up = (ground - TerrainManagementSettings.Instance.sphereCenter).normalized;
         return ground + up * height;
     }
@@ -412,101 +412,6 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         return best;
     }
 
-    private struct ArcSample { public Vector3 point; public float cumulativeLength; }
-
-    private static Vector3 CatmullRom(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)
-    {
-        float t2 = t * t, t3 = t2 * t;
-        return 0.5f * ((2f * p1) + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2
-                       + (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
-    }
-
-    /// <summary>Evaluates the path at a global parameter t in [0, waypoints.Count-1], using
-    /// Catmull-Rom with clamped end neighbors (straight line if only 2 waypoints).</summary>
-    private static Vector3 EvaluatePath(List<Vector3> wp, float globalT)
-    {
-        int n = wp.Count;
-        if (n < 2) return n == 1 ? wp[0] : Vector3.zero;
-
-        globalT = Mathf.Clamp(globalT, 0f, n - 1);
-        int seg = Mathf.Clamp(Mathf.FloorToInt(globalT), 0, n - 2);
-        float t = globalT - seg;
-
-        if (n == 2) return Vector3.Lerp(wp[0], wp[1], t);
-
-        Vector3 p0 = wp[Mathf.Max(seg - 1, 0)];
-        Vector3 p1 = wp[seg];
-        Vector3 p2 = wp[seg + 1];
-        Vector3 p3 = wp[Mathf.Min(seg + 2, n - 1)];
-        return CatmullRom(p0, p1, p2, p3, t);
-    }
-
-    /// <summary>Snaps a raw evaluated path point onto the real terrain surface along its own
-    /// radial direction — same principle as SnapToGround elsewhere in this tool set.</summary>
-    private static Vector3 SnapToSurface(Vector3 rawPoint)
-    {
-        Vector3 sphereCenter = TerrainManagementSettings.Instance.sphereCenter;
-        Vector3 dirFromCenter = rawPoint - sphereCenter;
-        float dist = dirFromCenter.magnitude;
-        if (dist < 0.01f) return rawPoint;
-        dirFromCenter /= dist;
-
-        float castStartRadius = TerrainManagementSettings.Instance.sphereRadius + 2000f;
-        Vector3 castOrigin = sphereCenter + dirFromCenter * castStartRadius;
-
-        // Terrain-only: a plain raycast here would happily land on a tree canopy or an
-        // already-placed fence and plant the new segment on top of it.
-        var ray = new Ray(castOrigin, -dirFromCenter);
-        if (AuthoringRaycast.TryRaycastTerrain(ray, castStartRadius + 2000f, out RaycastHit hit))
-            return hit.point;
-        return rawPoint; // no terrain under this sample — leave it at the raw curve position
-    }
-
-    /// <summary>Builds a fine-grained (point, cumulativeArcLength) table over the whole path,
-    /// with each sample re-snapped to the real terrain surface.</summary>
-    private static List<ArcSample> BuildArcLengthTable(List<Vector3> wp, int stepsPerSegment)
-    {
-        int n = wp.Count;
-        int totalSteps = (n - 1) * stepsPerSegment;
-        var table = new List<ArcSample>(totalSteps + 1);
-
-        Vector3 prev = SnapToSurface(EvaluatePath(wp, 0f));
-        table.Add(new ArcSample { point = prev, cumulativeLength = 0f });
-
-        float cumulative = 0f;
-        for (int i = 1; i <= totalSteps; i++)
-        {
-            float t = (float)i / stepsPerSegment;
-            Vector3 p = SnapToSurface(EvaluatePath(wp, t));
-            cumulative += Vector3.Distance(prev, p);
-            table.Add(new ArcSample { point = p, cumulativeLength = cumulative });
-            prev = p;
-        }
-        return table;
-    }
-
-    /// <summary>Finds the world point (and forward tangent) at a given arc-length distance
-    /// along the path, via linear interpolation between the nearest table entries.</summary>
-    private static Vector3 SampleAtArcLength(List<Vector3> wp, List<ArcSample> table, float targetLength, out Vector3 tangent)
-    {
-        targetLength = Mathf.Clamp(targetLength, 0f, table[table.Count - 1].cumulativeLength);
-
-        int lo = 0, hi = table.Count - 1;
-        while (lo < hi)
-        {
-            int mid = (lo + hi) / 2;
-            if (table[mid].cumulativeLength < targetLength) lo = mid + 1; else hi = mid;
-        }
-        int idx = Mathf.Max(lo, 1);
-        var a = table[idx - 1];
-        var b = table[idx];
-        float span = b.cumulativeLength - a.cumulativeLength;
-        float frac = span > 1e-6f ? (targetLength - a.cumulativeLength) / span : 0f;
-
-        tangent = (b.point - a.point).sqrMagnitude > 1e-8f ? (b.point - a.point).normalized : Vector3.forward;
-        return Vector3.Lerp(a.point, b.point, frac);
-    }
-
     /// <summary>
     /// Adjusts a freshly-clicked waypoint so the path's TOTAL arc length becomes an exact
     /// multiple of spacing — eliminates the trailing gap in real time as each waypoint is
@@ -522,7 +427,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         direction /= rawDistance;
 
         var trial = new List<Vector3>(existingWaypoints) { rawNewPoint };
-        var rawTable = BuildArcLengthTable(trial, PREVIEW_STEPS_PER_SEGMENT);
+        var rawTable = SplineMath.BuildArcLengthTable(trial, PREVIEW_STEPS_PER_SEGMENT);
         float rawTotalLength = rawTable[rawTable.Count - 1].cumulativeLength;
 
         int count = Mathf.FloorToInt(rawTotalLength / spacing);
@@ -539,10 +444,10 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         {
             float mid = (low + high) * 0.5f;
             Vector3 candidateRaw = prevWaypoint + direction * mid;
-            Vector3 candidate = SnapToSurface(candidateRaw);
+            Vector3 candidate = SplineMath.SnapToSurface(candidateRaw);
 
             trial[trial.Count - 1] = candidate;
-            var table = BuildArcLengthTable(trial, PREVIEW_STEPS_PER_SEGMENT);
+            var table = SplineMath.BuildArcLengthTable(trial, PREVIEW_STEPS_PER_SEGMENT);
             float len = table[table.Count - 1].cumulativeLength;
 
             best = candidate;

@@ -30,6 +30,7 @@ public class MapObjectAuthoringWindow : EditorWindow
         {
             new SimplePlacementTool(),
             new SplinePlacementTool(),
+            new SplineRemovalTool(),
         };
         SceneView.duringSceneGui += OnSceneGUI;
     }
