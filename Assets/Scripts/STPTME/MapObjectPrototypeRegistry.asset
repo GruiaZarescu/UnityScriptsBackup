@@ -508,11 +508,11 @@ MonoBehaviour:
     useDistanceLOD: 1
     lodDistances: {x: 10, y: 20, z: 30, w: 40}
     lodDistancesVariable:
+    - 5
     - 10
+    - 15
     - 20
-    - 30
-    - 40
-    - 50
+    - 25
     lodKeepFractions:
     - 1
     - 0.9
@@ -558,11 +558,11 @@ MonoBehaviour:
     useDistanceLOD: 0
     lodDistances: {x: 10, y: 20, z: 30, w: 40}
     lodDistancesVariable:
+    - 5
     - 10
+    - 15
     - 20
-    - 30
-    - 40
-    - 50
+    - 25
     lodKeepFractions:
     - 1
     - 0.9

@@ -90,6 +90,12 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
             MessageType.Info);
     }
 
+    public void OnToolDeactivated()
+    {
+        _mode = EditMode.Off;
+        DestroyGhost();
+    }
+
     public void OnSceneGUI(SceneView view, MapObjectDatabase database, MapObjectPrototypeRegistry registry)
     {
         if (database == null || registry == null) return;
@@ -127,7 +133,17 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
             view.Repaint();
         }
 
-        UpdateGhostPreview(registry, e);
+        // Hide the placement ghost while remove-intent (Ctrl/Cmd) is held — showing a "place
+        // here" preview while the user is clearly trying to remove something is confusing.
+        if (e.control || e.command)
+        {
+            if (_ghost != null) _ghost.SetActive(false);
+            _ghostValidHit = false;
+        }
+        else
+        {
+            UpdateGhostPreview(registry, e);
+        }
 
         if (e.type != EventType.MouseDown || e.button != 0) return;
         if (HandleUtility.nearestControl != controlID) return;
@@ -171,10 +187,11 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
         if (_ghost == null) { _ghostValidHit = false; return; }
 
         Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-        int placementMask = ~PickMask;
 
-        if (Physics.Raycast(ray, out RaycastHit hit, 2000f, placementMask) &&
-            hit.collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>() == null)
+        // Terrain-only: previously the ghost simply disappeared whenever a tree or an existing
+        // fence was the nearest thing under the cursor, instead of previewing on the ground
+        // behind it.
+        if (STPTME.MapObjects.AuthoringRaycast.TryRaycastTerrain(ray, 2000f, out RaycastHit hit))
         {
             Vector3 sphereCenter = TerrainManagementSettings.Instance.sphereCenter;
             Vector3 radialUp = (hit.point - sphereCenter).normalized;

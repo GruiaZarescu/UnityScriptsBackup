@@ -38,6 +38,9 @@ public class MapObjectAuthoringWindow : EditorWindow
     {
         STPTME.MapObjects.MapObjectMetadata.ShowAuthoringGizmos = false;
         SceneView.duringSceneGui -= OnSceneGUI;
+
+        if (_tools != null && _activeToolIndex >= 0 && _activeToolIndex < _tools.Length)
+            _tools[_activeToolIndex].OnToolDeactivated();
     }
 
     private void OnGUI()
@@ -61,7 +64,15 @@ public class MapObjectAuthoringWindow : EditorWindow
 
         string[] toolNames = new string[_tools.Length];
         for (int i = 0; i < _tools.Length; i++) toolNames[i] = _tools[i].DisplayName;
-        _activeToolIndex = GUILayout.Toolbar(_activeToolIndex, toolNames);
+        int newToolIndex = GUILayout.Toolbar(_activeToolIndex, toolNames);
+        if (newToolIndex != _activeToolIndex)
+        {
+            // Only the ACTIVE tool's OnSceneGUI runs — without this, switching away leaves
+            // the old tool's mode "on" and its ghost preview frozen in the scene forever.
+            _tools[_activeToolIndex].OnToolDeactivated();
+            _activeToolIndex = newToolIndex;
+            SceneView.RepaintAll();
+        }
 
         EditorGUILayout.Space();
         _tools[_activeToolIndex].OnDashboardGUI(database, registry);

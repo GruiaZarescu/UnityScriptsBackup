@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using STPTME.MapObjects;
 
 /// <summary>
 /// Places a line of connector-based prefabs (fences etc.) along a waypoint path. Waypoints
@@ -28,15 +29,6 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
     private const int GROUND_SOLVE_ITERATIONS = 12;
 
     private List<ulong> _lastCommittedIds = new List<ulong>();
-
-    private static int PickMask
-    {
-        get
-        {
-            int layer = LayerMask.NameToLayer("MapObjectPicking");
-            return layer >= 0 ? 1 << layer : 0;
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // Dashboard
@@ -129,6 +121,13 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
     // Scene interaction
     // ═══════════════════════════════════════════════════════════════════════
 
+    public void OnToolDeactivated()
+    {
+        _mode = EditMode.Off;
+        CancelRun(); // clears any in-progress waypoints so switching away and back doesn't
+                     // silently resume a forgotten, half-finished line
+    }
+
     public void OnSceneGUI(SceneView view, MapObjectDatabase database, MapObjectPrototypeRegistry registry)
     {
         if (_mode != EditMode.Drawing) return;
@@ -169,11 +168,11 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
             return;
         }
 
-        // Left click — add a waypoint.
+        // Left click — add a waypoint. Terrain-only, so clicking "through" a tree lands the
+        // waypoint on the ground behind it rather than doing nothing (the previous behaviour
+        // bailed out entirely whenever the nearest hit happened to be a placed object).
         Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-        int placementMask = ~PickMask;
-        if (!Physics.Raycast(ray, out RaycastHit hit, 2000f, placementMask)) return;
-        if (hit.collider.GetComponentInParent<STPTME.MapObjects.MapObjectMetadata>() != null) return;
+        if (!AuthoringRaycast.TryRaycastTerrain(ray, 2000f, out RaycastHit hit)) return;
 
         Vector3 newPoint = hit.point;
 
@@ -454,9 +453,11 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
 
         float castStartRadius = TerrainManagementSettings.Instance.sphereRadius + 2000f;
         Vector3 castOrigin = sphereCenter + dirFromCenter * castStartRadius;
-        int mask = PickMask != 0 ? ~PickMask : ~0;
 
-        if (Physics.Raycast(castOrigin, -dirFromCenter, out RaycastHit hit, castStartRadius + 2000f, mask))
+        // Terrain-only: a plain raycast here would happily land on a tree canopy or an
+        // already-placed fence and plant the new segment on top of it.
+        var ray = new Ray(castOrigin, -dirFromCenter);
+        if (AuthoringRaycast.TryRaycastTerrain(ray, castStartRadius + 2000f, out RaycastHit hit))
             return hit.point;
         return rawPoint; // no terrain under this sample — leave it at the raw curve position
     }
