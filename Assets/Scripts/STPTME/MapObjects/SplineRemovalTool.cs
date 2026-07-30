@@ -5,7 +5,7 @@ using STPTME.MapObjects;
 
 /// <summary>
 /// Draws a spline the same way SplinePlacementTool does (click = waypoint, Backspace/
-/// right-click = undo, Enter = commit, Escape = cancel), but instead of placing objects
+/// backspace= undo, Enter = commit, Escape = cancel), but instead of placing objects
 /// along it, removes every existing placed object within a configurable radius ("corridor
 /// width") of the curve. Meant for undoing a long fence line without deleting fences one
 /// at a time.
@@ -90,7 +90,7 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
         EditorGUILayout.HelpBox(
             "REMOVAL MODE ON:\n" +
             "  Click terrain → add waypoint\n" +
-            "  Backspace / Right-click → undo last waypoint\n" +
+            "  Backspace → undo last waypoint\n" +
             "  Enter → finish (remove everything in the corridor)\n" +
             "  Escape → cancel (nothing removed)\n" +
             "Objects currently inside the corridor are highlighted red as you draw.",
@@ -123,6 +123,12 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
         Event e = Event.current;
 
         int controlID = GUIUtility.GetControlID(FocusType.Passive);
+
+        // Always register unconditionally — this only decides "who wins when nothing else
+        // claims the event," it does NOT itself block camera navigation. Gating this behind
+        // a guessed e.button/e.alt check was the actual bug: Event.current.button during a
+        // Layout event doesn't reliably reflect what's about to be clicked (Layout fires every
+        // repaint regardless of button state), so that guess was unreliable in both directions.
         if (e.type == EventType.Layout)
             HandleUtility.AddDefaultControl(controlID);
 
@@ -137,18 +143,13 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
 
         DrawLivePreview(database, registry);
 
-        bool leftClick = e.type == EventType.MouseDown && e.button == 0;
-        bool rightClick = e.type == EventType.MouseDown && e.button == 1;
-        if (!leftClick && !rightClick) return;
+        // Only a clean, unmodified left-click is ours. Right-click, middle-click, Alt+drag,
+        // Ctrl/Cmd+anything all fall through here untouched — nothing is consumed, nothing is
+        // claimed, so Unity's native scene navigation (orbit, pan, zoom) works exactly as if
+        // no custom tool were active at all.
+        bool placeClick = e.type == EventType.MouseDown && e.button == 0 && !e.alt && !e.control && !e.command;
+        if (!placeClick) return;
         if (HandleUtility.nearestControl != controlID) return;
-
-        if (rightClick)
-        {
-            if (_waypoints.Count > 0) _waypoints.RemoveAt(_waypoints.Count - 1);
-            e.Use();
-            view.Repaint();
-            return;
-        }
 
         Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
         if (!AuthoringRaycast.TryRaycastTerrain(ray, 2000f, out RaycastHit hit)) return;
@@ -287,7 +288,7 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
         GUI.Label(new Rect(rect.x + 8, rect.y + 4, rect.width - 16, 18),
             "● REMOVAL MODE ACTIVE", EditorStyles.whiteBoldLabel);
         GUI.Label(new Rect(rect.x + 8, rect.y + 24, rect.width - 16, 18),
-            "Click = waypoint · Backspace/RClick = undo · Enter = remove · Esc = cancel", EditorStyles.whiteMiniLabel);
+            "Click = waypoint · Backspace = undo · Enter = remove · Esc = cancel", EditorStyles.whiteMiniLabel);
         Handles.EndGUI();
     }
 }

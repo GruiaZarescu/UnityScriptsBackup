@@ -87,7 +87,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         EditorGUILayout.HelpBox(
             "SPLINE MODE ON:\n" +
             "  Click terrain → add waypoint\n" +
-            "  Backspace / Right-click → remove last waypoint\n" +
+            "  Backspace → remove last waypoint\n" +
             "  Enter → finish (commit) this line\n" +
             "  Escape → cancel this line (nothing placed)\n" +
             "2 waypoints = straight line. 3+ = smooth curve through all of them.",
@@ -155,18 +155,15 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
 
         DrawLivePreview(entry);
 
-        bool leftClick = e.type == EventType.MouseDown && e.button == 0;
-        bool rightClick = e.type == EventType.MouseDown && e.button == 1;
-        if (!leftClick && !rightClick) return;
+        // Only a clean, unmodified left-click is ours. Right-click, middle-click, Alt+drag,
+        // Ctrl/Cmd+anything all fall through here untouched — nothing is consumed, nothing is
+        // claimed, so Unity's native scene navigation (orbit, pan, zoom) works exactly as if
+        // no custom tool were active at all. Undo-last-waypoint now lives on Backspace only
+        // (see KeyDown handling above) — right-click no longer does anything special, freeing
+        // it for camera panning while drawing.
+        bool placeClick = e.type == EventType.MouseDown && e.button == 0 && !e.alt && !e.control && !e.command;
+        if (!placeClick) return;
         if (HandleUtility.nearestControl != controlID) return;
-
-        if (rightClick)
-        {
-            if (_waypoints.Count > 0) _waypoints.RemoveAt(_waypoints.Count - 1);
-            e.Use();
-            view.Repaint();
-            return;
-        }
 
         // Left click — add a waypoint. Terrain-only, so clicking "through" a tree lands the
         // waypoint on the ground behind it rather than doing nothing (the previous behaviour
@@ -358,7 +355,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         GUI.Label(new Rect(rect.x + 8, rect.y + 4, rect.width - 16, 18),
             "● SPLINE MODE ACTIVE", EditorStyles.whiteBoldLabel);
         GUI.Label(new Rect(rect.x + 8, rect.y + 24, rect.width - 16, 18),
-            "Click = waypoint · Backspace/RClick = undo · Enter = finish · Esc = cancel", EditorStyles.whiteMiniLabel);
+            "Click = waypoint · Backspace = undo · Enter = finish · Esc = cancel", EditorStyles.whiteMiniLabel);
         Handles.EndGUI();
     }
 

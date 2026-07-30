@@ -79,7 +79,7 @@ public class ImpostorRenderer : MonoBehaviour
     private Vector2Int[] cpuActiveLOD0ResolutionMap;
     private Dictionary<int, int> slotToSliceMap = new Dictionary<int, int>();
     private Queue<int> freeSlices = new Queue<int>();
-    private const int MAX_LOD0_SLICES = 25; // 25 * 128 * 128 * 2 bytes = 800KB VRAM
+    private const int MAX_LOD0_SLICES = 255; // 25 * 128 * 128 * 2 bytes = 800KB VRAM
 
     // ===== CONSTANTS =====
     // Must match GrassSolver.compute and BlotchTypes.cs definitions.

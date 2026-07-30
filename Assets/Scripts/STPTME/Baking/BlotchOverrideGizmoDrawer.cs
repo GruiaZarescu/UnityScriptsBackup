@@ -37,6 +37,19 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
     private Rect _selectedPanelScreenRect;
     private bool _selectedPanelVisible;
 
+    [Header("Mass Override (draw an enclosing polygon, set every tree inside at once)")]
+    [Tooltip("While on, left-click draws polygon points instead of the normal picking/edit " +
+             "behavior. The polygon is always treated as CLOSED — the last point connects back " +
+             "to the first automatically, so there's no need to click precisely back on your " +
+             "starting point.")]
+    [SerializeField] private bool massOverrideModeEnabled = false;
+    [SerializeField] private float massOverrideRadius = 0f;
+    [SerializeField] private float massOverrideDensity = 1f;
+    [Tooltip("-1 = match every prototype. Set to a specific registry index to only affect " +
+             "trees of that prototype within the drawn area.")]
+    [SerializeField] private int massOverridePrototypeFilter = -1;
+    private readonly List<Vector3> _massOverridePolygon = new List<Vector3>();
+
     private struct TerrainCache
     {
         public Terrain terrain;
@@ -294,9 +307,190 @@ public class BlotchOverrideGizmoDrawer : MonoBehaviour
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Mass Override — draw an enclosing polygon, set every tree inside at once.
+    // Operates on the flat pre-bake authoring terrain (real Unity TerrainCollider,
+    // no play-mode dependency) — a different domain from the runtime sphere tools.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    private void HandleMassOverrideMode(SceneView view)
+    {
+        Event e = Event.current;
+
+        int controlID = GUIUtility.GetControlID(FocusType.Passive);
+        if (e.type == EventType.Layout)
+            HandleUtility.AddDefaultControl(controlID);
+
+        if (e.type == EventType.KeyDown)
+        {
+            if (e.keyCode == KeyCode.Escape)
+            {
+                _massOverridePolygon.Clear();
+                e.Use(); view.Repaint(); return;
+            }
+            if (e.keyCode == KeyCode.Backspace && _massOverridePolygon.Count > 0)
+            {
+                _massOverridePolygon.RemoveAt(_massOverridePolygon.Count - 1);
+                e.Use(); view.Repaint(); return;
+            }
+            if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
+            {
+                CommitMassOverride();
+                e.Use(); view.Repaint(); return;
+            }
+        }
+
+        int matchCount = DrawMassOverridePreview();
+        DrawMassOverrideBanner(matchCount);
+
+        if (e.type == EventType.MouseDown && e.button == 0 && HandleUtility.nearestControl == controlID)
+        {
+            Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
+            if (Physics.Raycast(ray, out RaycastHit hit, 5000f))
+            {
+                _massOverridePolygon.Add(hit.point);
+                e.Use();
+                view.Repaint();
+            }
+        }
+    }
+
+    /// <summary>Even-odd point-in-polygon test on the X/Z plane. The polygon is treated as
+    /// implicitly closed (j starts at the last index, wrapping to the first) — the user never
+    /// needs to click back on their starting point.</summary>
+    private static bool PointInPolygonXZ(Vector3 point, List<Vector3> polygon)
+    {
+        bool inside = false;
+        int n = polygon.Count;
+        for (int i = 0, j = n - 1; i < n; j = i++)
+        {
+            float xi = polygon[i].x, zi = polygon[i].z;
+            float xj = polygon[j].x, zj = polygon[j].z;
+            bool crosses = ((zi > point.z) != (zj > point.z)) &&
+                (point.x < (xj - xi) * (point.z - zi) / (zj - zi) + xi);
+            if (crosses) inside = !inside;
+        }
+        return inside;
+    }
+
+    private void GetPolygonBoundsXZ(out float minX, out float maxX, out float minZ, out float maxZ)
+    {
+        minX = minZ = float.MaxValue;
+        maxX = maxZ = float.MinValue;
+        foreach (var p in _massOverridePolygon)
+        {
+            minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x);
+            minZ = Mathf.Min(minZ, p.z); maxZ = Mathf.Max(maxZ, p.z);
+        }
+    }
+
+    /// <summary>Draws the polygon-in-progress and highlights every currently-matched tree.
+    /// Returns the match count so the banner doesn't need a second, duplicate scan. Terrains
+    /// are cheaply rejected by bounding-circle-vs-bbox BEFORE testing individual trees — a
+    /// naive per-frame scan of all ~200k trees across all 216 terrains would reintroduce the
+    /// exact performance problem this component's tiered rendering exists to avoid.</summary>
+    private int DrawMassOverridePreview()
+    {
+        for (int i = 0; i < _massOverridePolygon.Count; i++)
+        {
+            Handles.color = Color.yellow;
+            Handles.DrawWireDisc(_massOverridePolygon[i], Vector3.up, 0.4f);
+        }
+
+        if (_massOverridePolygon.Count >= 2)
+        {
+            Handles.color = new Color(1f, 0.6f, 0.1f);
+            var loop = new Vector3[_massOverridePolygon.Count + 1];
+            _massOverridePolygon.CopyTo(loop);
+            loop[loop.Length - 1] = _massOverridePolygon[0]; // draw the implicit closing edge
+            Handles.DrawAAPolyLine(3f, loop);
+        }
+
+        if (_massOverridePolygon.Count < 3 || _cache == null) return 0;
+
+        GetPolygonBoundsXZ(out float minX, out float maxX, out float minZ, out float maxZ);
+
+        int count = 0;
+        Handles.color = Color.cyan;
+        foreach (var tc in _cache)
+        {
+            if (tc.boundsCenter.x + tc.boundsRadius < minX || tc.boundsCenter.x - tc.boundsRadius > maxX) continue;
+            if (tc.boundsCenter.z + tc.boundsRadius < minZ || tc.boundsCenter.z - tc.boundsRadius > maxZ) continue;
+
+            for (int i = 0; i < tc.treeWorldPos.Length; i++)
+            {
+                if (massOverridePrototypeFilter >= 0 && tc.treePrototypeIdx[i] != massOverridePrototypeFilter) continue;
+                if (!PointInPolygonXZ(tc.treeWorldPos[i], _massOverridePolygon)) continue;
+
+                Handles.DrawWireDisc(tc.treeWorldPos[i], Vector3.up, 0.6f);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void CommitMassOverride()
+    {
+        if (_massOverridePolygon.Count < 3 || database == null || _cache == null)
+        {
+            _massOverridePolygon.Clear();
+            return;
+        }
+
+        GetPolygonBoundsXZ(out float minX, out float maxX, out float minZ, out float maxZ);
+
+        // ONE RecordObject call before the whole batch — every SetOverride below collapses
+        // into a single undo step, so Ctrl+Z reverts the entire mass edit at once.
+        Undo.RecordObject(database, "Mass Override Blotches");
+
+        int changed = 0;
+        foreach (var tc in _cache)
+        {
+            if (tc.boundsCenter.x + tc.boundsRadius < minX || tc.boundsCenter.x - tc.boundsRadius > maxX) continue;
+            if (tc.boundsCenter.z + tc.boundsRadius < minZ || tc.boundsCenter.z - tc.boundsRadius > maxZ) continue;
+
+            for (int i = 0; i < tc.treeWorldPos.Length; i++)
+            {
+                if (massOverridePrototypeFilter >= 0 && tc.treePrototypeIdx[i] != massOverridePrototypeFilter) continue;
+                if (!PointInPolygonXZ(tc.treeWorldPos[i], _massOverridePolygon)) continue;
+
+                database.SetOverride(tc.face, tc.gridX, tc.gridY, tc.treeSeeds[i], massOverrideRadius, massOverrideDensity);
+                changed++;
+            }
+        }
+
+        EditorUtility.SetDirty(database);
+        Debug.Log($"[BlotchOverrideGizmoDrawer] Mass override: set {changed} tree(s) to " +
+            $"radius={massOverrideRadius:F2}, density={massOverrideDensity:F2}.");
+
+        _massOverridePolygon.Clear();
+        _linesDirty = true; // refresh gizmo colors so the change is visible immediately
+    }
+
+    private void DrawMassOverrideBanner(int matchCount)
+    {
+        Handles.BeginGUI();
+        var rect = new Rect(10, 10, 380, 64);
+        EditorGUI.DrawRect(rect, new Color(0.5f, 0.2f, 0.55f, 0.85f));
+        GUI.Label(new Rect(rect.x + 8, rect.y + 4, rect.width - 16, 18),
+            "● MASS OVERRIDE — draw an enclosing polygon", EditorStyles.whiteBoldLabel);
+        GUI.Label(new Rect(rect.x + 8, rect.y + 24, rect.width - 16, 18),
+            "Click = point · Backspace = undo · Enter = apply · Esc = cancel", EditorStyles.whiteMiniLabel);
+        GUI.Label(new Rect(rect.x + 8, rect.y + 44, rect.width - 16, 18),
+            $"Matches: {matchCount}  →  radius={massOverrideRadius:F2}  density={massOverrideDensity:F2}",
+            EditorStyles.whiteMiniLabel);
+        Handles.EndGUI();
+    }
+
     private void OnSceneGUI(SceneView view)
     {
         if (!_cacheBuilt) RebuildCache();
+
+        if (massOverrideModeEnabled)
+        {
+            HandleMassOverrideMode(view);
+            return; // owns all interaction while active — normal picking/edit panel is skipped entirely
+        }
 
         Vector3 camPos = view.camera.transform.position;
         if (_linesDirty || (camPos - _lastCamPos).sqrMagnitude > 1f)
