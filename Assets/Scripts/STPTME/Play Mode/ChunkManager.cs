@@ -119,6 +119,7 @@ public class ChunkManager : MonoBehaviour
     // mapsPerRow = cells-per-face-axis = sqrt(terrains) * subdPow2,
     // which is LARGER than (maxX - minX + 1) when heightmapSubdivisions > 0.
     private Vector2[] heightmapsStartingPositions;
+    private Vector2[] cpuChunkWidthRatio;            // per storage slot, mirrors ImpostorRenderer's copy
     private byte[] cellDsStepsByMapFace;
     private int mapsPerRow;                          // Full cell grid per axis
     private int totalMapsPerFace;                    // = mapsPerRow * mapsPerRow
@@ -198,6 +199,8 @@ public class ChunkManager : MonoBehaviour
         numberOfChunks = tilingFactor / subdivisionsPowerOf2;
         int totalChunkCount = numberOfTerrains * subdivisionsPowerOf2 * subdivisionsPowerOf2 * numberOfChunks * numberOfChunks;
         totalStorageSlots = totalChunkCount * FaceIdUtility.StorageFaceCount;
+        cpuChunkWidthRatio = new Vector2[totalStorageSlots];
+        for (int i = 0; i < cpuChunkWidthRatio.Length; i++) cpuChunkWidthRatio[i] = Vector2.one;
         angularChunkData = new ChunkAngularData?[totalStorageSlots];
         visCenterDir = new Vector3[totalStorageSlots];
         visCosThetaC = new float[totalStorageSlots];
@@ -1039,6 +1042,12 @@ public class ChunkManager : MonoBehaviour
             float ratioX = (float)maxJ / faceChunkStep;
             float ratioZ = (float)maxI / faceChunkStep;
             ImpostorRenderer.Instance.SetChunkWidthRatio(slot, ratioX, ratioZ);
+
+            // Also cache CPU-side: GetBlotchWorldPosition needs the identical ratio to place
+            // LOD0 prefab-spawned blotches at the same position the GPU computes for instanced
+            // ones. Previously this value only ever reached the GPU, so the two paths disagreed.
+            if (cpuChunkWidthRatio != null && slot >= 0 && slot < cpuChunkWidthRatio.Length)
+                cpuChunkWidthRatio[slot] = new Vector2(ratioX, ratioZ);
             
         }
 
@@ -1688,27 +1697,50 @@ public class ChunkManager : MonoBehaviour
         int globalFlatIdx = globalIndexCalculator.GetIndex(blob.chunkPacked);
         int storageSlot = FaceIdUtility.GetStorageIndex(globalFlatIdx, blob.Face);
 
-        // Get the baked chunk center direction
-        Vector3 centerDir = GetChunkCenterDirection(storageSlot);
-
-        // Get face axes for tangent basis
-        FaceIdUtility.GetFaceAxes(blob.Face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
-
-        // Build tangent basis aligned with cube face axes (matches GPU)
-        Vector3 tangentU = (axisA - Vector3.Dot(centerDir, axisA) * centerDir).normalized;
-        Vector3 tangentV = (axisB - Vector3.Dot(centerDir, axisB) * centerDir).normalized;
-
         // Unpack local position within chunk
         float chunkSize = terrainSize / tilingFactor;
         blob.GetLocalPosition(chunkSize, out float localX, out float localZ);
 
-        // Convert local position to angular offset (matches GPU)
-        float chunkAngularHalfSize = settings.halfChunkLinearSize / sphereRadius;
-        float uOff = (localX / chunkSize - 0.5f) * 2f * chunkAngularHalfSize;
-        float vOff = (localZ / chunkSize - 0.5f) * 2f * chunkAngularHalfSize;
+        // ── Exact instance direction ────────────────────────────────────────────────
+        // Ported from ImpostorSolver.compute's ComputeExactInstanceDir. This function used to
+        // build a per-chunk tangent-plane approximation (centerDir + tangentU*uOff +
+        // tangentV*vOff) — the same construction the GPU used before it was replaced. That
+        // approximation only agrees with the terrain mesh AT THE CHUNK CENTRE and diverges
+        // with distance from it; on a slope that horizontal divergence reads directly as a
+        // tree floating or sinking. The GPU was fixed long ago; this CPU-side twin, which
+        // places LOD0 prefab-spawned blotches, never received the same fix — which is why the
+        // symptom persisted only for prefab trees and not for GPU-instanced ones.
+        float chunkWorldSize = settings.halfChunkLinearSize * 2f;
+        float cellWorldSize = chunkWorldSize * numberOfChunks;
+        // Deliberately derived from mapsPerRow, NOT the faceWorldSize parameter: mapsPerRow is
+        // the true cells-per-face-axis and (per the field's own comment) differs from
+        // (maxX-minX+1) when heightmapSubdivisions > 0. The GPU uploads mapsPerRow, so using
+        // it here is what keeps the two paths bit-comparable.
+        float exactFaceWorldSize = mapsPerRow * cellWorldSize;
 
-        // Build instance direction using spherical interpolation
-        Vector3 instanceDir = (centerDir + tangentU * uOff + tangentV * vOff).normalized;
+        int cellIdx = MapFaceIndex(mapX, mapY, blob.Face);
+        Vector2 cellStart = (cellIdx >= 0 && cellIdx < heightmapsStartingPositions.Length)
+            ? heightmapsStartingPositions[cellIdx]
+            : Vector2.zero;
+
+        Vector2 widthRatio = (cpuChunkWidthRatio != null && storageSlot >= 0 && storageSlot < cpuChunkWidthRatio.Length)
+            ? cpuChunkWidthRatio[storageSlot]
+            : Vector2.one;
+
+        float dispLX = localX / chunkSize;
+        float dispLZ = localZ / chunkSize;
+
+        float px = cellStart.x + chunkWorldSize * chunkX + dispLX * chunkWorldSize * widthRatio.x;
+        float pz = cellStart.y + chunkWorldSize * chunkY + dispLZ * chunkWorldSize * widthRatio.y;
+
+        float percentX = exactFaceWorldSize > 0f ? px / exactFaceWorldSize : 0f;
+        float percentY = exactFaceWorldSize > 0f ? pz / exactFaceWorldSize : 0f;
+        float factorA = (percentX - 0.5f) * 2f;
+        float factorB = (percentY - 0.5f) * 2f;
+
+        FaceIdUtility.GetFaceAxes(blob.Face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
+        Vector3 instanceDir = (localUp + factorA * axisA + factorB * axisB).normalized;
+        // ────────────────────────────────────────────────────────────────────────────
 
         // Sample height at this exact position
         if (!cellReader.IsCached(map, blob.Face))
@@ -1754,9 +1786,18 @@ public class ChunkManager : MonoBehaviour
         float h01 = heights[y1, x0] * faceHeightScale;
         float h11 = heights[y1, x1] * faceHeightScale;
 
-        float h0 = Mathf.Lerp(h00, h10, fracX);
-        float h1 = Mathf.Lerp(h01, h11, fracX);
-        float h = Mathf.Lerp(h0, h1, fracY);
+        // Per-triangle planar interpolation — matches the terrain MESH's actual triangulation
+        // (confirmed from GenerateMeshData: diagonal is bl-tr, the main diagonal (0,0)-(1,1)),
+        // NOT bilinear. Mirrors ImpostorSolver.compute's TriInterp exactly. Bilinear blur here
+        // is the same class of bug fixed on the GPU side long ago (floating/sinking due to
+        // sampling not matching the mesh's real triangle split) — this CPU-side function is a
+        // separate, independent implementation that never received the same fix, which is why
+        // it resurfaced specifically for prefab-spawned (LOD0) trees rather than GPU instances.
+        float h;
+        if (fracY <= fracX)
+            h = h00 + (h10 - h00) * fracX + (h11 - h10) * fracY;   // triangle {bl,br,tr}
+        else
+            h = h00 + (h11 - h01) * fracX + (h01 - h00) * fracY;   // triangle {bl,tr,tl}
 
         return sphereCenter + instanceDir * (sphereRadius + h);
     }
