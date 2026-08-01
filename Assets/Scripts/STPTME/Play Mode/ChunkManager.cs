@@ -298,7 +298,7 @@ public class ChunkManager : MonoBehaviour
         // instanceAlways (which would otherwise render as one wrong prefab — see the warning
         // it logs). This is what keeps the GPU buffer free of prototypes that will never be
         // GPU-instanced, rather than uploading everything and filtering at draw time.
-        float faceWorldSizeForOrchestrator = (maxX - minX + 1) * (terrainSize / subdivisionsPowerOf2);
+        float faceWorldSizeForOrchestrator = settings.faceWorldSize; // see GetFaceWorldSize for why this must not be reinvented locally
         var orchestratorResult = STPTME.MapObjects.MapContentOrchestrator.Build(
             rawTerrainBlotches, rawMapObjects, mapObjectRegistry,
             sphereCenter, settings.halfChunkLinearSize * 2f, faceWorldSizeForOrchestrator,
@@ -830,8 +830,15 @@ public class ChunkManager : MonoBehaviour
 
     public float GetFaceWorldSize()
     {
-        int mapsPerRow = maxX - minX + 1;
-        return mapsPerRow * (terrainSize / subdivisionsPowerOf2);
+        // settings.faceWorldSize (= sqrt(numberOfTerrains) * terrainSize) is algebraically
+        // identical to mapsPerRow * (terrainSize / subdivisionsPowerOf2) — the value
+        // ComputeExactInstanceDir actually uses — but the local "mapsPerRow = maxX-minX+1"
+        // this used to compute was a DIFFERENT, wrong quantity that only coincides with the
+        // real mapsPerRow when heightmapSubdivisions == 0. That mismatch was silent for
+        // anything reading live worldPosition directly (nothing ever noticed), but became a
+        // real, visible bug for baked map objects, whose position/orientation is fully
+        // RECONSTRUCTED from chunk-local coordinates at load time via ComputeExactInstanceDir.
+        return settings.faceWorldSize;
     }
 
     private Vector3 ComputeFaceSphereCorner(FaceId face, float planeX, float planeY)

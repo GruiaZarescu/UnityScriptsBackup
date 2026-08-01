@@ -35,7 +35,13 @@ public static class MapObjectChunkMath
         if (!FaceIdUtility.TryProjectWorldPointToFacePlane(worldPosition, face, faceWorldSize, sphereCenter, out Vector2 plane))
             return false;
 
-        int faceSpanInChunks = (maxX - minX + 1) * numberOfChunks;
+        // Derived directly from faceWorldSize/chunkSize rather than (maxX-minX+1)*numberOfChunks
+        // — the latter silently disagreed with the true chunk span whenever
+        // heightmapSubdivisions > 0, which is what caused baked map objects' reconstructed
+        // position/orientation to diverge from the correct GPU/prefab-tree math. As long as
+        // the caller passes the real faceWorldSize (TerrainManagementSettings.faceWorldSize),
+        // this is exact.
+        int faceSpanInChunks = Mathf.RoundToInt(faceWorldSize / chunkSize);
         int globalChunkX = Mathf.Clamp(Mathf.FloorToInt(plane.x / chunkSize), 0, faceSpanInChunks - 1);
         int globalChunkY = Mathf.Clamp(Mathf.FloorToInt(plane.y / chunkSize), 0, faceSpanInChunks - 1);
 

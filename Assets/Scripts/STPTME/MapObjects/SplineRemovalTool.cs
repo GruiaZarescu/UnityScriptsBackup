@@ -178,8 +178,7 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
         var settings = TerrainManagementSettings.Instance;
         Vector3 sphereCenter = settings.sphereCenter;
         float chunkSize = settings.terrainSize / settings.tilingFactor;
-        int subdivPow2 = 1 << settings.heightmapSubdivisions;
-        float faceWorldSize = (settings.maxX - settings.minX + 1) * (settings.terrainSize / subdivPow2);
+        float faceWorldSize = settings.faceWorldSize; // see ChunkManager.GetFaceWorldSize for why this must not be reinvented locally
 
         foreach (var entry in database.All)
         {

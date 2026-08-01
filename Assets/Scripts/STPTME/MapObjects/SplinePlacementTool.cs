@@ -222,8 +222,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         var touchedChunks = new HashSet<(int packed, FaceId face)>();
         var settings = TerrainManagementSettings.Instance;
         float chunkSize = settings.terrainSize / settings.tilingFactor;
-        int subdivPow2 = 1 << settings.heightmapSubdivisions;
-        float faceWorldSize = (settings.maxX - settings.minX + 1) * (settings.terrainSize / subdivPow2);
+        float faceWorldSize = settings.faceWorldSize; // see ChunkManager.GetFaceWorldSize for why this must not be reinvented locally
 
         // Connector axis in the prefab's local space, and the height the connectors sit at.
         // The chain is run at THIS height (not ground level) so that each fence's end

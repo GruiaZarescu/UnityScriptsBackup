@@ -91,8 +91,7 @@ public class ChunkObjectLoader : MonoBehaviour
     {
         var settings = TerrainManagementSettings.Instance;
         float chunkSize = settings.terrainSize / settings.tilingFactor;
-        int subdivPow2 = 1 << _heightmapSubdivisions;
-        float faceWorldSize = (settings.maxX - settings.minX + 1) * (settings.terrainSize / subdivPow2);
+        float faceWorldSize = settings.faceWorldSize; // see ChunkManager.GetFaceWorldSize for why this must not be reinvented locally
 
         if (!MapObjectChunkMath.TryResolve(worldPosition, settings.sphereCenter, chunkSize, faceWorldSize,
                 _numberOfChunks, settings.minX, settings.maxX, out var addr))
@@ -122,8 +121,7 @@ public class ChunkObjectLoader : MonoBehaviour
         if (useLiveDatabase)
         {
             float chunkSize = settings.terrainSize / settings.tilingFactor;
-            int subdivPow2 = 1 << _heightmapSubdivisions;
-            float faceWorldSize = (settings.maxX - settings.minX + 1) * (settings.terrainSize / subdivPow2);
+            float faceWorldSize = settings.faceWorldSize; // see ChunkManager.GetFaceWorldSize for why this must not be reinvented locally
 
             _objectSource = new STPTME.MapObjects.LiveDatabaseObjectSource(
                 mapObjectDatabase, settings.sphereCenter, chunkSize, faceWorldSize,
