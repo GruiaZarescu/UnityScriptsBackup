@@ -1688,37 +1688,35 @@ public class ChunkManager : MonoBehaviour
         }
     }
 
-    public Vector3 GetBlotchWorldPosition(BlotchData blob, float faceWorldSize)
+    /// <summary>
+    /// Exact cube-projected direction from sphereCenter for a point at (localX, localZ)
+    /// meters within the given chunk. Ported from ImpostorSolver.compute's
+    /// ComputeExactInstanceDir — see that function's comments for why this must be exact
+    /// rather than a per-chunk tangent-plane approximation (the approximation only agrees
+    /// with the terrain mesh at chunk centre and diverges with distance from it).
+    ///
+    /// Public and reusable on purpose: both blotch placement (below) and terrain-anchored
+    /// map object unpacking (MapObjectCompactFormat/CellObjectReader) need this identical
+    /// computation, and duplicating it a third time is exactly the kind of drift that has
+    /// caused most of the positional bugs chased in this system.
+    /// </summary>
+    public Vector3 ComputeExactInstanceDir(int chunkPacked, FaceId face, float localXMeters, float localZMeters)
     {
-        STPTMEUtils.ReadFourSBytesFromInt(blob.chunkPacked, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
-        Vector2SByte map = new Vector2SByte(mapX, mapY);
+        STPTMEUtils.ReadFourSBytesFromInt(chunkPacked, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
 
-        // Get the storage slot for this chunk
-        int globalFlatIdx = globalIndexCalculator.GetIndex(blob.chunkPacked);
-        int storageSlot = FaceIdUtility.GetStorageIndex(globalFlatIdx, blob.Face);
+        int globalFlatIdx = globalIndexCalculator.GetIndex(chunkPacked);
+        int storageSlot = FaceIdUtility.GetStorageIndex(globalFlatIdx, face);
 
-        // Unpack local position within chunk
         float chunkSize = terrainSize / tilingFactor;
-        blob.GetLocalPosition(chunkSize, out float localX, out float localZ);
-
-        // ── Exact instance direction ────────────────────────────────────────────────
-        // Ported from ImpostorSolver.compute's ComputeExactInstanceDir. This function used to
-        // build a per-chunk tangent-plane approximation (centerDir + tangentU*uOff +
-        // tangentV*vOff) — the same construction the GPU used before it was replaced. That
-        // approximation only agrees with the terrain mesh AT THE CHUNK CENTRE and diverges
-        // with distance from it; on a slope that horizontal divergence reads directly as a
-        // tree floating or sinking. The GPU was fixed long ago; this CPU-side twin, which
-        // places LOD0 prefab-spawned blotches, never received the same fix — which is why the
-        // symptom persisted only for prefab trees and not for GPU-instanced ones.
         float chunkWorldSize = settings.halfChunkLinearSize * 2f;
         float cellWorldSize = chunkWorldSize * numberOfChunks;
-        // Deliberately derived from mapsPerRow, NOT the faceWorldSize parameter: mapsPerRow is
-        // the true cells-per-face-axis and (per the field's own comment) differs from
-        // (maxX-minX+1) when heightmapSubdivisions > 0. The GPU uploads mapsPerRow, so using
-        // it here is what keeps the two paths bit-comparable.
+        // Deliberately derived from mapsPerRow, NOT a faceWorldSize parameter: mapsPerRow is
+        // the true cells-per-face-axis and differs from (maxX-minX+1) when
+        // heightmapSubdivisions > 0. The GPU uploads mapsPerRow, so using it here is what
+        // keeps the two paths bit-comparable.
         float exactFaceWorldSize = mapsPerRow * cellWorldSize;
 
-        int cellIdx = MapFaceIndex(mapX, mapY, blob.Face);
+        int cellIdx = MapFaceIndex(mapX, mapY, face);
         Vector2 cellStart = (cellIdx >= 0 && cellIdx < heightmapsStartingPositions.Length)
             ? heightmapsStartingPositions[cellIdx]
             : Vector2.zero;
@@ -1727,8 +1725,8 @@ public class ChunkManager : MonoBehaviour
             ? cpuChunkWidthRatio[storageSlot]
             : Vector2.one;
 
-        float dispLX = localX / chunkSize;
-        float dispLZ = localZ / chunkSize;
+        float dispLX = localXMeters / chunkSize;
+        float dispLZ = localZMeters / chunkSize;
 
         float px = cellStart.x + chunkWorldSize * chunkX + dispLX * chunkWorldSize * widthRatio.x;
         float pz = cellStart.y + chunkWorldSize * chunkY + dispLZ * chunkWorldSize * widthRatio.y;
@@ -1738,38 +1736,45 @@ public class ChunkManager : MonoBehaviour
         float factorA = (percentX - 0.5f) * 2f;
         float factorB = (percentY - 0.5f) * 2f;
 
-        FaceIdUtility.GetFaceAxes(blob.Face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
-        Vector3 instanceDir = (localUp + factorA * axisA + factorB * axisB).normalized;
-        // ────────────────────────────────────────────────────────────────────────────
+        FaceIdUtility.GetFaceAxes(face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
+        return (localUp + factorA * axisA + factorB * axisB).normalized;
+    }
 
-        // Sample height at this exact position
-        if (!cellReader.IsCached(map, blob.Face))
-            cellReader.GetOrLoadSync(map, blob.Face);
+    /// <summary>
+    /// Terrain height (meters above sphereRadius) at (localX, localZ) within the given chunk,
+    /// via exact per-triangle interpolation matching the terrain mesh's real triangulation
+    /// (bl-tr diagonal) — NOT bilinear. Public/reusable for the same reason as
+    /// ComputeExactInstanceDir above.
+    /// </summary>
+    public float SampleTerrainHeight(int chunkPacked, FaceId face, float localXMeters, float localZMeters)
+    {
+        STPTMEUtils.ReadFourSBytesFromInt(chunkPacked, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
+        Vector2SByte map = new Vector2SByte(mapX, mapY);
 
-        ushort[,] heights = cellReader.GetHeights(map, 0, blob.Face, sync: true);
-        if (heights == null) return sphereCenter + instanceDir * sphereRadius;
+        if (!cellReader.IsCached(map, face))
+            cellReader.GetOrLoadSync(map, face);
 
-        // Get the exact scaling parameters for this face and cell
-        byte cellDsSteps = GetCellDsSteps(map, blob.Face);
-        int faceChunkStepFull = GetFaceChunkStep(blob.Face);
+        ushort[,] heights = cellReader.GetHeights(map, 0, face, sync: true);
+        if (heights == null) return 0f;
+
+        byte cellDsSteps = GetCellDsSteps(map, face);
+        int faceChunkStepFull = GetFaceChunkStep(face);
         int faceChunkStep = Mathf.Max(1, faceChunkStepFull >> cellDsSteps);
-        float facePixelDistanceFull = GetFacePixelDistance(blob.Face);
+        float facePixelDistanceFull = GetFacePixelDistance(face);
         float facePixelDistance = facePixelDistanceFull * (1 << cellDsSteps);
-        float faceHeightScale = GetFaceMaxHeight(blob.Face) / 65535f;
+        float faceHeightScale = GetFaceMaxHeight(face) / 65535f;
 
         int xOffset = faceChunkStep * chunkX;
         int yOffset = faceChunkStep * chunkY;
 
-        // Convert local meters to continuous heightmap pixel indices
-        float contX = localX / facePixelDistance + xOffset;
-        float contY = localZ / facePixelDistance + yOffset;
+        float contX = localXMeters / facePixelDistance + xOffset;
+        float contY = localZMeters / facePixelDistance + yOffset;
 
         int x0 = Mathf.FloorToInt(contX);
         int y0 = Mathf.FloorToInt(contY);
         int x1 = x0 + 1;
         int y1 = y0 + 1;
 
-        // Clamp to heightmap bounds
         int maxX = heights.GetLength(1) - 1;
         int maxY = heights.GetLength(0) - 1;
         x0 = Mathf.Clamp(x0, 0, maxX);
@@ -1780,24 +1785,25 @@ public class ChunkManager : MonoBehaviour
         float fracX = contX - x0;
         float fracY = contY - y0;
 
-        // Bilinear interpolation of height
         float h00 = heights[y0, x0] * faceHeightScale;
         float h10 = heights[y0, x1] * faceHeightScale;
         float h01 = heights[y1, x0] * faceHeightScale;
         float h11 = heights[y1, x1] * faceHeightScale;
 
-        // Per-triangle planar interpolation — matches the terrain MESH's actual triangulation
-        // (confirmed from GenerateMeshData: diagonal is bl-tr, the main diagonal (0,0)-(1,1)),
-        // NOT bilinear. Mirrors ImpostorSolver.compute's TriInterp exactly. Bilinear blur here
-        // is the same class of bug fixed on the GPU side long ago (floating/sinking due to
-        // sampling not matching the mesh's real triangle split) — this CPU-side function is a
-        // separate, independent implementation that never received the same fix, which is why
-        // it resurfaced specifically for prefab-spawned (LOD0) trees rather than GPU instances.
-        float h;
+        // Per-triangle planar interpolation matching the terrain mesh's actual triangulation
+        // (bl-tr diagonal) — see GenerateMeshData / ImpostorSolver.compute's TriInterp.
         if (fracY <= fracX)
-            h = h00 + (h10 - h00) * fracX + (h11 - h10) * fracY;   // triangle {bl,br,tr}
-        else
-            h = h00 + (h11 - h01) * fracX + (h01 - h00) * fracY;   // triangle {bl,tr,tl}
+            return h00 + (h10 - h00) * fracX + (h11 - h10) * fracY;   // triangle {bl,br,tr}
+        return h00 + (h11 - h01) * fracX + (h01 - h00) * fracY;       // triangle {bl,tr,tl}
+    }
+
+    public Vector3 GetBlotchWorldPosition(BlotchData blob, float faceWorldSize)
+    {
+        float chunkSize = terrainSize / tilingFactor;
+        blob.GetLocalPosition(chunkSize, out float localX, out float localZ);
+
+        Vector3 instanceDir = ComputeExactInstanceDir(blob.chunkPacked, blob.Face, localX, localZ);
+        float h = SampleTerrainHeight(blob.chunkPacked, blob.Face, localX, localZ);
 
         return sphereCenter + instanceDir * (sphereRadius + h);
     }

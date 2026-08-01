@@ -248,6 +248,17 @@ namespace STPTME.MapObjects
         public static bool ShowAuthoringGizmos = false;
         public static bool SnapToGroundEnabled = false;
 
+        /// <summary>Scales the pick sphere's radius relative to full mesh bounds. 1.0 = old
+        /// behavior (exactly bounds.extents.magnitude); lower values shrink it for less visual
+        /// clutter in dense clusters, at the cost of a smaller "click through gaps" margin.</summary>
+        public static float PickSphereScale = 0.6f;
+
+        /// <summary>When false, pick spheres are neither drawn nor used as a raycast fallback —
+        /// picking only ever hits actual visible mesh geometry ("mesh collider only" mode).
+        /// The collider itself still exists (so toggling back on works instantly); this only
+        /// gates the gizmo draw and the fallback raycast pass in TryPickMapObject.</summary>
+        public static bool PickSpheresEnabled = true;
+
         private const string PickChildName = "__PickCollider";
 
         private void Awake()
@@ -261,6 +272,14 @@ namespace STPTME.MapObjects
         /// </summary>
         public void EnsurePickCollider()
         {
+            // id == 0 means this object never came from MapObjectDatabase — a blotch-derived
+            // tree, not a placed map object. Every spawned prefab gets this component
+            // regardless of origin (SpawnObject attaches it unconditionally), so without this
+            // check every tree in view would also grow a full-canopy-sized pick sphere the
+            // moment the authoring dashboard is open — which is what was actually cluttering
+            // the scene, not sphere size itself.
+            if (id == 0) return;
+
             Transform pick = transform.Find(PickChildName);
             if (pick == null)
             {
@@ -294,7 +313,7 @@ namespace STPTME.MapObjects
                 float maxScale = Mathf.Max(Mathf.Abs(transform.lossyScale.x),
                                 Mathf.Max(Mathf.Abs(transform.lossyScale.y), Mathf.Abs(transform.lossyScale.z)));
                 if (maxScale < 0.0001f) maxScale = 1f;
-                sphere.radius = b.extents.magnitude / maxScale;
+                sphere.radius = (b.extents.magnitude / maxScale) * PickSphereScale;
             }
 
             int pickLayer = LayerMask.NameToLayer("MapObjectPicking");
@@ -308,7 +327,8 @@ namespace STPTME.MapObjects
     #if UNITY_EDITOR
         private void OnDrawGizmos()
         {
-            if (!ShowAuthoringGizmos) return;
+            if (!ShowAuthoringGizmos || !PickSpheresEnabled) return;
+            if (id == 0) return; // blotch-derived tree, not a placed map object — see EnsurePickCollider
 
             // Derived live from renderer bounds rather than read off the cached child, so the
             // gizmo is correct even if the collider hasn't been re-synced yet.
@@ -325,12 +345,13 @@ namespace STPTME.MapObjects
             if (!any) return;
 
             Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.5f);
-            Gizmos.DrawWireSphere(b.center, b.extents.magnitude);
+            Gizmos.DrawWireSphere(b.center, b.extents.magnitude * PickSphereScale);
         }
 
         private void OnDrawGizmosSelected()
         {
             if (!ShowAuthoringGizmos) return;
+            if (id == 0) return; // blotch-derived tree — nothing here to select/edit as a map object
             UnityEditor.Handles.Label(transform.position + Vector3.up * 1.5f,
                 $"id={id}  {(sourceDatabase != null ? "live" : "baked")}");
         }

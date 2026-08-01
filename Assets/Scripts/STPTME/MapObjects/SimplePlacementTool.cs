@@ -274,6 +274,7 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
         }
         if (meta != null) return true;
 
+        if (!STPTME.MapObjects.MapObjectMetadata.PickSpheresEnabled) return false; // mesh-only mode
         if (pickMask == 0) return false;
         RaycastHit[] sphereHits = Physics.RaycastAll(ray, maxDist, pickMask, QueryTriggerInteraction.Collide);
         float smallestRadius = float.MaxValue;

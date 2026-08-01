@@ -21,6 +21,27 @@ using UnityEditor;
 [CreateAssetMenu(fileName = "MapObjectDatabase", menuName = "STPTME/Map Object Database")]
 public class MapObjectDatabase : ScriptableObject
 {
+    /// <summary>
+    /// How this entry's position/orientation should be treated at bake/load time. Reserved for
+    /// future extension (e.g. ParentRelative for props mounted on other placed objects) —
+    /// only the two below are implemented. TerrainSurface MUST be 0: every entry created
+    /// before this field existed deserializes with the enum's default value, and terrain-
+    /// anchored is what ~100% of current content actually is.
+    /// </summary>
+    public enum AnchorMode
+    {
+        /// <summary>Position/orientation reconstructed from chunk context at load time — never
+        /// stores raw world position on disk, so it can't drift when terrain is re-baked.
+        /// "Up" is always the sphere's radial direction here; heading and tilt are the only
+        /// free orientation parameters (matches every terrain-anchored object this system has
+        /// ever spawned — no independent roll is ever used).</summary>
+        TerrainSurface = 0,
+
+        /// <summary>Full raw world position + unrestricted 3D rotation, stored and loaded
+        /// exactly as authored. Never derived from or affected by terrain/chunk data.</summary>
+        WorldFixed = 1,
+    }
+
     [Serializable]
     public struct MapObjectEntry
     {
@@ -29,6 +50,7 @@ public class MapObjectDatabase : ScriptableObject
         public Vector3 worldPosition;
         public Quaternion worldRotation;
         public Vector3 localScale;
+        public AnchorMode anchorMode;
     }
 
     [SerializeField] private List<MapObjectEntry> entries = new List<MapObjectEntry>();
@@ -66,7 +88,8 @@ public class MapObjectDatabase : ScriptableObject
         }
     }
 
-    public ulong Add(int prototypeIndex, Vector3 worldPos, Quaternion worldRot, Vector3 scale)
+    public ulong Add(int prototypeIndex, Vector3 worldPos, Quaternion worldRot, Vector3 scale,
+        AnchorMode anchorMode = AnchorMode.TerrainSurface)
     {
         ulong id = nextId++;
         entries.Add(new MapObjectEntry
@@ -75,7 +98,8 @@ public class MapObjectDatabase : ScriptableObject
             prototypeIndex = prototypeIndex,
             worldPosition = worldPos,
             worldRotation = worldRot,
-            localScale = scale
+            localScale = scale,
+            anchorMode = anchorMode
         });
         _lookupDirty = true;
         Version++;
