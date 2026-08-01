@@ -53,14 +53,22 @@ namespace STPTME.MapObjects
                 float height = Random.Range(-50f, 500f);
                 Vector3 worldPos = sphereCenter + dir * (sphereRadius + height);
 
-                // A genuinely "no-roll" orientation — LookRotation against the radial, exactly
-                // how every terrain-anchored object in this system is actually built. Testing
-                // with an arbitrary rolled quaternion would be testing something this format
-                // was never meant to represent, not a real round-trip failure.
-                Vector3 randomHeadingDir = Vector3.ProjectOnPlane(Random.onUnitSphere, dir);
-                if (randomHeadingDir.sqrMagnitude < 0.01f) randomHeadingDir = Vector3.ProjectOnPlane(Vector3.right, dir);
-                Vector3 forward = Vector3.Slerp(randomHeadingDir.normalized, dir, Random.Range(-0.3f, 0.3f)).normalized;
-                Quaternion worldRot = Quaternion.LookRotation(forward, dir);
+                // A genuinely "no-roll" orientation — built EXACTLY the way SplinePlacementTool
+                // authors fence rotations (Cross(travelDir, up) fed as LookRotation's forward
+                // parameter, so local +X becomes the travel/tilt-carrying axis), not a generic
+                // Z-forward LookRotation. The original bug here was that this test built its
+                // synthetic data the "generic" way, matching the (wrong) pack function's own
+                // assumption — so pack/unpack round-tripped against EACH OTHER correctly while
+                // neither matched real authored rotations. Testing against the real convention
+                // is what actually would have caught it.
+                Vector3 randomTravelDir = Vector3.ProjectOnPlane(Random.onUnitSphere, dir);
+                if (randomTravelDir.sqrMagnitude < 0.01f) randomTravelDir = Vector3.ProjectOnPlane(Vector3.right, dir);
+                randomTravelDir.Normalize();
+                // Tilt the travel direction away from horizontal to simulate a real slope —
+                // this is exactly what must survive the round-trip.
+                Vector3 travelDir = Vector3.Slerp(randomTravelDir, dir, Random.Range(-0.3f, 0.3f)).normalized;
+                Vector3 lookForwardParam = Vector3.Cross(travelDir, dir);
+                Quaternion worldRot = Quaternion.LookRotation(lookForwardParam, dir);
 
                 Vector3 scale = new Vector3(Random.Range(0.1f, 10f), Random.Range(0.1f, 10f), Random.Range(0.1f, 10f));
 

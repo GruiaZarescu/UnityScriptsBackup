@@ -121,7 +121,15 @@ namespace STPTME.MapObjects
             MapObjectToBlotchConversion.BuildTangentBinormalFrame(entry.worldPosition, sphereCenter,
                 out _, out Vector3 tangent, out Vector3 binormal);
 
-            Vector3 forward = (entry.worldRotation * Vector3.forward).normalized;
+            // Local +X, NOT +Z. SplinePlacementTool (and the fence connector convention it
+            // implements) builds rotations as LookRotation(Cross(travelDir, up), up) — which
+            // makes local +Z structurally, exactly perpendicular to `up` by the definition of
+            // a cross product, for EVERY such rotation, regardless of actual slope. Extracting
+            // tilt from local +Z therefore always measured a value that's guaranteed to be
+            // zero — not approximately, exactly, every time — which is why fences never tilted
+            // when loaded from a bake. Local +X is the real travel/connector axis and is what
+            // actually deviates from horizontal on a slope.
+            Vector3 forward = (entry.worldRotation * Vector3.right).normalized;
 
             // Heading: direction of forward's flattened (tangent-plane) component.
             Vector3 flatForward = Vector3.ProjectOnPlane(forward, up);
@@ -186,14 +194,24 @@ namespace STPTME.MapObjects
             Vector3 flatForward = tangent * Mathf.Cos(headingRad) + binormal * Mathf.Sin(headingRad);
 
             float tiltRad = tilt * Mathf.Deg2Rad;
-            Vector3 forward = (flatForward * Mathf.Cos(tiltRad) + up * Mathf.Sin(tiltRad)).normalized;
+            // This reconstructs the object's local +X (the travel/connector axis) — NOT +Z.
+            Vector3 reconstructedX = (flatForward * Mathf.Cos(tiltRad) + up * Mathf.Sin(tiltRad)).normalized;
+
+            // LookRotation only accepts a local-Z parameter directly. Mirrors
+            // SplinePlacementTool's own construction (lookForward = Cross(travelDir, up))
+            // exactly, so a rotation built by that tool round-trips back to itself: feeding
+            // Cross(reconstructedX, up) as LookRotation's forward parameter makes the
+            // RESULTING local +X equal reconstructedX (LookRotation derives local X as
+            // Cross(up, forward) = Cross(up, Cross(X, up)) = X, by the vector triple product
+            // identity, whenever X is perpendicular to up — which it always is here).
+            Vector3 lookForwardParam = Vector3.Cross(reconstructedX, up);
 
             return new MapObjectDatabase.MapObjectEntry
             {
                 id = record.id,
                 prototypeIndex = record.prototypeIndex,
                 worldPosition = worldPosition,
-                worldRotation = Quaternion.LookRotation(forward, up),
+                worldRotation = Quaternion.LookRotation(lookForwardParam, up),
                 localScale = new Vector3(
                     DequantizeScale(record.scaleX), DequantizeScale(record.scaleY), DequantizeScale(record.scaleZ)),
                 anchorMode = MapObjectDatabase.AnchorMode.TerrainSurface,
