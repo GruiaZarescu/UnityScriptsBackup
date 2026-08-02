@@ -190,23 +190,42 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
     {
         int protoIndex = CurrentPrototypeIndex;
         if (protoIndex < 0 || _waypoints.Count < 2) { CancelRun(); return; }
+
+        var placed = PlaceRunAlongWaypoints(database, registry, protoIndex, _waypoints);
+        _lastCommittedIds = placed;
+        _waypoints.Clear();
+    }
+
+    /// <summary>
+    /// Places one continuous run of connector-based objects along the given waypoints and
+    /// returns the ids created. Public and reusable ON PURPOSE: SplineChainEditTool extends
+    /// existing runs and must produce byte-identical placement, and this chained-placement /
+    /// ground-solve math took a long time to get exactly right — it must never exist in two
+    /// divergent copies.
+    /// </summary>
+    public static List<ulong> PlaceRunAlongWaypoints(
+        MapObjectDatabase database, MapObjectPrototypeRegistry registry,
+        int protoIndex, List<Vector3> waypoints)
+    {
+        var result = new List<ulong>();
+        if (protoIndex < 0 || protoIndex >= registry.entries.Length || waypoints.Count < 2) return result;
+
         var entry = registry.entries[protoIndex];
         float spacing = entry.ConnectorSpacing;
         if (spacing < 0.01f)
         {
             Debug.LogWarning("[SplinePlacementTool] Prototype has a degenerate connector spacing (~0). Aborting.");
-            CancelRun();
-            return;
+            return result;
         }
 
+        var _waypoints = waypoints; // local alias so the body below reads unchanged
         var arcTable = SplineMath.BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT * 2);
         float totalLength = arcTable[arcTable.Count - 1].cumulativeLength;
         int fenceCount = Mathf.FloorToInt(totalLength / spacing);
         if (fenceCount < 1)
         {
             Debug.LogWarning("[SplinePlacementTool] Path too short for even one segment. Aborting.");
-            CancelRun();
-            return;
+            return result;
         }
 
         if (Mathf.Abs(entry.connectorStartLocal.y - entry.connectorEndLocal.y) > 0.05f)
@@ -295,8 +314,7 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         Debug.Log($"[SplinePlacementTool] Committed {placedIds.Count} instances of prototype {protoIndex} " +
             $"across {touchedChunks.Count} chunk(s).");
 
-        _lastCommittedIds = placedIds;
-        _waypoints.Clear();
+        return placedIds;
     }
 
     private void UndoLastCommit(MapObjectDatabase database)

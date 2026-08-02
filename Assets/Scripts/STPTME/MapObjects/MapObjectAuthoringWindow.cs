@@ -59,6 +59,7 @@ public class MapObjectAuthoringWindow : EditorWindow
             new SimplePlacementTool(),
             new SplinePlacementTool(),
             new SplineRemovalTool(),
+            new SplineChainEditTool(),
         };
         SceneView.duringSceneGui += OnSceneGUI;
     }
