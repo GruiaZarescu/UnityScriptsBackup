@@ -197,21 +197,33 @@ namespace STPTME.MapObjects
             // This reconstructs the object's local +X (the travel/connector axis) — NOT +Z.
             Vector3 reconstructedX = (flatForward * Mathf.Cos(tiltRad) + up * Mathf.Sin(tiltRad)).normalized;
 
-            // LookRotation only accepts a local-Z parameter directly. Mirrors
-            // SplinePlacementTool's own construction (lookForward = Cross(travelDir, up))
-            // exactly, so a rotation built by that tool round-trips back to itself: feeding
-            // Cross(reconstructedX, up) as LookRotation's forward parameter makes the
-            // RESULTING local +X equal reconstructedX (LookRotation derives local X as
-            // Cross(up, forward) = Cross(up, Cross(X, up)) = X, by the vector triple product
-            // identity, whenever X is perpendicular to up — which it always is here).
-            Vector3 lookForwardParam = Vector3.Cross(reconstructedX, up);
+            // CRITICAL: `up` here must be perpendicular to reconstructedX, NOT the raw radial.
+            // Quaternion.LookRotation treats its up argument as a hint and re-orthogonalizes
+            // the whole basis against forward — so passing the raw radial would force local +X
+            // to be exactly perpendicular to the radial, i.e. perfectly flat, silently throwing
+            // away every bit of the tilt reconstructed above (fences rendering flat against a
+            // slope). Projecting the radial off reconstructedX mirrors SplinePlacementTool's
+            // own construction (`up = ProjectOnPlane(radialUp, forward3D)`) exactly, which is
+            // what makes a rotation authored by that tool round-trip back to itself.
+            Vector3 tiltedUp = Vector3.ProjectOnPlane(up, reconstructedX);
+            if (tiltedUp.sqrMagnitude < 1e-8f)
+            {
+                // reconstructedX nearly parallel to the radial (a near-vertical object) — no
+                // well-defined "up" remains; fall back to an arbitrary perpendicular rather
+                // than producing a degenerate rotation.
+                Vector3 fallback = Mathf.Abs(reconstructedX.y) < 0.99f ? Vector3.up : Vector3.right;
+                tiltedUp = Vector3.ProjectOnPlane(fallback, reconstructedX);
+            }
+            tiltedUp.Normalize();
+
+            Vector3 lookForwardParam = Vector3.Cross(reconstructedX, tiltedUp);
 
             return new MapObjectDatabase.MapObjectEntry
             {
                 id = record.id,
                 prototypeIndex = record.prototypeIndex,
                 worldPosition = worldPosition,
-                worldRotation = Quaternion.LookRotation(lookForwardParam, up),
+                worldRotation = Quaternion.LookRotation(lookForwardParam, tiltedUp),
                 localScale = new Vector3(
                     DequantizeScale(record.scaleX), DequantizeScale(record.scaleY), DequantizeScale(record.scaleZ)),
                 anchorMode = MapObjectDatabase.AnchorMode.TerrainSurface,
