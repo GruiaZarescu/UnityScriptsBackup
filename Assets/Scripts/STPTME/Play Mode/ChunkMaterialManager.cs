@@ -464,6 +464,16 @@ public class ChunkMaterialManager
         mpb.SetFloat(Prop_SplatTier, tier);
         mpb.SetVector(Prop_UVOffsetScale, uvOffsetScale);
 
+        // Explicitly disable the uniform-layer shader path. GetPropertyBlock above returns
+        // whatever was previously set on THIS renderer — if it was last used for a uniform
+        // cell (BindUniformCellToRenderer), _UniformDominantLayer would still be set to that
+        // cell's layer index (e.g. sand) and would silently keep enabling the single-layer
+        // path here too, since nothing else ever resets it. Sand is the only fully uniform
+        // classification in practice, which is why this only ever showed up as "chunks turn
+        // to sand after visiting sand" — any pooled renderer carries the stale value forward
+        // onto whatever unrelated chunk it's reused for next.
+        mpb.SetFloat(Prop_UniformDominantLayer, -1f);
+
         renderer.SetPropertyBlock(mpb);
     }
 
