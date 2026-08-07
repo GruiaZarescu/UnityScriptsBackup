@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
 
@@ -139,3 +140,4 @@ public class MapObjectAuthoringWindow : EditorWindow
         _tools[_activeToolIndex].OnSceneGUI(view, database, registry);
     }
 }
+#endif

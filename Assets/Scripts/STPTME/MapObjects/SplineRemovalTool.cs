@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -138,7 +139,7 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
             if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
             { FinishRun(database, registry); e.Use(); view.Repaint(); return; }
             if (e.keyCode == KeyCode.Backspace && _waypoints.Count > 0)
-            { _waypoints.RemoveAt(_waypoints.Count - 1); e.Use(); view.Repaint(); return; }
+            { _waypoints.RemoveAt(_waypoints.Count - 1); InvalidateMatchCache(); e.Use(); view.Repaint(); return; }
         }
 
         DrawLivePreview(database, registry);
@@ -155,6 +156,7 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
         if (!AuthoringRaycast.TryRaycastTerrain(ray, 2000f, out RaycastHit hit)) return;
 
         _waypoints.Add(hit.point);
+        InvalidateMatchCache();
         e.Use();
         view.Repaint();
     }
@@ -162,6 +164,7 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
     private void CancelRun()
     {
         _waypoints.Clear();
+        InvalidateMatchCache();
     }
 
     private void FinishRun(MapObjectDatabase database, MapObjectPrototypeRegistry registry)
@@ -220,18 +223,83 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
         // see the restored objects appear.
     }
 
-    private int CountMatches(MapObjectDatabase database, MapObjectPrototypeRegistry registry)
+    // ── Cached match state ───────────────────────────────────────────────
+    // Both the dashboard's count and the scene view's highlight need the same answer, and
+    // both used to recompute it independently EVERY repaint: rebuilding the arc-length table
+    // (a terrain raycast per sample) and then testing all ~20k database objects against the
+    // full polyline. Cost scaled as objects x polyline-segments, twice per frame, which is
+    // why lag grew sharply with spline length. Now computed once per actual change and reused.
+    private List<SplineMath.ArcSample> _cachedTable;
+    private readonly List<Vector3> _cachedMatchPositions = new List<Vector3>();
+    private int _cachedMatchCount;
+    private int _cachedWaypointCount = -1;
+    private float _cachedRadius = -1f;
+    private int _cachedFilter = int.MinValue;
+    private int _cachedDbVersion = -1;
+
+    /// <summary>Recomputes the corridor match set only when something that affects it actually
+    /// changed (waypoints, radius, prototype filter, or the database itself).</summary>
+    private void EnsureMatches(MapObjectDatabase database)
     {
-        var table = SplineMath.BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT);
+        if (database == null || _waypoints.Count < 2)
+        {
+            _cachedTable = null;
+            _cachedMatchPositions.Clear();
+            _cachedMatchCount = 0;
+            return;
+        }
+
         int filterProto = FilterPrototypeIndex;
-        int count = 0;
+        if (_cachedTable != null
+            && _cachedWaypointCount == _waypoints.Count
+            && Mathf.Approximately(_cachedRadius, _corridorRadius)
+            && _cachedFilter == filterProto
+            && _cachedDbVersion == database.Version)
+            return;
+
+        _cachedTable = SplineMath.BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT);
+        _cachedWaypointCount = _waypoints.Count;
+        _cachedRadius = _corridorRadius;
+        _cachedFilter = filterProto;
+        _cachedDbVersion = database.Version;
+
+        // Bounding box of the whole corridor. Rejecting on this first turns the expensive
+        // per-object polyline walk (O(segments)) into a couple of float compares for the vast
+        // majority of objects, which are nowhere near the drawn line.
+        Vector3 min = _cachedTable[0].point, max = _cachedTable[0].point;
+        for (int i = 1; i < _cachedTable.Count; i++)
+        {
+            min = Vector3.Min(min, _cachedTable[i].point);
+            max = Vector3.Max(max, _cachedTable[i].point);
+        }
+        min -= Vector3.one * _corridorRadius;
+        max += Vector3.one * _corridorRadius;
+
+        _cachedMatchPositions.Clear();
         foreach (var entry in database.All)
         {
             if (filterProto >= 0 && entry.prototypeIndex != filterProto) continue;
-            if (SplineMath.DistanceToPolyline(entry.worldPosition, table) <= _corridorRadius) count++;
+
+            Vector3 p = entry.worldPosition;
+            if (p.x < min.x || p.x > max.x || p.y < min.y || p.y > max.y || p.z < min.z || p.z > max.z)
+                continue;
+
+            if (SplineMath.DistanceToPolyline(p, _cachedTable) <= _corridorRadius)
+                _cachedMatchPositions.Add(p);
         }
-        return count;
+        _cachedMatchCount = _cachedMatchPositions.Count;
     }
+
+    private int CountMatches(MapObjectDatabase database, MapObjectPrototypeRegistry registry)
+    {
+        EnsureMatches(database);
+        return _cachedMatchCount;
+    }
+
+    /// <summary>Forces the next EnsureMatches to recompute. The count/radius/filter/version
+    /// checks catch almost everything, but a Clear() followed by rebuilding to the same
+    /// waypoint count within one frame would otherwise slip through unnoticed.</summary>
+    private void InvalidateMatchCache() => _cachedTable = null;
 
     // ═══════════════════════════════════════════════════════════════════
     // Live preview
@@ -251,31 +319,33 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
 
         if (_waypoints.Count < 2) return;
 
-        var table = SplineMath.BuildArcLengthTable(_waypoints, PREVIEW_STEPS_PER_SEGMENT);
+        EnsureMatches(database);
+        if (_cachedTable == null) return;
+
+        var table = _cachedTable;
         var linePoints = new Vector3[table.Count];
         for (int i = 0; i < table.Count; i++) linePoints[i] = table[i].point;
         Handles.color = new Color(1f, 0.5f, 0.3f);
         Handles.DrawAAPolyLine(3f, linePoints);
 
         // Corridor width, drawn as a translucent ribbon so the "eraser thickness" is
-        // visible before committing.
+        // visible before committing. Stride scales with table length so a very long spline
+        // doesn't issue thousands of DrawSolidDisc calls per frame.
         Handles.color = new Color(1f, 0.5f, 0.3f, 0.15f);
-        for (int i = 0; i < table.Count; i += 2)
+        int stride = Mathf.Max(2, table.Count / 120);
+        for (int i = 0; i < table.Count; i += stride)
         {
             Vector3 up = (table[i].point - sphereCenter).normalized;
             Handles.DrawSolidDisc(table[i].point, up, _corridorRadius);
         }
 
-        int filterProto = FilterPrototypeIndex;
-        foreach (var entry in database.All)
+        // Highlights come straight from the cached match set — no re-scan of the database.
+        Handles.color = Color.red;
+        foreach (Vector3 p in _cachedMatchPositions)
         {
-            if (filterProto >= 0 && entry.prototypeIndex != filterProto) continue;
-            if (SplineMath.DistanceToPolyline(entry.worldPosition, table) > _corridorRadius) continue;
-
-            Handles.color = Color.red;
-            Vector3 up = (entry.worldPosition - sphereCenter).normalized;
-            Handles.DrawWireDisc(entry.worldPosition, up, 0.6f);
-            Handles.DrawWireCube(entry.worldPosition, Vector3.one * 0.5f);
+            Vector3 up = (p - sphereCenter).normalized;
+            Handles.DrawWireDisc(p, up, 0.6f);
+            Handles.DrawWireCube(p, Vector3.one * 0.5f);
         }
     }
 
@@ -291,3 +361,4 @@ public class SplineRemovalTool : IMapObjectAuthoringTool
         Handles.EndGUI();
     }
 }
+#endif

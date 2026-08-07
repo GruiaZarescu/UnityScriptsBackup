@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
 
@@ -313,3 +314,4 @@ public class SimplePlacementTool : IMapObjectAuthoringTool
         Handles.EndGUI();
     }
 }
+#endif

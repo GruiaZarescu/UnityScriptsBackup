@@ -20005,146 +20005,146 @@ MonoBehaviour:
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206235751
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206433730
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206529970
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206625605
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206721436
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206817924
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206904342
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207000791
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207097460
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207156766
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207292432
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207351802
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207410714
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207451727
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207521185
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207572160
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207650848
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207808843
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207849965
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207908866
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 207949948
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 208001258
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 208063969
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 208114926
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
@@ -29941,50 +29941,50 @@ MonoBehaviour:
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206437004
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206367315
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206415426
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206279072
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206337878
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206183666
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206181683
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 206025676
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2
@@ -30001,8 +30001,8 @@ MonoBehaviour:
     terrainGridX: 1
     terrainGridY: 2
     seedHash: 205909550
-    radius: 10
-    density: 3
+    radius: 0
+    density: 1
   - face: 0
     terrainGridX: 1
     terrainGridY: 2

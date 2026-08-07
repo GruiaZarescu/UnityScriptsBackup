@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -470,3 +471,4 @@ public class SplinePlacementTool : IMapObjectAuthoringTool
         return best;
     }
 }
+#endif

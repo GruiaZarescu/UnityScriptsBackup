@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -361,3 +362,4 @@ public class SplineChainEditTool : IMapObjectAuthoringTool
         Handles.EndGUI();
     }
 }
+#endif
