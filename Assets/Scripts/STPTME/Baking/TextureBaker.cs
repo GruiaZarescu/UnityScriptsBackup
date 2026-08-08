@@ -1361,9 +1361,16 @@ public class TextureBaker
         // Precompute face axes once.
         FaceIdUtility.GetFaceAxes(face, out Vector3 localUp, out Vector3 axisA, out Vector3 axisB);
 
-        // One cell occupies cellSize plane units = faceWorldSize / cellsPerAxis.
-        int cellsPerFaceAxis = terrainGridSize * subdivisionsPow2;
-        float cellSize = faceWorldSize / cellsPerFaceAxis;
+        // Per-cell plane geometry MUST match MeshSaver's cell extraction exactly, not the
+        // nominal faceWorldSize/cellsPerAxis rectangle. MeshSaver snaps each cell's heightmap
+        // one pixel earlier for every sub-cell after the first (startX = k==0 ? 0 :
+        // resolutionStep*k - 1) and extends the last one by a pixel, so a cell's real extent is
+        // shifted and slightly larger than nominal. The runtime mesh is built in THAT space
+        // (via heightmapsStartingPositions), so baking normals against the nominal rectangle
+        // leaves the normal map offset by ~1 heightmap pixel relative to the geometry — which
+        // is exactly the visible lighting seam at cell boundaries. resolutionStep/pixelDistance
+        // below mirror MeshSaver's own definitions verbatim.
+        int resolutionStep = heightRes / subdivisionsPow2;
 
         foreach (var terrainInfo in terrains)
         {
@@ -1374,14 +1381,23 @@ public class TextureBaker
                     sbyte mapX = (sbyte)(minX + terrainInfo.gridX * subdivisionsPow2 + cx);
                     sbyte mapY = (sbyte)(minX + terrainInfo.gridY * subdivisionsPow2 + cy);
 
-                    int cellI = terrainInfo.gridX * subdivisionsPow2 + cx;
-                    int cellJ = terrainInfo.gridY * subdivisionsPow2 + cy;
-                    float cellPlaneStartX = cellI * cellSize;
-                    float cellPlaneStartY = cellJ * cellSize;
+                    // Mirrors MeshSaver's startX/endX per sub-cell exactly.
+                    int startXPix = cx == 0 ? 0 : (resolutionStep * cx) - 1;
+                    int endXPix   = cx == subdivisionsPow2 - 1 ? resolutionStep * (cx + 1) + 1 : resolutionStep * (cx + 1);
+                    int startYPix = cy == 0 ? 0 : (resolutionStep * cy) - 1;
+                    int endYPix   = cy == subdivisionsPow2 - 1 ? resolutionStep * (cy + 1) + 1 : resolutionStep * (cy + 1);
+
+                    float terrainPlaneStartX = terrainInfo.gridX * terrainSize;
+                    float terrainPlaneStartY = terrainInfo.gridY * terrainSize;
+
+                    float cellPlaneStartX = terrainPlaneStartX + startXPix * pixelDistance;
+                    float cellPlaneStartY = terrainPlaneStartY + startYPix * pixelDistance;
+                    float cellExtentX = (endXPix - startXPix) * pixelDistance;
+                    float cellExtentY = (endYPix - startYPix) * pixelDistance;
 
                     BakeCellNormalsToFile(
                         face, mapX, mapY,
-                        cellPlaneStartX, cellPlaneStartY, cellSize,
+                        cellPlaneStartX, cellPlaneStartY, cellExtentX, cellExtentY,
                         faceHeights, facePixelsPerAxis, pixelDistance, bakedMaxHeight,
                         faceWorldSize, sphereCenter, sphereRadius,
                         localUp, axisA, axisB,
@@ -1478,12 +1494,16 @@ public class TextureBaker
     /// </summary>
     private static void BakeCellNormalsToFile(
         FaceId face, sbyte mapX, sbyte mapY,
-        float cellPlaneStartX, float cellPlaneStartY, float cellSize,
+        float cellPlaneStartX, float cellPlaneStartY, float cellExtentX, float cellExtentY,
         float[,] faceHeights, int facePixelsPerAxis, float pixelDistance, float bakedMaxHeight,
         float faceWorldSize, Vector3 sphereCenter, float sphereRadius,
         Vector3 localUp, Vector3 axisA, Vector3 axisB,
         TextureBakeSettings settings, string outputFolder)
     {
+
+        Debug.Log($"[NormalBakeCheck] cell ({mapX},{mapY}) " +
+        $"start=({cellPlaneStartX:F4},{cellPlaneStartY:F4}) extent=({cellExtentX:F4},{cellExtentY:F4})");
+    
         string side = FaceIdUtility.GetFilePrefix(face);
         string filename = $"Normal_{side}_{mapX}_{mapY}.bytes";
         string path = Path.Combine(outputFolder, filename);
@@ -1513,17 +1533,20 @@ public class TextureBaker
         {
             int R = settings.normalTierResolutions[tier];
             int totalSize = R + 2 * border;
-            float pixelPlane = cellSize / R;
+            // Separate per axis: a cell's snapped extent is not necessarily square (the first
+            // and last sub-cells on each axis get different border treatment).
+            float pixelPlaneX = cellExtentX / R;
+            float pixelPlaneY = cellExtentY / R;
 
             byte[] pixels = new byte[totalSize * totalSize * 3];
             int idx = 0;
 
             for (int py = 0; py < totalSize; py++)
             {
-                float planeY = cellPlaneStartY + (py - border + 0.5f) * pixelPlane;
+                float planeY = cellPlaneStartY + (py - border + 0.5f) * pixelPlaneY;
                 for (int px = 0; px < totalSize; px++)
                 {
-                    float planeX = cellPlaneStartX + (px - border + 0.5f) * pixelPlane;
+                    float planeX = cellPlaneStartX + (px - border + 0.5f) * pixelPlaneX;
 
                     // Sample 4 neighbors in plane space (inlined ProjectPlanePointToSurface).
                     float pxmX, pxmY, pxmZ;

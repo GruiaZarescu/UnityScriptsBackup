@@ -789,6 +789,16 @@ public class ChunkRegistry : MonoBehaviour
 
         // Save vertex count before ApplyMeshData disposes the MeshData
         int actualVertCount = meshData.vertCount;
+        // Sample-space placement of this chunk within its cell — captured here for the same
+        // reason as actualVertCount. Used below so texture UVs follow the chunk's TRUE width
+        // rather than assuming an even 1/chunksPerAxis split, which is wrong for the last
+        // chunk on each axis and produces one-texel seams against its neighbour.
+        int uvSampleOffsetX = meshData.sampleOffsetX;
+        int uvSampleOffsetY = meshData.sampleOffsetY;
+        int uvSampleSpanX   = Mathf.Max(1, meshData.edgeWidth  - 1);
+        int uvSampleSpanY   = Mathf.Max(1, meshData.edgeHeight - 1);
+        int uvCellSamplesX  = meshData.cellSamplesX;
+        int uvCellSamplesY  = meshData.cellSamplesY;
         // Cache the four edge vertex/normal arrays before ApplyMeshData disposes the data.
         // Source renderer is set just below — patched in after the renderer is configured.
         CacheChunkEdges(packed, face, lod, renderer, ref meshData);
@@ -831,8 +841,9 @@ public class ChunkRegistry : MonoBehaviour
 
                 if (tile.IsValid)
                 {
-                    uvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScale(
-                        chunkX, chunkY, numberOfChunks,
+                    uvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScaleExact(
+                        uvSampleOffsetX, uvSampleSpanX, uvCellSamplesX,
+                        uvSampleOffsetY, uvSampleSpanY, uvCellSamplesY,
                         tile.borderPixels, tile.width, tile.height);
 
                     sliceIndex = chunkMaterialManager.AllocateAndBind(
@@ -852,8 +863,9 @@ public class ChunkRegistry : MonoBehaviour
                 TextureStreamer.NormalTile normTile = textureStreamer.GetOrLoadNormalSync(map, normalTierByte, face);
                 if (normTile.IsValid)
                 {
-                    normalUvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScale(
-                        chunkX, chunkY, numberOfChunks,
+                    normalUvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScaleExact(
+                        uvSampleOffsetX, uvSampleSpanX, uvCellSamplesX,
+                        uvSampleOffsetY, uvSampleSpanY, uvCellSamplesY,
                         normTile.borderPixels, normTile.width, normTile.height);
                     normalSlice = chunkMaterialManager.AllocateAndBindNormal(
                         renderer, map, normalTierByte, face, normTile, normalUvOffsetScale);
@@ -1554,8 +1566,13 @@ if (TreeRenderer.HasActiveSystem &&
                 int slice = -1;
                 if (tile.IsValid)
                 {
-                    uvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScale(
-                        chunkX, chunkY, registry.numberOfChunks,
+                    // Sample-space exact — see ComputeChunkUVOffsetScaleExact. Chunk widths are
+                    // not uniform (the last chunk on each axis absorbs the integer-division
+                    // remainder), so an even 1/chunksPerAxis split misaligns its textures by a
+                    // texel against its neighbour.
+                    uvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScaleExact(
+                        data.sampleOffsetX, Mathf.Max(1, data.edgeWidth - 1), data.cellSamplesX,
+                        data.sampleOffsetY, Mathf.Max(1, data.edgeHeight - 1), data.cellSamplesY,
                         tile.borderPixels, tile.width, tile.height);
 
                     slice = registry.chunkMaterialManager.AllocateSlice(map, tierByte, face, tile);
@@ -1569,8 +1586,9 @@ if (TreeRenderer.HasActiveSystem &&
                     TextureStreamer.NormalTile normTile = registry.textureStreamer.GetOrLoadNormalSync(map, allocatedNormalTier, face);
                     if (normTile.IsValid)
                     {
-                        normalUvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScale(
-                            chunkX, chunkY, registry.numberOfChunks,
+                        normalUvOffsetScale = ChunkMaterialManager.ComputeChunkUVOffsetScaleExact(
+                            data.sampleOffsetX, Mathf.Max(1, data.edgeWidth - 1), data.cellSamplesX,
+                            data.sampleOffsetY, Mathf.Max(1, data.edgeHeight - 1), data.cellSamplesY,
                             normTile.borderPixels, normTile.width, normTile.height);
                         allocatedNormalSlice = registry.chunkMaterialManager.AllocateNormalSlice(
                             map, allocatedNormalTier, face, normTile);

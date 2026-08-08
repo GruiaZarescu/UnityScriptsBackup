@@ -858,6 +858,51 @@ public class ChunkMaterialManager
         return new Vector4(offsetU, offsetV, scaleU, scaleV);
     }
 
+    /// <summary>
+    /// Sample-space-exact chunk UV mapping. Prefer this over the chunkX/chunksPerAxis overload
+    /// wherever mesh data is available.
+    ///
+    /// The simpler overload assumes every chunk occupies exactly 1/chunksPerAxis of the cell.
+    /// That is FALSE for the last chunk on each axis: GetFaceChunkStep uses integer division,
+    /// so the final chunk absorbs the remainder and spans one heightmap sample more or fewer
+    /// than its neighbours, while its mesh UVs still run 0..1 across its own (different) width.
+    /// Mapping it with an even split stretches its textures by exactly one texel relative to
+    /// the neighbouring chunk, which shows up as a hard lighting seam in the normal map (and a
+    /// subtler one in the splatmap) along that shared edge — and only along edges involving a
+    /// cell's last chunk, which is why the seams appear on some chunk boundaries but not all.
+    ///
+    /// Working directly in heightmap-sample space removes the assumption entirely: the chunk is
+    /// placed at its true offset and given its true width, so adjacent chunks agree exactly at
+    /// the boundary regardless of which one absorbed the remainder.
+    /// </summary>
+    /// <param name="sampleOffsetX">This chunk's first sample index within the cell.</param>
+    /// <param name="sampleSpanX">This chunk's width in samples (maxJ = edgeWidth - 1).</param>
+    /// <param name="cellSamplesX">Total samples across the cell (heightmapResX - 1).</param>
+    public static Vector4 ComputeChunkUVOffsetScaleExact(
+        int sampleOffsetX, int sampleSpanX, int cellSamplesX,
+        int sampleOffsetY, int sampleSpanY, int cellSamplesY,
+        float borderPixels, int tileWidth, int tileHeight)
+    {
+        // Degenerate data — fall back to the whole tile rather than producing NaNs.
+        if (cellSamplesX <= 0 || cellSamplesY <= 0 || tileWidth <= 0 || tileHeight <= 0)
+            return new Vector4(0, 0, 1, 1);
+
+        float coreW = tileWidth  - 2f * borderPixels;
+        float coreH = tileHeight - 2f * borderPixels;
+
+        float fracOffsetU = (float)sampleOffsetX / cellSamplesX;
+        float fracSpanU   = (float)sampleSpanX   / cellSamplesX;
+        float fracOffsetV = (float)sampleOffsetY / cellSamplesY;
+        float fracSpanV   = (float)sampleSpanY   / cellSamplesY;
+
+        float offsetU = (borderPixels + fracOffsetU * coreW) / tileWidth;
+        float offsetV = (borderPixels + fracOffsetV * coreH) / tileHeight;
+        float scaleU  = (fracSpanU * coreW) / tileWidth;
+        float scaleV  = (fracSpanV * coreH) / tileHeight;
+
+        return new Vector4(offsetU, offsetV, scaleU, scaleV);
+    }
+
     // ========== CANOPY PALETTE ==========
 
     /// <summary>

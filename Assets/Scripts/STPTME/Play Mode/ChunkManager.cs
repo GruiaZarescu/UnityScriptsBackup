@@ -922,6 +922,23 @@ public class ChunkManager : MonoBehaviour
         public ushort edgeWidth;
         public ushort edgeHeight;
 
+        // Sample-space placement of this chunk within its cell's heightmap. Needed because
+        // chunk widths are NOT uniform: GetFaceChunkStep uses integer division, so the LAST
+        // chunk in each cell absorbs the remainder and spans one sample more or fewer than its
+        // neighbours (see the maxJ/maxI switch in GenerateMeshData). Mesh UVs are x/maxJ, so
+        // that chunk's UV [0,1] covers a different physical width than the others — any
+        // texture mapping that assumes an even 1/chunksPerAxis split therefore stretches its
+        // textures by exactly one heightmap sample, producing a visible one-texel seam against
+        // its neighbour. This is the same anomaly the blotch widthRatio correction exists for,
+        // just with texture sampling as the consumer instead of instance placement.
+        //   sampleOffsetX/Y — this chunk's first sample index within the cell
+        //   cellSamplesX/Y  — total samples across the whole cell (heightmapRes - 1)
+        //   span            — edgeWidth - 1 / edgeHeight - 1 (i.e. maxJ / maxI)
+        public ushort sampleOffsetX;
+        public ushort sampleOffsetY;
+        public ushort cellSamplesX;
+        public ushort cellSamplesY;
+
         public bool isValid => verts.IsCreated && vertCount>0;
 
         public MeshData(int maxVerts,int maxTris,Allocator allocator = Allocator.TempJob)
@@ -935,6 +952,10 @@ public class ChunkManager : MonoBehaviour
             triCount = 0;
             edgeWidth = 0;
             edgeHeight = 0;
+            sampleOffsetX = 0;
+            sampleOffsetY = 0;
+            cellSamplesX = 0;
+            cellSamplesY = 0;
         }
         
         public void Dispose()
@@ -983,6 +1004,13 @@ public class ChunkManager : MonoBehaviour
             return default;
 
         Vector3 currentStartingPosition = new Vector3(startPos2.x, 0, startPos2.y);
+
+        float nominalCellSize = terrainSize / subdivisionsPowerOf2;
+        float nominalStartX = ((heightmapX - minX)) * nominalCellSize;
+        Debug.Log($"[CellOriginCheck] cell ({heightmapX},{heightmapY}) " +
+            $"meshStartX={currentStartingPosition.x:F4} nominalStartX={nominalStartX:F4} " +
+            $"delta={currentStartingPosition.x - nominalStartX:F4} " +
+            $"heightmapResX={currentHeightmapHeights.GetLength(1)}");
 
         int faceOriginalResolution = GetFaceOriginalResolution(face);
         // Per-cell base values: each bake-time downsampling step halves the cell's stored
@@ -1271,6 +1299,10 @@ public class ChunkManager : MonoBehaviour
         meshData.triCount = triCount;
         meshData.edgeWidth = (ushort)rowWidth;
         meshData.edgeHeight = (ushort)(maxI + 1);
+        meshData.sampleOffsetX = (ushort)xOffset;
+        meshData.sampleOffsetY = (ushort)yOffset;
+        meshData.cellSamplesX = (ushort)(heightmapResX - 1);
+        meshData.cellSamplesY = (ushort)(heightmapResZ - 1);
 
         return meshData;
     }
