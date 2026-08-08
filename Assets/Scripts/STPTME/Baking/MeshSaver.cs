@@ -233,6 +233,30 @@ public class MeshSaver : MonoBehaviour
             sb.Append(((FaceId)f)).Append('=').Append(GetFaceOrientation((FaceId)f)).Append(' ');
         Debug.Log(sb.ToString());
 
+        // ── Normal map bake setup ──────────────────────────────────────────────
+        // Normals used to be baked by TextureBaker.BakeAll(), but nothing calls that anymore —
+        // this per-face pipeline replaced it and the normal stage was silently dropped, leaving
+        // normal maps permanently stale (which is what caused lighting seams at cell boundaries
+        // to survive every alignment fix: the runtime was reading years-old normal data).
+        // Driven here explicitly, face by face, alongside the splatmap bake.
+        var normalBakeSettingsRoot = TerrainManagementSettings.Instance;
+        var normalBakeSettings = TextureBaker.TextureBakeSettings.Default(normalBakeSettingsRoot.maxLOD);
+        if (!TryApplyMeshSaverTextureBakeSettings(normalBakeSettingsRoot.maxLOD, ref normalBakeSettings))
+            normalBakeSettings = TextureBaker.TextureBakeSettings.Default(normalBakeSettingsRoot.maxLOD);
+        bool normalSettingsOk = TryApplyMeshSaverNormalBakeSettings(normalBakeSettingsRoot.maxLOD, ref normalBakeSettings);
+
+        // NOTE: deliberately not `normalSettingsOk && PrepareNormalBake(... out normalFolder)`.
+        // With `&&`, a false normalSettingsOk short-circuits the call, so `out normalFolder`
+        // never runs and the compiler (correctly) treats it as unassigned on that path — `out`
+        // only guarantees assignment when the method actually executes.
+        string normalFolder = null;
+        bool bakeNormals = false;
+        if (normalSettingsOk)
+            bakeNormals = TextureBaker.PrepareNormalBake(
+                normalBakeSettings, normalBakeSettingsRoot.sphereRadius, out normalFolder);
+        else
+            Debug.LogError("[MeshSaver] Normal bake settings invalid — normal maps will NOT be rebaked.");
+
         for (int faceIndex = 0; faceIndex < FaceIdUtility.StorageFaceCount; faceIndex++)
         {
             if (mainTerrainPrefab == null)
@@ -378,6 +402,22 @@ public class MeshSaver : MonoBehaviour
                     gridY = (sbyte)terrainInfos[ti].terrainGridY
                 });
 
+            // ── Bake this face's normal maps FIRST ──
+            // Must run before BakeFaceSplatmaps: that method sets `terrain.terrainData = null`
+            // on every terrain when it finishes, to release the alphamap textures it loaded.
+            // BakeFaceNormals reads heights straight off the live TerrainData, so running it
+            // afterwards dereferences null. Normals read heights, splatmaps read alphamaps —
+            // so doing normals first costs nothing and leaves the memory release untouched.
+            if (bakeNormals)
+            {
+                TextureBaker.BakeNormalsForFace(
+                    tiList, face,
+                    (1 << settings.heightmapSubdivisions), settings.minX,
+                    normalBakeSettings, normalFolder,
+                    settings.sphereCenter, settings.sphereRadius,
+                    GetFaceOrientation(face));
+            }
+
             var (blobs, classifications) = TextureBaker.BakeFaceSplatmaps(
                 tiList, face, GetFaceOrientation(face),
                 (1 << settings.heightmapSubdivisions), settings.minX, bakeSettings);
@@ -448,6 +488,14 @@ public class MeshSaver : MonoBehaviour
         else
         {
             Debug.Log("[MeshSaver] No faces changed — skipping texture bake.");
+        }
+
+        // Finalize the normal bake — writes the meta descriptor the runtime reads to learn
+        // tier resolutions/border. Must come after every face has been baked.
+        if (bakeNormals)
+        {
+            TextureBaker.FinalizeNormalBake(normalFolder, normalBakeSettings);
+            Debug.Log("[MeshSaver] Normal map bake complete.");
         }
 
         // Write manifest so subsequent bakes can skip unchanged terrains.

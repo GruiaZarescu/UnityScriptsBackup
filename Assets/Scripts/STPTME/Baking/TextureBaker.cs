@@ -1334,6 +1334,77 @@ public class TextureBaker
     /// Combines all terrain heightmaps into a single contiguous face height grid for cross-cell sampling,
     /// then projects each output texel onto the sphere and computes the surface normal via finite differences.
     /// </summary>
+    // ===== PUBLIC NORMAL BAKE ENTRY POINTS =====
+    // BakeAll() bundles splatmaps + layers + normals, but nothing calls it — MeshSaver drives
+    // baking face-by-face via BakeFaceSplatmaps/WriteFaceSplatmaps instead, so the normal bake
+    // was silently dropped from the pipeline and normal maps went stale. These three methods
+    // expose the normal stage on its own so MeshSaver can run it per face without also
+    // re-running splatmap/layer work it already did.
+    //
+    // Call order: PrepareNormalBake() once → BakeNormalsForFace() per face → FinalizeNormalBake() once.
+
+    /// <summary>
+    /// Wipes stale normal files and prepares the output folder. Call ONCE before the face loop.
+    /// Returns false if normals shouldn't be baked (disabled, or invalid settings) — callers
+    /// should then skip BakeNormalsForFace/FinalizeNormalBake entirely.
+    /// </summary>
+    public static bool PrepareNormalBake(TextureBakeSettings settings, float sphereRadius, out string normalFolder)
+    {
+        normalFolder = Path.Combine(Application.streamingAssetsPath, "MapAssets", "Normals");
+
+        if (!settings.bakeHeightmapNormals)
+            return false;
+
+        if (sphereRadius <= 0f)
+        {
+            Debug.LogError("[TextureBaker] bakeHeightmapNormals=true but sphereRadius<=0. Skipping normal bake.");
+            return false;
+        }
+
+        ValidateNormalSettings(settings);
+
+        if (Directory.Exists(normalFolder))
+        {
+            string[] oldFiles = Directory.GetFiles(normalFolder, "Normal_*.bytes");
+            string[] oldMetas = Directory.GetFiles(normalFolder, "Normal_*.bytes.meta");
+            if (oldFiles.Length + oldMetas.Length > 0)
+            {
+                Debug.Log($"[TextureBaker] Deleting {oldFiles.Length} old normal files + {oldMetas.Length} .meta files before rebake.");
+                foreach (string f in oldFiles) File.Delete(f);
+                foreach (string f in oldMetas) File.Delete(f);
+            }
+        }
+        if (!Directory.Exists(normalFolder)) Directory.CreateDirectory(normalFolder);
+
+        return true;
+    }
+
+    /// <summary>Bakes normal maps for one face. Call after PrepareNormalBake returned true.</summary>
+    public static void BakeNormalsForFace(
+        List<TerrainInfo> terrains,
+        FaceId face,
+        int subdivisionsPow2,
+        sbyte minX,
+        TextureBakeSettings settings,
+        string normalFolder,
+        Vector3 sphereCenter,
+        float sphereRadius,
+        FaceContainerOrientation orientation)
+    {
+        if (terrains == null || terrains.Count == 0) return;
+
+        int processed = 0;
+        int totalCells = terrains.Count * subdivisionsPow2 * subdivisionsPow2;
+        BakeFaceNormals(terrains, face, subdivisionsPow2, minX, settings, normalFolder,
+            sphereCenter, sphereRadius, orientation, ref processed, totalCells);
+    }
+
+    /// <summary>Writes the normal meta descriptor. Call ONCE after the face loop.</summary>
+    public static void FinalizeNormalBake(string normalFolder, TextureBakeSettings settings)
+    {
+        WriteNormalMeta(normalFolder, settings);
+    }
+
     private static void BakeFaceNormals(
         List<TerrainInfo> terrains,
         FaceId face,
