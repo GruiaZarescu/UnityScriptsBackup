@@ -21,9 +21,53 @@ public static class BlotchBaker
     public const int BLOTCH_INSTANCE_SIZE = 16; // BlotchData is 16 bytes
     private static HashSet<int> _warnedMissingDefault = new HashSet<int>();
 
+    // Cached Unity-prototype-index -> registry-array-index map, one per registry instance.
+    // Rebuilt lazily; invalidated whenever ResetBakeWarnings() is called (start of a bake run),
+    // so edits made to unityTerrainPrototypeIndex between bakes are always picked up.
+    private static readonly Dictionary<MapObjectPrototypeRegistry, Dictionary<int, int>> _unityIndexCache
+        = new Dictionary<MapObjectPrototypeRegistry, Dictionary<int, int>>();
+
+    /// <summary>
+    /// Resolves a Unity terrain tree prototype index to its corresponding entry's index in
+    /// THIS registry's array, via each entry's explicit unityTerrainPrototypeIndex field.
+    /// Returns -1 if no entry claims that Unity prototype (e.g. it's genuinely unmapped) or if
+    /// two entries claim the same one (a real authoring error — logged once, not silently
+    /// resolved to whichever happened to be found first).
+    /// </summary>
+    public static int ResolveRegistryIndexForUnityPrototype(MapObjectPrototypeRegistry registry, int unityProtoIdx)
+    {
+        if (registry == null || registry.entries == null || unityProtoIdx < 0) return -1;
+
+        if (!_unityIndexCache.TryGetValue(registry, out var map))
+        {
+            map = new Dictionary<int, int>();
+            for (int i = 0; i < registry.entries.Length; i++)
+            {
+                var e = registry.entries[i];
+                if (e == null || e.unityTerrainPrototypeIndex < 0) continue;
+
+                if (map.TryGetValue(e.unityTerrainPrototypeIndex, out int existing))
+                {
+                    Debug.LogError($"[BlotchBaker] Registry entries \"{registry.entries[existing].name}\" (index {existing}) " +
+                        $"and \"{e.name}\" (index {i}) both claim Unity tree prototype {e.unityTerrainPrototypeIndex}. " +
+                        "Only one can be correct — fix unityTerrainPrototypeIndex on one of them.");
+                    continue; // keep the first mapping; don't let a duplicate silently overwrite it
+                }
+                map[e.unityTerrainPrototypeIndex] = i;
+            }
+            _unityIndexCache[registry] = map;
+        }
+
+        return map.TryGetValue(unityProtoIdx, out int registryIdx) ? registryIdx : -1;
+    }
+
     /// <summary>Call once at the start of a bake run so the missing-default warning fires
     /// at most once per prototype per run, not once per tree.</summary>
-    public static void ResetBakeWarnings() => _warnedMissingDefault.Clear();
+    public static void ResetBakeWarnings()
+    {
+        _warnedMissingDefault.Clear();
+        _unityIndexCache.Clear(); // also refreshes the Unity-index mapping for this run
+    }
 
     /// <summary>
     /// Extracts blotches from all trees in the given terrain, writing them into
@@ -72,9 +116,24 @@ public static class BlotchBaker
 
         foreach (var tree in trees)
         {
-            int protoIdx = tree.prototypeIndex;
-            if (protoIdx < 0 || protoIdx >= prototypeRegistry.entries.Length)
-                continue;
+            int unityProtoIdx = tree.prototypeIndex;
+
+            // Translate Unity's tree-prototype index into THIS registry's array index. These
+            // are independent numbering schemes: Unity's tree prototype list is fixed by what's
+            // painted on the terrain, while the registry can contain object-pathway-only entries
+            // (fences, buildings) anywhere in its array. Previously this used unityProtoIdx
+            // directly as the registry index too, which happened to work only because no
+            // object-only entries existed before any tree entries — inserting one shifted every
+            // tree after it out of alignment, causing baked blotches to point at the wrong
+            // registry entry entirely (e.g. a fence spawning where a tree should be).
+            //
+            // BlotchHash.PositionSeed below deliberately keeps using unityProtoIdx, NOT the
+            // translated index — every existing per-tree override in BlotchOverrideDatabase was
+            // authored against seeds computed from Unity's numbering, and changing that now
+            // would desync every override already placed.
+            int protoIdx = ResolveRegistryIndexForUnityPrototype(prototypeRegistry, unityProtoIdx);
+            if (protoIdx < 0)
+                continue; // no registry entry declares this Unity prototype as its own
 
             var proto = prototypeRegistry.entries[protoIdx];
             if (proto == null) continue;
@@ -129,7 +188,7 @@ public static class BlotchBaker
             // Generate a deterministic seed from the tree instance index.
             // Since TreeInstance doesn't have a stable ID, we use position
             // hash so the blotch is stable across re-bakes.
-            uint seed = BlotchHash.PositionSeed(tree.position, tree.prototypeIndex);
+            uint seed = BlotchHash.PositionSeed(tree.position, unityProtoIdx); // Unity's index space — see comment above
 
              // Compute chunk origin in face-plane space (cell origin + chunk offset inside the cell)
             float chunkOriginX = planeTerrainOriginX + cellLocalX * cellSize + chunkLocalX * chunkSize;
@@ -166,7 +225,8 @@ public static class BlotchBaker
                 blotchRadius = 0f;
                 blotchDensity = 0f;
                 if (_warnedMissingDefault.Add(protoIdx))
-                    Debug.LogWarning($"[BlotchBaker] No override or prototype default for prototype {protoIdx} " +
+                    Debug.LogWarning($"[BlotchBaker] No override or prototype default for registry entry {protoIdx} " +
+                        $"(\"{proto.name}\", Unity tree prototype {unityProtoIdx}) " +
                         $"— baking as (radius=0, density=0). Set a default in BlotchOverrideDatabase.");
             }
 

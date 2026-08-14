@@ -187,6 +187,21 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         [Tooltip("Display name for editor reference")]
         public string name;
 
+        [Header("Unity Terrain Tree Mapping")]
+        [Tooltip("Which Unity TerrainData tree prototype (TreeInstance.prototypeIndex) this entry " +
+                 "represents, if any. -1 = not a tree — a pure object-pathway prototype (fences, " +
+                 "buildings, etc.) with no corresponding entry in Unity's terrain tree prototype list.\n\n" +
+                 "This exists because the two orderings are independent: Unity's tree prototype array " +
+                 "is fixed by what's painted on the terrain, while THIS registry can contain object-only " +
+                 "entries anywhere in it. Without this field, inserting an object prototype before any " +
+                 "tree entries silently shifts every tree after it out of alignment with Unity's data — " +
+                 "BlotchBaker reads Unity's raw prototypeIndex from TreeInstance, so a mismatch here " +
+                 "makes baked blotches point at the wrong registry entry (e.g. a fence prefab spawning " +
+                 "where a tree should be). See BlotchBaker's translation step, which is the only place " +
+                 "this field is actually consulted — every other system keeps using the registry's own " +
+                 "array index as it always has.")]
+        public int unityTerrainPrototypeIndex = -1;
+
         // ── LOD meshes ──────────────────────────────────────────────────────
         [Tooltip("Meshes per LOD level. Index 0 = highest detail (LOD0), etc. "
                + "LOD0 meshes are used by GameObjects. "

@@ -47,6 +47,12 @@ public class ChunkMaterialManager
     private static readonly int Prop_SplatTier;
     private static readonly int Prop_UVOffsetScale;
     private static readonly int Prop_LayerCount;
+    /// <summary>Splatmap groups supported by the shader (4 layer weights per RGBA group).
+    /// Must match the number of _SplatmapArrayN_T* property sets declared in the shader and
+    /// the _LayerTiling[] array size (MAX_SPLAT_GROUPS * 4).</summary>
+    public const int MAX_SPLAT_GROUPS = 3;
+    public const int MAX_LAYERS = MAX_SPLAT_GROUPS * 4;
+
     private static readonly int Prop_SplatGroupCount;
     private static readonly int Prop_LayerTiling;
     // ----- Uniform splatmap classification -----
@@ -60,7 +66,7 @@ public class ChunkMaterialManager
 
     static ChunkMaterialManager()
     {
-        SplatPropIds = new int[2][];
+        SplatPropIds = new int[3][];
         SplatPropIds[0] = new int[]
         {
             Shader.PropertyToID("_SplatmapArray_T0"),
@@ -74,6 +80,15 @@ public class ChunkMaterialManager
             Shader.PropertyToID("_SplatmapArray1_T1"),
             Shader.PropertyToID("_SplatmapArray1_T2"),
             Shader.PropertyToID("_SplatmapArray1_T3")
+        };
+        // Group 2 extends the layer budget to 12. The shader's top-N blend means the extra
+        // layers cost nothing per pixel beyond one additional splatmap fetch.
+        SplatPropIds[2] = new int[]
+        {
+            Shader.PropertyToID("_SplatmapArray2_T0"),
+            Shader.PropertyToID("_SplatmapArray2_T1"),
+            Shader.PropertyToID("_SplatmapArray2_T2"),
+            Shader.PropertyToID("_SplatmapArray2_T3")
         };
 
         Prop_LayerDiffuseArray = Shader.PropertyToID("_LayerDiffuseArray");
@@ -150,7 +165,7 @@ public class ChunkMaterialManager
     // Config (set once in Init, never changes)
     private byte tierCount;
     private int layerCount;
-    private int splatGroupCount;     // ceil(layerCount / 4), capped at 2
+    private int splatGroupCount;     // ceil(layerCount / 4), capped at MAX_SPLAT_GROUPS
     private int initialSliceCapacity;
 
     // ========== UNIFORM SPLATMAP CLASSIFICATION ==========
@@ -195,11 +210,11 @@ public class ChunkMaterialManager
         this.splatGroupCount = (layerCount + 3) / 4;
         this.initialSliceCapacity = initialSliceCapacity;
 
-        if (splatGroupCount > 2)
+        if (splatGroupCount > MAX_SPLAT_GROUPS)
         {
             Debug.LogWarning($"[ChunkMaterialManager] {layerCount} layers require {splatGroupCount} splatmap groups. " +
-                "Max 2 groups (8 layers) supported. Extra layers will be ignored.");
-            splatGroupCount = 2;
+                $"Max {MAX_SPLAT_GROUPS} groups ({MAX_SPLAT_GROUPS * 4} layers) supported. Extra layers will be ignored.");
+            splatGroupCount = MAX_SPLAT_GROUPS;
         }
 
         // --- Shared Material ---
@@ -266,8 +281,15 @@ public class ChunkMaterialManager
 
         if (streamer.LayerMetas != null && streamer.LayerMetas.Length > 0)
         {
-            Vector4[] tilingData = new Vector4[layerCount];
-            for (int i = 0; i < layerCount; i++)
+            // Always upload MAX_LAYERS entries: the shader declares _LayerTiling[MAX_LAYERS]
+            // as a fixed-size array, and Unity locks a shader array's size on first assignment.
+            // Uploading a shorter array here would permanently cap it and make later layers
+            // read garbage tiling. Unused slots get a harmless identity tiling.
+            Vector4[] tilingData = new Vector4[MAX_LAYERS];
+            for (int i = 0; i < MAX_LAYERS; i++)
+                tilingData[i] = new Vector4(1f, 1f, 0f, 0f);
+            int uploadCount = Mathf.Min(layerCount, MAX_LAYERS);
+            for (int i = 0; i < uploadCount; i++)
             {
                 TextureStreamer.TerrainLayerMeta meta = streamer.LayerMetas[i];
                 tilingData[i] = new Vector4(
@@ -1142,7 +1164,7 @@ public class ChunkMaterialManager
     {
         if (tier >= 4) return;
 
-        for (int g = 0; g < splatGroupCount && g < 2; g++)
+        for (int g = 0; g < splatGroupCount && g < MAX_SPLAT_GROUPS; g++)
         {
             if (splatmapArrays[tier] != null && splatmapArrays[tier][g] != null)
             {

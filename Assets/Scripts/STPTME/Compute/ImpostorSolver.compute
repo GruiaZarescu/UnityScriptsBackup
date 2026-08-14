@@ -162,8 +162,16 @@ float2 ComputeSizeScales(uint protoIdx, uint seed)
     }
     else
     {
+        // WIDTH IS RELATIVE TO HEIGHT — must mirror MapObjectPrototypeRegistry.ComputeSizeScalesCPU
+        // exactly, or a prefab-spawned tree and a GPU-instanced one of the same seed would end
+        // up different sizes. params.z/w is an aspect-ratio multiplier, not an absolute width;
+        // finalWidth = heightScale * widthAspect. widthAspect is drawn from an INDEPENDENT seed
+        // (0x9E3779B9 XOR, same constant as the CPU side) so aspect ratio varies across
+        // instances instead of every tree landing at exactly its authored proportions.
         float heightScale = lerp(params.x, params.y, t);
-        float widthScale  = lerp(params.z, params.w, t);
+        float tWidth = BellCurveDistribution(seed ^ 0x9E3779B9u, steepness);
+        float widthAspect = lerp(params.z, params.w, tWidth);
+        float widthScale = heightScale * widthAspect;
         return float2(heightScale, widthScale);
     }
 }

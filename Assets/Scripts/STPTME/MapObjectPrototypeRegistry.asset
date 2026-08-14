@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MapObjectPrototypeRegistry
   entries:
   - name: Tree05Rework
+    unityTerrainPrototypeIndex: 0
     lodMeshes:
     - {fileID: -5773737330183453750, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
     - {fileID: 1888538026527166770, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
@@ -38,14 +39,14 @@ MonoBehaviour:
     cullLOD: 4
     sizeVariability:
       enabled: 1
-      mode: 0
+      mode: 1
       minUniformScale: 0.7
       maxUniformScale: 1.3
-      minHeightScale: 0.8
-      maxHeightScale: 1.2
-      minWidthScale: 0.8
+      minHeightScale: 0.7
+      maxHeightScale: 1
+      minWidthScale: 0.75
       maxWidthScale: 1.2
-      distributionSteepness: 2
+      distributionSteepness: 1.5
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 5135898459180354558, guid: b95e5c02f5e9dd248910ceaf0067a5f0, type: 3}
     canopyOverlayEnabled: 0
@@ -66,6 +67,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Tree02Rework
+    unityTerrainPrototypeIndex: 1
     lodMeshes:
     - {fileID: -8135553595718028330, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
     - {fileID: 5885204079855296585, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
@@ -93,10 +95,10 @@ MonoBehaviour:
       mode: 1
       minUniformScale: 0.5
       maxUniformScale: 1.2
-      minHeightScale: 0.1
-      maxHeightScale: 3
-      minWidthScale: 0.1
-      maxWidthScale: 3
+      minHeightScale: 0.2
+      maxHeightScale: 2.6
+      minWidthScale: 0.65
+      maxWidthScale: 1.5
       distributionSteepness: 1
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 7072333792751790876, guid: 7e7bdb28726b78446b5aab44d583b021, type: 3}
@@ -118,6 +120,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Tree03Rework
+    unityTerrainPrototypeIndex: 2
     lodMeshes:
     - {fileID: 2478876932983402796, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
     - {fileID: -944959908092971740, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
@@ -141,14 +144,14 @@ MonoBehaviour:
     conflictCategory: 3
     cullLOD: 4
     sizeVariability:
-      enabled: 0
-      mode: 0
+      enabled: 1
+      mode: 1
       minUniformScale: 0.7
       maxUniformScale: 1.3
-      minHeightScale: 0.8
-      maxHeightScale: 1.2
-      minWidthScale: 0.8
-      maxWidthScale: 1.2
+      minHeightScale: 0.4
+      maxHeightScale: 1.5
+      minWidthScale: 0.65
+      maxWidthScale: 1.25
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 9211694676256713346, guid: ca6623be249b0d94b97444eeeb9ed753, type: 3}
@@ -170,6 +173,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Tree01Rework
+    unityTerrainPrototypeIndex: 3
     lodMeshes:
     - {fileID: 811424468950150501, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     - {fileID: 4313033963400421524, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
@@ -192,14 +196,14 @@ MonoBehaviour:
     conflictCategory: 3
     cullLOD: 4
     sizeVariability:
-      enabled: 0
-      mode: 0
+      enabled: 1
+      mode: 1
       minUniformScale: 0.7
       maxUniformScale: 1.3
-      minHeightScale: 0.8
-      maxHeightScale: 1.2
-      minWidthScale: 0.8
-      maxWidthScale: 1.2
+      minHeightScale: 0.7
+      maxHeightScale: 1.3
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 9110096357674635966, guid: 8461c8693afe4314c9bf41623849df30, type: 3}
@@ -221,6 +225,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Tree04Rework
+    unityTerrainPrototypeIndex: 4
     lodMeshes:
     - {fileID: 7607211279866533359, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
     - {fileID: -6183812469518319871, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
@@ -243,15 +248,15 @@ MonoBehaviour:
     conflictCategory: 3
     cullLOD: 4
     sizeVariability:
-      enabled: 0
-      mode: 0
+      enabled: 1
+      mode: 1
       minUniformScale: 0.7
       maxUniformScale: 1.3
-      minHeightScale: 0.8
-      maxHeightScale: 1.2
-      minWidthScale: 0.8
-      maxWidthScale: 1.2
-      distributionSteepness: 2
+      minHeightScale: 1
+      maxHeightScale: 2
+      minWidthScale: 0.9
+      maxWidthScale: 1.7
+      distributionSteepness: 1.5
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 5203936471834951886, guid: 4ed7c84e484e88a41b797bc333f93337, type: 3}
     canopyOverlayEnabled: 0
@@ -272,6 +277,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Tree01ReworkSavana
+    unityTerrainPrototypeIndex: 5
     lodMeshes:
     - {fileID: 811424468950150501, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     - {fileID: 4313033963400421524, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
@@ -294,14 +300,14 @@ MonoBehaviour:
     conflictCategory: 3
     cullLOD: 4
     sizeVariability:
-      enabled: 0
-      mode: 0
+      enabled: 1
+      mode: 1
       minUniformScale: 0.7
       maxUniformScale: 1.3
-      minHeightScale: 0.8
-      maxHeightScale: 1.2
-      minWidthScale: 0.8
-      maxWidthScale: 1.2
+      minHeightScale: 0.7
+      maxHeightScale: 1.3
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 9110096357674635966, guid: e597d91e5f8674b4abb1d4527cd68791, type: 3}
@@ -323,6 +329,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Rock05Rework
+    unityTerrainPrototypeIndex: 6
     lodMeshes:
     - {fileID: 6998286298243074622, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
     - {fileID: -2682071100695185198, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
@@ -344,12 +351,12 @@ MonoBehaviour:
     conflictCategory: 3
     cullLOD: 4
     sizeVariability:
-      enabled: 0
-      mode: 0
+      enabled: 1
+      mode: 1
       minUniformScale: 0.7
       maxUniformScale: 1.3
-      minHeightScale: 0.8
-      maxHeightScale: 1.2
+      minHeightScale: 0.1
+      maxHeightScale: 3
       minWidthScale: 0.8
       maxWidthScale: 1.2
       distributionSteepness: 2
@@ -373,6 +380,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Palm146
+    unityTerrainPrototypeIndex: 7
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
@@ -419,6 +427,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Grass0
+    unityTerrainPrototypeIndex: 8
     lodMeshes:
     - {fileID: 7855247728046881105, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
     - {fileID: -5887197880629875785, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
@@ -467,6 +476,7 @@ MonoBehaviour:
     - 1
     - 1
   - name: Grass1
+    unityTerrainPrototypeIndex: 9
     lodMeshes:
     - {fileID: -8366505637189061574, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
     - {fileID: -2626800035213257863, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
@@ -520,6 +530,7 @@ MonoBehaviour:
     - 0.7
     - 0.6
   - name: WoodFence01
+    unityTerrainPrototypeIndex: -1
     lodMeshes:
     - {fileID: -2173118628331998079, guid: 5516e868e87af1d4cbd912f1fe7b37a8, type: 3}
     - {fileID: 6344693156608189947, guid: 5516e868e87af1d4cbd912f1fe7b37a8, type: 3}
@@ -570,6 +581,7 @@ MonoBehaviour:
     - 0.7
     - 0.6
   - name: StoneFence01
+    unityTerrainPrototypeIndex: -1
     lodMeshes:
     - {fileID: 4300004, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
     - {fileID: 4300002, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
@@ -601,6 +613,647 @@ MonoBehaviour:
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
     sourcePrefab: {fileID: 1797415221198528, guid: f16024fa2379f1c498acbd0c8d882355, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 42
+    unityTerrainPrototypeIndex: 10
+    lodMeshes:
+    - {fileID: 4300000, guid: 37dd4b05334ea334498fae7f5b6633d1, type: 2}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: 140f4691f4fe0fc488e6e891e786012b, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: 0, y: 0, z: 0}
+    connectorEndLocal: {x: 0, y: 0, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 1
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 0.7
+      maxHeightScale: 1.3
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 8098855741298022152, guid: 21d57f1f179b14b40b5298f882e16387, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 58
+    unityTerrainPrototypeIndex: 11
+    lodMeshes:
+    - {fileID: 4300004, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
+    - {fileID: 4300002, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
+    - {fileID: 4300000, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 6236864987135843168, guid: 55c63bf17b3964641be77470b608ba6b, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 59
+    unityTerrainPrototypeIndex: 12
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 1466816736198048661, guid: 518c19be2217dad4daecbdd084ae4320, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 424
+    unityTerrainPrototypeIndex: 13
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 2647246285112798508, guid: 1298381633084fe4c80b7219906a7ba9, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 446
+    unityTerrainPrototypeIndex: 14
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 7631902593108975263, guid: 1cbac464a835ba0459edb158d577a7c8, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 456
+    unityTerrainPrototypeIndex: 15
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 159522606334933498, guid: 96dc1dbec4c6ada41bb1e1e6d54b7a83, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 488
+    unityTerrainPrototypeIndex: 16
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 6649753578074978152, guid: e944b03d392a41f438bfe4bf6a909a3e, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 489
+    unityTerrainPrototypeIndex: 17
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 6472231380402329741, guid: deead0bdd300a184281196a9593bcc09, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 500
+    unityTerrainPrototypeIndex: 18
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 2431464300590226070, guid: fd1d52f9f2ff22041bd4e74b3bafc6b9, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 504
+    unityTerrainPrototypeIndex: 19
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 1795173718867554075, guid: 91b0f3173dc57c8438fa19bf29c9f657, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 511
+    unityTerrainPrototypeIndex: 20
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 8559405845230619977, guid: fd5dbff6f2733af42a7925d7f7053eea, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 533
+    unityTerrainPrototypeIndex: 21
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 0}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 1571989732615404225, guid: 855e3ae6d0591154b97312edd7e9991b, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 0
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 10
+    - 15
+    - 20
+    - 25
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+  - name: BasicTree 549
+    unityTerrainPrototypeIndex: 22
+    lodMeshes: []
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1
+      maxHeightScale: 1
+      minWidthScale: 1
+      maxWidthScale: 1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 8255862967486395847, guid: da2d80cfce89dda4a9ee0d839f636a0e, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []

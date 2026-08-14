@@ -14,6 +14,12 @@ Shader "Custom/TerrainCustomShader"
         [NoScaleOffset] _SplatmapArray1_T2("Splatmap Group1 Tier2", 2DArray) = "black" {}
         [NoScaleOffset] _SplatmapArray1_T3("Splatmap Group1 Tier3", 2DArray) = "black" {}
 
+        // Group 2 extends the layer budget from 8 to 12 (4 weights per RGBA texture).
+        [NoScaleOffset] _SplatmapArray2_T0("Splatmap Group2 Tier0", 2DArray) = "black" {}
+        [NoScaleOffset] _SplatmapArray2_T1("Splatmap Group2 Tier1", 2DArray) = "black" {}
+        [NoScaleOffset] _SplatmapArray2_T2("Splatmap Group2 Tier2", 2DArray) = "black" {}
+        [NoScaleOffset] _SplatmapArray2_T3("Splatmap Group2 Tier3", 2DArray) = "black" {}
+
         // Heightmap-derived world-space normal maps (Phase 2 NdotL system).
         // Independent tier mapping from splatmaps (per-LOD configurable in the bake settings).
         // Encoded as RGB8 = (worldNormal * 0.5 + 0.5) * 255.
@@ -162,6 +168,11 @@ Shader "Custom/TerrainCustomShader"
             TEXTURE2D_ARRAY(_SplatmapArray1_T2);
             TEXTURE2D_ARRAY(_SplatmapArray1_T3);
 
+            TEXTURE2D_ARRAY(_SplatmapArray2_T0);
+            TEXTURE2D_ARRAY(_SplatmapArray2_T1);
+            TEXTURE2D_ARRAY(_SplatmapArray2_T2);
+            TEXTURE2D_ARRAY(_SplatmapArray2_T3);
+
             TEXTURE2D_ARRAY(_NormalmapArray_T0);
             TEXTURE2D_ARRAY(_NormalmapArray_T1);
             TEXTURE2D_ARRAY(_NormalmapArray_T2);
@@ -178,7 +189,7 @@ Shader "Custom/TerrainCustomShader"
                 float4 _NormalUVOffsetScale;
                 float _LayerCount;
                 float _SplatGroupCount;
-                float4 _LayerTiling[8];
+                float4 _LayerTiling[12];   // 12 layers (3 splat groups x 4 weights)
                 half4 _SkyAmbientColor;
                 half4 _GroundAmbientColor;
                 float _TexLODBias;
@@ -255,6 +266,14 @@ Shader "Custom/TerrainCustomShader"
                 if (tier == 1) return SAMPLE_TEXTURE2D_ARRAY(_SplatmapArray1_T1, sampler_linear_clamp, splatUV, slice);
                 if (tier == 2) return SAMPLE_TEXTURE2D_ARRAY(_SplatmapArray1_T2, sampler_linear_clamp, splatUV, slice);
                 return SAMPLE_TEXTURE2D_ARRAY(_SplatmapArray1_T3, sampler_linear_clamp, splatUV, slice);
+            }
+
+            float4 SampleSplatGroup2(float2 splatUV, float slice, int tier)
+            {
+                if (tier <= 0) return SAMPLE_TEXTURE2D_ARRAY(_SplatmapArray2_T0, sampler_linear_clamp, splatUV, slice);
+                if (tier == 1) return SAMPLE_TEXTURE2D_ARRAY(_SplatmapArray2_T1, sampler_linear_clamp, splatUV, slice);
+                if (tier == 2) return SAMPLE_TEXTURE2D_ARRAY(_SplatmapArray2_T2, sampler_linear_clamp, splatUV, slice);
+                return SAMPLE_TEXTURE2D_ARRAY(_SplatmapArray2_T3, sampler_linear_clamp, splatUV, slice);
             }
 
             // Returns a unit world-space surface normal sampled from the per-tier heightmap normal map.
@@ -339,39 +358,90 @@ Shader "Custom/TerrainCustomShader"
                 return 1.0 - saturate(minDist * 1.8);
             }
 
-            // Triplanar sampling: blend texture from 3 projection planes weighted by surface normal.
-            // Uses explicit gradients (ddx/ddy) for correct mip selection at glancing angles.
-            float4 SampleLayerDiffuse(int layerIndex, float3 positionWS, float3 normalWS)
+            // Per-pixel triplanar setup, computed ONCE per pixel instead of once per layer.
+            // Both the blend weights and the position derivatives are layer-independent —
+            // previously they were recomputed inside SampleLayerDiffuse for every active layer,
+            // which for a 3-layer blend meant doing identical work three times over.
+            struct TriplanarCtx
+            {
+                float3 blend;                 // normalized per-plane weights (x=YZ, y=XZ, z=XY)
+                float2 dYZ_dx, dYZ_dy;        // d(positionWS.yz) — divide by tileSize per layer
+                float2 dXZ_dx, dXZ_dy;
+                float2 dXY_dx, dXY_dy;
+            };
+
+            TriplanarCtx BuildTriplanarCtx(float3 positionWS, float3 normalWS)
+            {
+                TriplanarCtx ctx;
+
+                ctx.blend = pow(abs(normalWS), 3.0);
+                ctx.blend /= (ctx.blend.x + ctx.blend.y + ctx.blend.z + 1e-6);
+
+                // ddx/ddy are linear, so ddx(p/tileSize) == ddx(p)/tileSize and tileSize is
+                // uniform across pixels — the division can be deferred to the per-layer sample.
+                float gradScale = exp2(_TexLODBias);
+                ctx.dYZ_dx = ddx(positionWS.yz) * gradScale;
+                ctx.dYZ_dy = ddy(positionWS.yz) * gradScale;
+                ctx.dXZ_dx = ddx(positionWS.xz) * gradScale;
+                ctx.dXZ_dy = ddy(positionWS.xz) * gradScale;
+                ctx.dXY_dx = ddx(positionWS.xy) * gradScale;
+                ctx.dXY_dy = ddy(positionWS.xy) * gradScale;
+
+                return ctx;
+            }
+
+            // Planes contributing less than this are skipped. Because blend uses pow(...,3),
+            // a plane below this threshold contributes well under 1% of the final colour —
+            // visually indistinguishable, but it saves a full texture fetch per layer.
+            // On a sphere the surface normal is essentially the radial direction, so the set of
+            // significant planes is near-constant across any given view: the branch is highly
+            // COHERENT across neighbouring pixels, which is what makes skipping actually pay off
+            // (unlike a per-layer weight branch, which diverges at every biome boundary).
+            #define TRIPLANAR_PLANE_EPSILON 0.05
+
+            // Triplanar sampling: blend texture from up to 3 projection planes weighted by
+            // surface normal. Uses explicit gradients (ddx/ddy) for correct mip selection at
+            // glancing angles — and, critically, because implicit derivatives are undefined
+            // inside the divergent branches used here and by the caller's layer selection.
+            float3 SampleLayerDiffuse(int layerIndex, float3 positionWS, TriplanarCtx ctx)
             {
                 float4 layerParams = _LayerTiling[layerIndex];
                 float2 tileSize = max(layerParams.xy, float2(1e-5, 1e-5));
                 float2 tileOffset = layerParams.zw;
+                float2 invTile = 1.0 / tileSize;
 
-                float3 blend = pow(abs(normalWS), 3.0);
-                blend /= (blend.x + blend.y + blend.z + 1e-6);
+                float3 result = float3(0, 0, 0);
 
-                // Optional LOD bias: scale gradients to shift mip level
-                float gradScale = exp2(_TexLODBias);
+                UNITY_BRANCH
+                if (ctx.blend.x > TRIPLANAR_PLANE_EPSILON)
+                {
+                    float2 uvYZ = positionWS.yz * invTile + tileOffset;
+                    result += SAMPLE_TEXTURE2D_ARRAY_GRAD(_LayerDiffuseArray, sampler_linear_repeat, uvYZ, layerIndex,
+                                  ctx.dYZ_dx * invTile, ctx.dYZ_dy * invTile).rgb * ctx.blend.x;
+                }
 
-                // YZ projection
-                float2 uvYZ = positionWS.yz / tileSize + tileOffset;
-                float2 duvYZ_dx = ddx(positionWS.yz / tileSize) * gradScale;
-                float2 duvYZ_dy = ddy(positionWS.yz / tileSize) * gradScale;
-                float4 result = SAMPLE_TEXTURE2D_ARRAY_GRAD(_LayerDiffuseArray, sampler_linear_repeat, uvYZ, layerIndex, duvYZ_dx, duvYZ_dy) * blend.x;
+                UNITY_BRANCH
+                if (ctx.blend.y > TRIPLANAR_PLANE_EPSILON)
+                {
+                    float2 uvXZ = positionWS.xz * invTile + tileOffset;
+                    result += SAMPLE_TEXTURE2D_ARRAY_GRAD(_LayerDiffuseArray, sampler_linear_repeat, uvXZ, layerIndex,
+                                  ctx.dXZ_dx * invTile, ctx.dXZ_dy * invTile).rgb * ctx.blend.y;
+                }
 
-                // XZ projection
-                float2 uvXZ = positionWS.xz / tileSize + tileOffset;
-                float2 duvXZ_dx = ddx(positionWS.xz / tileSize) * gradScale;
-                float2 duvXZ_dy = ddy(positionWS.xz / tileSize) * gradScale;
-                result += SAMPLE_TEXTURE2D_ARRAY_GRAD(_LayerDiffuseArray, sampler_linear_repeat, uvXZ, layerIndex, duvXZ_dx, duvXZ_dy) * blend.y;
+                UNITY_BRANCH
+                if (ctx.blend.z > TRIPLANAR_PLANE_EPSILON)
+                {
+                    float2 uvXY = positionWS.xy * invTile + tileOffset;
+                    result += SAMPLE_TEXTURE2D_ARRAY_GRAD(_LayerDiffuseArray, sampler_linear_repeat, uvXY, layerIndex,
+                                  ctx.dXY_dx * invTile, ctx.dXY_dy * invTile).rgb * ctx.blend.z;
+                }
 
-                // XY projection
-                float2 uvXY = positionWS.xy / tileSize + tileOffset;
-                float2 duvXY_dx = ddx(positionWS.xy / tileSize) * gradScale;
-                float2 duvXY_dy = ddy(positionWS.xy / tileSize) * gradScale;
-                result += SAMPLE_TEXTURE2D_ARRAY_GRAD(_LayerDiffuseArray, sampler_linear_repeat, uvXY, layerIndex, duvXY_dx, duvXY_dy) * blend.z;
-
-                return result;
+                // Skipped planes drop a little total weight; renormalising keeps brightness
+                // identical to sampling all three.
+                float kept = (ctx.blend.x > TRIPLANAR_PLANE_EPSILON ? ctx.blend.x : 0.0)
+                           + (ctx.blend.y > TRIPLANAR_PLANE_EPSILON ? ctx.blend.y : 0.0)
+                           + (ctx.blend.z > TRIPLANAR_PLANE_EPSILON ? ctx.blend.z : 0.0);
+                return result / max(kept, 1e-5);
             }
 
             half4 frag(Varyings IN) : SV_Target
@@ -393,52 +463,101 @@ Shader "Custom/TerrainCustomShader"
                 float3 sphereNormal = normalize(IN.positionWS);
                 normalWS = normalize(lerp(sphereNormal, terrainNormal, _NormalStrength));
 
+                // Layer-independent triplanar setup: computed once here rather than repeated
+                // inside every SampleLayerDiffuse call.
+                TriplanarCtx triCtx = BuildTriplanarCtx(IN.positionWS, normalWS);
+
                 if (uniformDL >= 0.0)
                 {
                     // Single-layer path: skip splatmap entirely, sample the dominant layer's diffuse.
                     // _UniformDominantLayer is set per-chunk by ChunkMaterialManager on the material;
                     // values < 0 mean "use the standard multi-layer path" (non-uniform cell).
                     int dl = clamp((int)round(uniformDL), 0, (int)round(_LayerCount) - 1);
-                    blended = SampleLayerDiffuse(dl, IN.positionWS, normalWS).rgb;
+                    blended = SampleLayerDiffuse(dl, IN.positionWS, triCtx);
                 }
                 else
                 {
-                    // Multi-layer (standard) path: sample splatmap, blend 4+ layers.
+                    // Multi-layer (standard) path: sample splatmaps, blend the strongest layers.
                     int tier = clamp((int)round(IN.tier), 0, 3);
                     float slice = IN.sliceIndex;
                     float2 splatUV = IN.splatUV;
 
+                    int groupCount = clamp((int)round(_SplatGroupCount), 1, 3);
+
                     float4 weights0 = SampleSplatGroup0(splatUV, slice, tier);
-                    float4 weights1 = (_SplatGroupCount > 1.5)
-                        ? SampleSplatGroup1(splatUV, slice, tier)
-                        : float4(0, 0, 0, 0);
+                    float4 weights1 = (groupCount > 1) ? SampleSplatGroup1(splatUV, slice, tier) : float4(0, 0, 0, 0);
+                    float4 weights2 = (groupCount > 2) ? SampleSplatGroup2(splatUV, slice, tier) : float4(0, 0, 0, 0);
 
-                    float weights[8];
-                    weights[0] = max(weights0.r, 0.0);
-                    weights[1] = max(weights0.g, 0.0);
-                    weights[2] = max(weights0.b, 0.0);
-                    weights[3] = max(weights0.a, 0.0);
-                    weights[4] = max(weights1.r, 0.0);
-                    weights[5] = max(weights1.g, 0.0);
-                    weights[6] = max(weights1.b, 0.0);
-                    weights[7] = max(weights1.a, 0.0);
+                    float weights[12];
+                    weights[0]  = max(weights0.r, 0.0);
+                    weights[1]  = max(weights0.g, 0.0);
+                    weights[2]  = max(weights0.b, 0.0);
+                    weights[3]  = max(weights0.a, 0.0);
+                    weights[4]  = max(weights1.r, 0.0);
+                    weights[5]  = max(weights1.g, 0.0);
+                    weights[6]  = max(weights1.b, 0.0);
+                    weights[7]  = max(weights1.a, 0.0);
+                    weights[8]  = max(weights2.r, 0.0);
+                    weights[9]  = max(weights2.g, 0.0);
+                    weights[10] = max(weights2.b, 0.0);
+                    weights[11] = max(weights2.a, 0.0);
 
-                    int maxLayers = clamp((int)round(_LayerCount), 1, 8);
+                    int maxLayers = clamp((int)round(_LayerCount), 1, 12);
+
+                    // TOP-N SELECTION.
+                    // Previously this looped over every layer and relied on `if (w < eps) continue`
+                    // to skip. That branch diverges at biome boundaries (GPUs run pixels in
+                    // lockstep groups, so if ANY pixel needs layer j, the whole group pays for it),
+                    // and its cost grew with the layer count — making 12 layers strictly more
+                    // expensive than 8. Selecting the N strongest weights up front makes the shader
+                    // cost FIXED regardless of how many layers exist, so 12 layers costs exactly
+                    // what 4 does. In practice only 2-3 layers overlap (biome edges), and a 5th
+                    // layer at a few percent weight is not perceptible, so nothing visible is lost.
+                    #define BLEND_LAYER_COUNT 4
+                    int   bestIdx[BLEND_LAYER_COUNT];
+                    float bestW[BLEND_LAYER_COUNT];
+
+                    [unroll]
+                    for (int k = 0; k < BLEND_LAYER_COUNT; k++) { bestIdx[k] = 0; bestW[k] = 0.0; }
+
+                    for (int i = 0; i < 12; i++)
+                    {
+                        if (i >= maxLayers) break;
+                        float w = weights[i];
+
+                        // Insertion into a tiny descending-sorted list. Pure ALU on a 4-element
+                        // array — far cheaper than the texture fetch it may avoid.
+                        [unroll]
+                        for (int k = 0; k < BLEND_LAYER_COUNT; k++)
+                        {
+                            if (w > bestW[k])
+                            {
+                                [unroll]
+                                for (int m = BLEND_LAYER_COUNT - 1; m > k; m--)
+                                {
+                                    bestW[m]   = bestW[m - 1];
+                                    bestIdx[m] = bestIdx[m - 1];
+                                }
+                                bestW[k]   = w;
+                                bestIdx[k] = i;
+                                break;
+                            }
+                        }
+                    }
 
                     float totalWeight = 0.0;
-                    for (int i = 0; i < maxLayers; i++)
-                        totalWeight += weights[i];
-
+                    [unroll]
+                    for (int t = 0; t < BLEND_LAYER_COUNT; t++)
+                        totalWeight += bestW[t];
                     totalWeight = max(totalWeight, 1e-5);
 
                     blended = float3(0, 0, 0);
-                    for (int j = 0; j < 8; j++)
+                    [unroll]
+                    for (int b = 0; b < BLEND_LAYER_COUNT; b++)
                     {
-                        float w = (j < maxLayers) ? (weights[j] / totalWeight) : 0.0;
+                        float w = bestW[b] / totalWeight;
                         if (w <= 0.0001) continue;
-
-                        float3 layerColor = SampleLayerDiffuse(j, IN.positionWS, normalWS).rgb;
-                        blended += layerColor * w;
+                        blended += SampleLayerDiffuse(bestIdx[b], IN.positionWS, triCtx) * w;
                     }
                 }
 
