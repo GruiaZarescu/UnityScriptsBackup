@@ -1273,6 +1273,64 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+  - name: Wheat
+    unityTerrainPrototypeIndex: 23
+    lodMeshes:
+    - {fileID: -4752191777361815622, guid: a62028cc0349f0b498caabbac0590112, type: 3}
+    - {fileID: -8546500580168519080, guid: f1726d2c14d7304469337abb21893e88, type: 3}
+    - {fileID: -6487654503612847464, guid: f1726d2c14d7304469337abb21893e88, type: 3}
+    - {fileID: 4656591584277338207, guid: f1726d2c14d7304469337abb21893e88, type: 3}
+    - {fileID: 6503894973922242974, guid: f1726d2c14d7304469337abb21893e88, type: 3}
+    - {fileID: 109421818050119036, guid: f1726d2c14d7304469337abb21893e88, type: 3}
+    - {fileID: -8172673075808897758, guid: f1726d2c14d7304469337abb21893e88, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: c8ac28fd5241e684b901f5ddf06bce21, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 1
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 8502591257349421205, guid: def7ece60be119f488361050b69bb442, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 1
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 5
+    - 7.5
+    - 10
+    - 12.5
+    - 15
+    - 17.5
+    - 450
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.6
+    - 0.4
+    - 0.2
   densityPerLOD: 640000005a000000500000004b00000046000000
   lodWidthMultipliers:
   - 1
@@ -1280,6 +1338,8 @@ MonoBehaviour:
   - 1.2
   - 1.4
   - 1.5
+  - 1.75
+  - 5
   canopyPalette:
   - {r: 0.18, g: 0.32, b: 0.12, a: 1}
   - {r: 0.3, g: 0.42, b: 0.18, a: 1}

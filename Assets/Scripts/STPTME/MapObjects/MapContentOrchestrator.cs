@@ -160,11 +160,11 @@ namespace STPTME.MapObjects
                 }
             }
 
-            Debug.Log($"[MapContentOrchestrator] Built GPU buffer: {gpuList.Count} blotches total " +
+            /*Debug.Log($"[MapContentOrchestrator] Built GPU buffer: {gpuList.Count} blotches total " +
                 $"({gpuList.Count - convertedObjects} from terrain, {convertedObjects} converted from objects). " +
                 $"Terrain prefab-index: {byChunk.Count} chunk buckets. " +
                 $"Dropped: {droppedMisconfigured} misconfigured cluster(s), {droppedNoEntry} missing-registry-entry, " +
-                $"{unresolvedObjects} unresolved object(s). Prefab-only objects (unaffected, handled elsewhere): {prefabOnlyObjects}.");
+                $"{unresolvedObjects} unresolved object(s). Prefab-only objects (unaffected, handled elsewhere): {prefabOnlyObjects}.");*/
 
             return new Result(gpuList.ToArray(), byChunk);
         }

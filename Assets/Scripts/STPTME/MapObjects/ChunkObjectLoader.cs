@@ -103,12 +103,12 @@ public class ChunkObjectLoader : MonoBehaviour
 
     private void Start()
     {
-        Debug.Log("[ChunkObjectLoader::Start] Called");
+        //Debug.Log("[ChunkObjectLoader::Start] Called");
         var settings = TerrainManagementSettings.Instance;
         _numberOfChunks = settings.numberOfChunks;
         _heightmapSubdivisions = settings.heightmapSubdivisions;
         _minX = settings.minX;
-        Debug.Log($"[ChunkObjectLoader::Start] Loaded settings: chunks={_numberOfChunks}, subdivisions={_heightmapSubdivisions}, minX={_minX}");
+        //Debug.Log($"[ChunkObjectLoader::Start] Loaded settings: chunks={_numberOfChunks}, subdivisions={_heightmapSubdivisions}, minX={_minX}");
 
         _cellObjectReader = new CellObjectReader();
         _cellObjectReader.Init(1 << _heightmapSubdivisions, _minX);
@@ -127,13 +127,13 @@ public class ChunkObjectLoader : MonoBehaviour
                 mapObjectDatabase, settings.sphereCenter, chunkSize, faceWorldSize,
                 _numberOfChunks, _minX, settings.maxX);
 
-            Debug.Log("[ChunkObjectLoader] Using LIVE MapObjectDatabase — editor authoring mode.");
+            //Debug.Log("[ChunkObjectLoader] Using LIVE MapObjectDatabase — editor authoring mode.");
         }
         else
         {
             _objectSource = new STPTME.MapObjects.BakedFileObjectSource(_cellObjectReader);
         }
-        Debug.Log($"[ChunkObjectLoader] Using object source: {_objectSource.GetType().Name}");
+        //Debug.Log($"[ChunkObjectLoader] Using object source: {_objectSource.GetType().Name}");
 
         // Terrain blotch data is no longer loaded/reloaded here — ChunkManager.Awake already
         // ran MapContentOrchestrator.Build (once) and populated TerrainBlotchIndex from that
@@ -179,7 +179,7 @@ public class ChunkObjectLoader : MonoBehaviour
         chunkRegistry.OnChunkRemoved += HandleChunkRemoved;
 
         _initialized = true;
-        Debug.Log($"[ChunkObjectLoader] Start() finished subscribing at frame {Time.frameCount}");
+        //Debug.Log($"[ChunkObjectLoader] Start() finished subscribing at frame {Time.frameCount}");
 
         // Catch up on chunks that already exist. The center chunk (the one the player spawns on)
         // is created synchronously during ChunkManager's initial generation cycle, which can
@@ -187,7 +187,7 @@ public class ChunkObjectLoader : MonoBehaviour
         // on the spawn chunk only appeared after walking away and back.
         var preExisting = chunkRegistry.GetAllLoadedChunks();
         if (preExisting.Count > 0)
-            Debug.Log($"[ChunkObjectLoader] Catching up on {preExisting.Count} pre-existing chunk record(s).");
+            //Debug.Log($"[ChunkObjectLoader] Catching up on {preExisting.Count} pre-existing chunk record(s).");
         for (int i = 0; i < preExisting.Count; i++)
         {
             var (packed, face, lod) = preExisting[i];
@@ -219,7 +219,7 @@ public class ChunkObjectLoader : MonoBehaviour
     private int debugCallCountHandleChunkCreated = 0; 
     private void HandleChunkCreated(int packed, FaceId face, byte lod)
     {
-        Debug.Log($"[ChunkObjectLoader] HandleChunkCreated FIRED for packed={packed} face={face} lod={lod} at frame {Time.frameCount}");
+        //Debug.Log($"[ChunkObjectLoader] HandleChunkCreated FIRED for packed={packed} face={face} lod={lod} at frame {Time.frameCount}");
         if (!_initialized) 
         {
             Debug.LogWarning($"[ChunkObjectLoader::HandleChunkCreated] Called but not initialized!");
@@ -242,7 +242,7 @@ public class ChunkObjectLoader : MonoBehaviour
 
         // ── Step 2: Process blobs ──
         STPTMEUtils.ReadFourSBytesFromInt(packed, out sbyte mapX, out sbyte mapY, out sbyte chunkX, out sbyte chunkY);
-        Debug.Log($"[ChunkObjectLoader] Processing blobs for chunk 0x{packed:X8} face={face} LOD={lod}, unopacked = ({mapX},{mapY},{chunkX},{chunkY})");
+        //Debug.Log($"[ChunkObjectLoader] Processing blobs for chunk 0x{packed:X8} face={face} LOD={lod}, unopacked = ({mapX},{mapY},{chunkX},{chunkY})");
         ProcessBlobs(packed, face, lod);
 
         // ── Step 3: Submit GPU buffer if this is the initial load ──
@@ -255,7 +255,7 @@ public class ChunkObjectLoader : MonoBehaviour
 
     private void HandleChunkRemoved(int packed, FaceId face, byte lod)
     {
-         Debug.Log($"[ChunkObjectLoader] HandleChunkRemoved FIRED for packed={packed} face={face} lod={lod} at frame {Time.frameCount}");
+         //Debug.Log($"[ChunkObjectLoader] HandleChunkRemoved FIRED for packed={packed} face={face} lod={lod} at frame {Time.frameCount}");
         if (!_initialized) return;
 
         // Remove from processed set so it can be re-processed if recreated
@@ -281,7 +281,7 @@ public class ChunkObjectLoader : MonoBehaviour
         // persist as a prefab at EVERY LOD forever. Always query the sentinel value (0); the
         // real per-chunk-LOD spawn decision is entry.ShouldSpawnAsPrefabAtLOD(lod) below.
         var segment = _objectSource.GetObjectsForChunk(packed, face, _numberOfChunks, 0);
-        Debug.Log($"[ChunkObjectLoader] ProcessCellObjects packed={packed} face={face} lod={lod} → segment.Count={segment.Count} (frame {Time.frameCount})");
+        //Debug.Log($"[ChunkObjectLoader] ProcessCellObjects packed={packed} face={face} lod={lod} → segment.Count={segment.Count} (frame {Time.frameCount})");
         if (segment.Count == 0) return;
 
         // Get the chunk's GameObject for parenting
@@ -290,7 +290,7 @@ public class ChunkObjectLoader : MonoBehaviour
         if (chunkRegistry != null && chunkRegistry.TryGetChunkGameObject(packed, face, lod, out GameObject chunkGO))
             parentTransform = chunkGO.transform;
 
-        Debug.Log($"[ChunkObjectLoader] Processing {segment.Count} cell objects for chunk {packed} LOD {lod}");
+        //Debug.Log($"[ChunkObjectLoader] Processing {segment.Count} cell objects for chunk {packed} LOD {lod}");
 
         foreach (var sourcedObjectInstance in segment)
         {

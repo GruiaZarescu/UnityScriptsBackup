@@ -127,7 +127,7 @@ namespace STPTME.MapObjects
                 });
             }
             _cachedVersion = _database.Version;
-            Debug.Log($"[LiveDatabaseObjectSource] Rebuilt index: {_database.Count} total entries → {_byChunk.Count} distinct chunks (frame {Time.frameCount})");
+            //Debug.Log($"[LiveDatabaseObjectSource] Rebuilt index: {_database.Count} total entries → {_byChunk.Count} distinct chunks (frame {Time.frameCount})");
         }
 
         public ArraySegment<SourcedObjectInstance> GetObjectsForChunk(int packed, FaceId face, int numberOfChunks, byte lodLevel)

@@ -7,7 +7,7 @@ public static class MapObjectSelectionPromoter
 {
     static MapObjectSelectionPromoter()
     {
-        Debug.Log("[MapObjectSelectionPromoter] Registered.");
+        //Debug.Log("[MapObjectSelectionPromoter] Registered.");
         Selection.selectionChanged += Promote;
     }
 

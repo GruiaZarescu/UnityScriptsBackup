@@ -680,7 +680,19 @@ public class ChunkMaterialManager
             return;
 
         SliceRecord record = sliceRecords[tier][sliceIndex];
-        if (record.refCount <= 0) return; // already freed
+        if (record.refCount <= 0)
+        {
+            // Reaching here means more releases than allocations for this slice — the exact
+            // imbalance that frees a slot while a live chunk still references it, letting the
+            // next AllocateSlice overwrite its texture data (chunks rendering another cell's
+            // splatmap). Deferral is deduped per cycle to prevent this; if this still fires,
+            // the duplicate releases are spanning DIFFERENT cycles and need fixing at the
+            // ChunkRegistry call sites instead.
+            Debug.LogError($"[ChunkMaterialManager] Refcount underflow releasing slice {sliceIndex} " +
+                $"tier {tier} (map=({record.map.x},{record.map.y}) face={record.face}). " +
+                "More releases than allocations — a live chunk may now be sharing this slot.");
+            return;
+        }
 
         record.refCount--;
 
@@ -1178,8 +1190,23 @@ public class ChunkMaterialManager
 
     // ========== DEFERRED RELEASE ==========
 
-    private List<(int sliceIndex, byte tier)> deferredReleases = new List<(int, byte)>();
-    private List<(int sliceIndex, byte tier)> deferredNormalReleases = new List<(int, byte)>();
+    // HashSet, NOT List: the same (slice, tier) can legitimately be deferred more than once
+    // in a single generation cycle. ChunkRecord/PoolEntry are STRUCTS, so the four separate
+    // release sites in ChunkRegistry (RemoveChunkImmediate's two branches, the batch-rebuild
+    // sweep, and the removals sweep) each hold their own COPY of the record — clearing
+    // splatSliceIndex at one site can't be seen by the others, so a chunk passing through two
+    // removal paths queues its slice twice. With a List that meant two refCount-- for one
+    // refCount++: the refcount hit zero while a live chunk still referenced the slice, the slot
+    // went back on the free list, and the next AllocateSlice handed it to a different cell and
+    // overwrote its texture — the live chunk then rendered someone else's splatmap.
+    // (Observed as "normal chunks turn to sand after traversing sand": sand is a large uniform
+    // region, so crossing it churns many chunks through batch removal, and a whole mountainside
+    // adopting one flat sandy splatmap is far more noticeable than two grassy chunks swapping.)
+    // Deduping here makes the deferral idempotent per cycle, which is the correct semantics:
+    // one chunk's allocation must produce exactly one release regardless of how many code paths
+    // observed its removal.
+    private HashSet<(int sliceIndex, byte tier)> deferredReleases = new HashSet<(int, byte)>();
+    private HashSet<(int sliceIndex, byte tier)> deferredNormalReleases = new HashSet<(int, byte)>();
 
     /// <summary>
     /// Queues a slice for release at the end of the generation cycle.
@@ -1188,6 +1215,7 @@ public class ChunkMaterialManager
     /// </summary>
     public void DeferRelease(int sliceIndex, byte tier)
     {
+        if (sliceIndex < 0) return; // guard parity with DeferReleaseNormal
         deferredReleases.Add((sliceIndex, tier));
     }
 

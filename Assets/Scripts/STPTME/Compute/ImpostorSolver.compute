@@ -28,7 +28,16 @@ StructuredBuffer<float2> _CellStartPosBuffer;
 #define SLAB_HEADER      4
 #define MAX_BLOTCH_INST 4096
 #define MAX_BUCKET_LODS 16
-#define MAX_INSTANCES_PER_BUCKET 65536
+// Per-bucket instance limits, uploaded by ImpostorRenderer.BuildBuckets.
+// Two uints per bucket: [0] = capacity, [1] = start offset in _InstanceOutputBuffer.
+// Buckets are NOT at fixed stride any more — each begins where the previous ended — so a
+// single flat cap can't be used for either the bounds check or the slot address. Far-LOD
+// buckets (billboards) need vastly more room than near-LOD ones, and a flat cap large enough
+// for the former would multiply the buffer size across every bucket.
+StructuredBuffer<uint> _BucketLimits;
+
+uint BucketCapacity(uint bucketIdx) { return _BucketLimits[bucketIdx * 2 + 0]; }
+uint BucketOffset(uint bucketIdx)   { return _BucketLimits[bucketIdx * 2 + 1]; }
 #define LOD0_HM_RES_MAX 128
 #define BATCH_SIZE 64
 
@@ -610,10 +619,10 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                     {
                         uint perBucketSlot;
                         InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
-                        if (perBucketSlot < MAX_INSTANCES_PER_BUCKET)
+                        if (perBucketSlot < BucketCapacity(bucketIdx))
                         {
                             float2 scales = ComputeSizeScales(protoIdx, hi);
-                            uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
+                            uint globalSlot = BucketOffset(bucketIdx) + perBucketSlot;
                             _InstanceOutputBuffer[globalSlot].worldPos = wp;
                             _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, selectedLOD, rotQ, 128);
                             _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
@@ -804,10 +813,10 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
 
     uint perBucketSlot;
     InterlockedAdd(_AtomicCounters[1 + bucketIdx], 1, perBucketSlot);
-    if (perBucketSlot >= MAX_INSTANCES_PER_BUCKET) return;
+    if (perBucketSlot >= BucketCapacity(bucketIdx)) return;
 
     float2 scales = ComputeSizeScales(protoIdx, hi);
-    uint globalSlot = bucketIdx * MAX_INSTANCES_PER_BUCKET + perBucketSlot;
+    uint globalSlot = BucketOffset(bucketIdx) + perBucketSlot;
     _InstanceOutputBuffer[globalSlot].worldPos = wp;
     _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, selectedLOD, rotQ, 128);
     _InstanceOutputBuffer[globalSlot].seed = pcg_hash(hi + 9999);
@@ -823,7 +832,7 @@ void CSFillArgs(uint3 id : SV_DispatchThreadID)
 {
     uint b = id.x;
     if (b >= _NumBuckets) return;
-    _ArgsBuffer[b * 5 + 1] = min(_AtomicCounters[1 + b], MAX_INSTANCES_PER_BUCKET);
+    _ArgsBuffer[b * 5 + 1] = min(_AtomicCounters[1 + b], BucketCapacity(b));
     _ArgsBuffer[b * 5 + 4] = 0;
 }
 

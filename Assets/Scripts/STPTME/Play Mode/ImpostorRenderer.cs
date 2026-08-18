@@ -68,6 +68,8 @@ public class ImpostorRenderer : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private bool debugDrawVisibleChunks = false;
     [SerializeField] private bool debugLogStats = false;
+    [SerializeField] private bool logBucketOverflow = true;
+    private float _lastOverflowCheckTime;
 
     private Texture2DArray activeLOD0HeightmapArray;
     private ComputeBuffer activeLOD0SliceMap;
@@ -85,7 +87,31 @@ public class ImpostorRenderer : MonoBehaviour
     // Must match GrassSolver.compute and BlotchTypes.cs definitions.
 
     private const int MAX_LODS_PER_BUCKET = 16;
-    private const int MAX_INSTANCES_PER_BUCKET = 65536;
+    // Per-LOD instance capacities. A single flat cap for every bucket is enormously wasteful:
+    // the buffer is sized bucketCount * cap, so raising it high enough for the densest far-LOD
+    // bucket also inflates every near-LOD bucket, which never needs more than a few thousand.
+    //
+    // The compute shader does InterlockedAdd then discards anything past the cap, and
+    // InterlockedAdd assigns slots in nondeterministic GPU thread order — so an overflowing
+    // bucket renders a DIFFERENT random subset of its instances every frame, which reads as
+    // strobing rather than as missing geometry. Sizing far LODs generously is what stops that.
+    //
+    // Index = LOD level; the last entry is reused for any LOD beyond the array.
+    // Tune per project: dense ground foliage (wheat) needs far more at high LOD than trees do.
+    [SerializeField]
+    private int[] lodInstanceCapacities = new int[]
+    {
+        16384,   // LOD0 — few, close, full detail
+        32768,   // LOD1
+        65536,   // LOD2
+        131072,  // LOD3
+        262144,  // LOD4
+        524288,  // LOD5
+        1048576, // LOD6 — billboards; by far the most numerous
+    };
+
+    /// <summary>Total slots across all buckets (prefix-sum end). Set by BuildBuckets.</summary>
+    private int totalInstanceCapacity;
     private const int BLOTCH_STRIDE = 20; // BlotchData is 20 bytes (added packedRotation for explicit-yaw objects)
     private const int INSTANCE_STRIDE = 32; // InstanceData is 32 bytes on GPU
     private const int LOD0_HM_RES = 128;//CHUNKS HAVE VARIABLE RESOLUTION, so we'll need to make this variable at some point pehaps. A chunk can either be 64 or 128 
@@ -123,6 +149,7 @@ public class ImpostorRenderer : MonoBehaviour
     // -- Args buffer (structured + indirect, written by compute shader, consumed by DrawMeshInstancedIndirect) --
     private ComputeBuffer argsBuffer;                   // RWStructuredBuffer<uint> + IndirectArguments
     private ComputeBuffer atomicCounters;               // RWStructuredBuffer<uint> — [0]=instance count, [1+N]=per-bucket counts
+    private ComputeBuffer bucketLimitsBuffer;           // StructuredBuffer<uint> — 2 per bucket: [cap, offset]
 
     // -- Bucket map lookup (protoIdx * MAX_LODS_PER_BUCKET + lod) -> bucketIdx --
     private ComputeBuffer bucketMapBuffer;              // StructuredBuffer<uint>
@@ -183,6 +210,8 @@ public class ImpostorRenderer : MonoBehaviour
         public int protoIdx;
         public int lod;
         public int argsBufferOffset; // in uints from start of argsBuffer
+        public int instanceCapacity; // max instances this bucket may emit
+        public int instanceOffset;   // start slot in the shared instance buffer (prefix sum)
     }
     private IndirectBucket[] buckets;
     private int bucketCount;
@@ -479,9 +508,23 @@ public class ImpostorRenderer : MonoBehaviour
 
         // ---- 6. Args buffer ----
         bucketCount = BuildBuckets();
-        int instanceBufSize = Mathf.Max(bucketCount, 1) * MAX_INSTANCES_PER_BUCKET;
+        // Sized from the prefix sum of per-bucket capacities, not bucketCount * flatCap — that
+        // is the entire memory saving of per-LOD capacities.
+        int instanceBufSize = Mathf.Max(totalInstanceCapacity, 1);
         instanceOutputBuffer = new ComputeBuffer(
         Mathf.Max(instanceBufSize, 1024), INSTANCE_STRIDE, ComputeBufferType.Structured);
+
+        // Per-bucket (capacity, offset) table for the compute shader. Packed as two uints per
+        // bucket in one buffer so a thread fetches both in a single cache line rather than
+        // hitting two separate buffers.
+        var bucketLimits = new uint[Mathf.Max(bucketCount, 1) * 2];
+        for (int b = 0; b < bucketCount; b++)
+        {
+            bucketLimits[b * 2 + 0] = (uint)buckets[b].instanceCapacity;
+            bucketLimits[b * 2 + 1] = (uint)buckets[b].instanceOffset;
+        }
+        bucketLimitsBuffer = new ComputeBuffer(Mathf.Max(bucketCount, 1) * 2, sizeof(uint), ComputeBufferType.Structured);
+        bucketLimitsBuffer.SetData(bucketLimits);
         argsBuffer = new ComputeBuffer(
             Mathf.Max(bucketCount, 1) * 5, sizeof(uint),
             ComputeBufferType.IndirectArguments | ComputeBufferType.Structured);
@@ -737,6 +780,12 @@ public class ImpostorRenderer : MonoBehaviour
             impostorSolverCompute.Dispatch(kernelFillArgs, aGroups, 1, 1);
         }
 
+        if (logBucketOverflow && Time.time - _lastOverflowCheckTime > 1f)
+        {
+            _lastOverflowCheckTime = Time.time;
+            CheckBucketOverflow();
+        }
+
         DrawIndirect();
     }
 
@@ -905,7 +954,7 @@ public class ImpostorRenderer : MonoBehaviour
             ref var bucket = ref buckets[i];
             if (bucket.mesh == null || bucket.material == null) continue;
 
-            drawProps.SetFloat("_InstanceOffset", i * MAX_INSTANCES_PER_BUCKET);
+            drawProps.SetFloat("_InstanceOffset", bucket.instanceOffset);
 
             // LOD0 casts shadows; LOD1+ impostors don't (major shadow-pass savings).
             var bucketShadowMode = (castShadows && bucket.lod == 0)
@@ -1028,6 +1077,32 @@ public class ImpostorRenderer : MonoBehaviour
         Debug.Log(instanceAlwaysProtos.ToString());
 
         buckets = bucketList.ToArray();
+
+        // Assign per-bucket capacities from the LOD table and prefix-sum them into offsets.
+        // Buckets are no longer at fixed stride in the instance buffer — each starts where the
+        // previous ended — so both the compute shader (writes) and DrawIndirect (reads) must
+        // use these offsets rather than bucketIdx * flatCap.
+        int running = 0;
+        var capReport = new System.Text.StringBuilder();
+        capReport.AppendLine("[ImpostorRenderer] Per-bucket instance capacities:");
+        for (int b = 0; b < buckets.Length; b++)
+        {
+            int lod = Mathf.Clamp(buckets[b].lod, 0, lodInstanceCapacities.Length - 1);
+            int cap = Mathf.Max(1, lodInstanceCapacities[lod]);
+
+            buckets[b].instanceCapacity = cap;
+            buckets[b].instanceOffset = running;
+            running += cap;
+
+            capReport.AppendLine($"  bucket {b} (proto {buckets[b].protoIdx}, LOD {buckets[b].lod}, " +
+                $"mesh={buckets[b].mesh?.name ?? "null"}): cap={cap}, offset={buckets[b].instanceOffset}");
+        }
+        totalInstanceCapacity = running;
+
+        capReport.AppendLine($"  TOTAL: {totalInstanceCapacity} slots " +
+            $"({(totalInstanceCapacity * 32L) / (1024 * 1024)} MB at 32 B/instance)");
+        Debug.Log(capReport.ToString());
+
         return buckets.Length;
     }
 
@@ -1118,6 +1193,7 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BlotchOffsetBuffer, blotchOffsetBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.AtomicCounters, atomicCounters);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.BucketLimits, bucketLimitsBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoFlagsBuffer, protoFlagsBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoHeightOffsetBuffer, protoHeightOffsetBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoBlotchParamsBuffer, protoBlotchParamsBuffer);
@@ -1136,6 +1212,7 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelFillArgs, ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
         impostorSolverCompute.SetBuffer(kernelFillArgs, ShaderIDs.ArgsBuffer, argsBuffer);
         impostorSolverCompute.SetBuffer(kernelFillArgs, ShaderIDs.AtomicCounters, atomicCounters);
+        impostorSolverCompute.SetBuffer(kernelFillArgs, ShaderIDs.BucketLimits, bucketLimitsBuffer);
         if (bucketMapBuffer != null)
             impostorSolverCompute.SetBuffer(kernelFillArgs, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
 
@@ -1170,6 +1247,7 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.GlobalChunkLODBuffer, globalChunkLODBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.InstanceOutputBuffer, instanceOutputBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.AtomicCounters, atomicCounters);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.BucketLimits, bucketLimitsBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.BucketMapBuffer, bucketMapBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ProtoHeightOffsetBuffer, protoHeightOffsetBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ProtoBlotchParamsBuffer, protoBlotchParamsBuffer);
@@ -1201,7 +1279,6 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetInt(ShaderIDs.NumberOfChunks, numberOfChunks);
         impostorSolverCompute.SetInt(ShaderIDs.MapsPerFace, mapsPerRow);
         impostorSolverCompute.SetInt(ShaderIDs.TotalBlotchCount, globalBlotchBuffer?.count ?? 0);
-        impostorSolverCompute.SetInt(Shader.PropertyToID("_MaxInstancesPerBucket"), MAX_INSTANCES_PER_BUCKET);
         impostorSolverCompute.SetVector(ShaderIDs.SphereCenter, new Vector4(sphereCenter.x, sphereCenter.y, sphereCenter.z, 0f));
         impostorSolverCompute.SetFloat(ShaderIDs.SphereRadius, sphereRadius);
         impostorSolverCompute.SetFloat(ShaderIDs.HalfChunkLinearSize, halfChunkLinearSize);
@@ -1254,6 +1331,7 @@ public class ImpostorRenderer : MonoBehaviour
         visibleChunkListBuffer?.Release();    visibleChunkListBuffer = null;
         visibilityCountBuffer?.Release();     visibilityCountBuffer = null;
         atomicCounters?.Release();            atomicCounters = null;
+        bucketLimitsBuffer?.Release();        bucketLimitsBuffer = null;
         bucketMapBuffer?.Release();           bucketMapBuffer = null;
         blotchOffsetBuffer?.Release();        blotchOffsetBuffer = null;
         prototypeScalesBuffer?.Release();     prototypeScalesBuffer = null;
@@ -1505,7 +1583,7 @@ public class ImpostorRenderer : MonoBehaviour
 
         const int instancesToRead = 5;
         int byteSize = instancesToRead * 32; // 32 bytes per instance
-        int bucketByteOffset = bucketIndex * MAX_INSTANCES_PER_BUCKET * 32; 
+        int bucketByteOffset = buckets[bucketIndex].instanceOffset * 32; // per-bucket prefix-sum offset
 
         var request = AsyncGPUReadback.Request(instanceOutputBuffer, byteSize, bucketByteOffset, (req) =>
         {
@@ -1531,6 +1609,88 @@ public class ImpostorRenderer : MonoBehaviour
         });
 
         while (!request.done) yield return null;
+    }
+
+    // Peak instance demand per bucket across the session. Walk the whole map, then dump this to
+    // find which prototypes/LODs are near or over capacity — a single-frame sample misses the
+    // worst spot unless you happen to be standing in it.
+    private uint[] _bucketPeakDemand;
+
+    private void CheckBucketOverflow()
+    {
+        if (atomicCounters == null || bucketCount <= 0 || buckets == null) return;
+
+        AsyncGPUReadback.Request(atomicCounters, (req) =>
+        {
+            if (req.hasError) return;
+            var data = req.GetData<uint>();
+
+            if (_bucketPeakDemand == null || _bucketPeakDemand.Length != bucketCount)
+                _bucketPeakDemand = new uint[bucketCount];
+
+            for (int b = 0; b < bucketCount; b++)
+            {
+                int idx = 1 + b;
+                if (idx >= data.Length) break;
+
+                uint wanted = data[idx];
+                if (wanted > _bucketPeakDemand[b]) _bucketPeakDemand[b] = wanted;
+
+                int cap = buckets[b].instanceCapacity;
+                if (cap <= 0) continue;
+
+                if (wanted > cap)
+                {
+                    Debug.LogWarning($"[ImpostorRenderer] Bucket {b} OVERFLOW: wanted {wanted}, cap {cap}, " +
+                        $"dropped {wanted - cap} (proto {buckets[b].protoIdx}, LOD {buckets[b].lod}, " +
+                        $"mesh={buckets[b].mesh?.name ?? "null"}). Dropped instances vary per frame → strobing.");
+                }
+                else if (wanted > cap * 0.5f)
+                {
+                    // Early warning while authoring: this spot is close to the ceiling, so a
+                    // slightly denser area elsewhere would start strobing.
+                    Debug.Log($"[ImpostorRenderer] Bucket {b} at {(wanted * 100f / cap):F0}% capacity " +
+                        $"({wanted}/{cap}, LOD {buckets[b].lod}, mesh={buckets[b].mesh?.name ?? "null"}).");
+                }
+            }
+        });
+    }
+
+    /// <summary>Dumps peak demand per bucket for the whole session. Call after walking the map.</summary>
+    [ContextMenu("Dump Bucket Peak Demand")]
+    public void DumpBucketPeakDemand()
+    {
+        if (_bucketPeakDemand == null || buckets == null)
+        {
+            Debug.LogWarning("[ImpostorRenderer] No peak data yet — enable logBucketOverflow and move around first.");
+            return;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("[ImpostorRenderer] Peak instance demand per bucket (session high-water marks):");
+
+        // Sort by how close each got to its ceiling — the ones needing authoring attention first.
+        var order = new List<int>();
+        for (int b = 0; b < bucketCount; b++) order.Add(b);
+        order.Sort((x, y) =>
+        {
+            float rx = buckets[x].instanceCapacity > 0 ? (float)_bucketPeakDemand[x] / buckets[x].instanceCapacity : 0f;
+            float ry = buckets[y].instanceCapacity > 0 ? (float)_bucketPeakDemand[y] / buckets[y].instanceCapacity : 0f;
+            return ry.CompareTo(rx);
+        });
+
+        foreach (int b in order)
+        {
+            int cap = buckets[b].instanceCapacity;
+            uint peak = _bucketPeakDemand[b];
+            if (peak == 0) continue; // never rendered — nothing to report
+
+            float pct = cap > 0 ? peak * 100f / cap : 0f;
+            string flag = peak > cap ? "  ** OVERFLOWED **" : (pct > 80f ? "  (near limit)" : "");
+            sb.AppendLine($"  bucket {b} LOD{buckets[b].lod} {buckets[b].mesh?.name ?? "null"}: " +
+                $"peak {peak}/{cap} ({pct:F0}%){flag}");
+        }
+        Debug.Log(sb.ToString());
     }
 
 
@@ -1605,6 +1765,7 @@ public static class ShaderIDs
     public static readonly int ArgsBuffer = Shader.PropertyToID("_ArgsBuffer");
     public static readonly int GlobalChunkLODBuffer = Shader.PropertyToID("_GlobalChunkLODBuffer");
     public static readonly int AtomicCounters = Shader.PropertyToID("_AtomicCounters");
+    public static readonly int BucketLimits = Shader.PropertyToID("_BucketLimits");
     // New buffer IDs
     public static readonly int BucketMapBuffer = Shader.PropertyToID("_BucketMap");
     public static readonly int ProtoFlagsBuffer = Shader.PropertyToID("_ProtoFlags");

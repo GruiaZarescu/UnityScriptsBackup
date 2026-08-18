@@ -1007,10 +1007,6 @@ public class ChunkManager : MonoBehaviour
 
         float nominalCellSize = terrainSize / subdivisionsPowerOf2;
         float nominalStartX = ((heightmapX - minX)) * nominalCellSize;
-        Debug.Log($"[CellOriginCheck] cell ({heightmapX},{heightmapY}) " +
-            $"meshStartX={currentStartingPosition.x:F4} nominalStartX={nominalStartX:F4} " +
-            $"delta={currentStartingPosition.x - nominalStartX:F4} " +
-            $"heightmapResX={currentHeightmapHeights.GetLength(1)}");
 
         int faceOriginalResolution = GetFaceOriginalResolution(face);
         // Per-cell base values: each bake-time downsampling step halves the cell's stored

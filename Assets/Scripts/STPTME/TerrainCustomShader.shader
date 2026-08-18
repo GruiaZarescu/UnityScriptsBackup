@@ -447,6 +447,19 @@ Shader "Custom/TerrainCustomShader"
             half4 frag(Varyings IN) : SV_Target
             {
                 float uniformDL = _UniformDominantLayer;
+
+            #ifdef BATCHED_CHUNKS
+                // Batched geometry shares ONE material, so _UniformDominantLayer can't be set
+                // per chunk — it's fixed at -1 for the whole batch. The per-chunk uniform layer
+                // therefore travels through the vertex stream, encoded by ChunkBatcher.Add into
+                // sliceIndex as -(layer + 2). Without this decode, uniform cells fell through to
+                // the multi-layer path and sampled the splat array at a negative index, which
+                // clamps to slice 0 — making entire cells render whichever cell owned slice 0.
+                // -1 (no splatmap, not uniform — a genuine missing-file case) decodes to layer 0
+                // here rather than sampling slice 0 garbage.
+                if (IN.sliceIndex < -0.5)
+                    uniformDL = max(0.0, -IN.sliceIndex - 2.0);
+            #endif
                 float3 blended;
                 float3 normalWS;
                 float3 terrainNormal;

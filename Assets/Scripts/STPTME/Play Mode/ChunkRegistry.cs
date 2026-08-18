@@ -1561,7 +1561,34 @@ if (TreeRenderer.HasActiveSystem &&
                 byte tierByte = registry.textureStreamer.GetTierForLOD(lod);
                 tier = tierByte;
 
-                TextureStreamer.SplatmapTile tile = registry.textureStreamer.GetOrLoadSync(map, tierByte, face);
+                // UNIFORM CELL CHECK — must mirror CreateChunk's non-batched path.
+                // Uniform cells have NO splatmap baked (that's the point of classifying them),
+                // so GetOrLoadSync returns an invalid tile and sliceIndex stays -1. That -1 goes
+                // into the vertex stream, and since batched geometry reads _UniformDominantLayer
+                // from sharedBatchedMaterial (permanently -1, never set per-chunk), the shader
+                // took the MULTI-LAYER path and sampled the splat array at index -1 — which
+                // clamps to slice 0, making the whole cell render whatever cell happens to own
+                // slice 0. That's the "large rectangular blocks of the wrong texture at LOD1+"
+                // bug: cell-sized because uniform classification is per-cell, and it looked like
+                // "sand spreading" only because slice 0 was often a sand cell — uniform GRASS
+                // cells were rendering it too.
+                //
+                // sharedBatchedMaterial can't carry a per-chunk value, so the dominant layer is
+                // encoded into sliceIndex as -(layer + 2): -2 => layer 0, -3 => layer 1, etc.
+                // The shader decodes this under BATCHED_CHUNKS. -1 keeps its old meaning
+                // ("no splatmap, not uniform" — a genuine missing-file case).
+                int uniformLayer = registry.chunkMaterialManager.GetUniformDominantLayer(map.x, map.y, face);
+                if (uniformLayer >= 0)
+                {
+                    sliceIndex = -(uniformLayer + 2);
+                    // splatUV is unused on the uniform path (it's triplanar from positionWS),
+                    // so identity offset/scale is fine here.
+                    uvOffsetScale = new Vector4(0f, 0f, 1f, 1f);
+                }
+
+                TextureStreamer.SplatmapTile tile = uniformLayer >= 0
+                    ? default
+                    : registry.textureStreamer.GetOrLoadSync(map, tierByte, face);
 
                 int slice = -1;
                 if (tile.IsValid)
@@ -1577,6 +1604,12 @@ if (TreeRenderer.HasActiveSystem &&
 
                     slice = registry.chunkMaterialManager.AllocateSlice(map, tierByte, face, tile);
                     sliceIndex = slice;
+                }
+
+                if (uniformLayer < 0 && !tile.IsValid)
+                {
+                    Debug.LogError($"[SplatMissing] map=({map.x},{map.y}) face={face} lod={lod} tier={tierByte} " +
+                        $"— no splatmap tile, will render layer 0 solid.");
                 }
 
                 // Heightmap-derived normal map (independent tier system).
