@@ -24,6 +24,7 @@ MonoBehaviour:
     - {fileID: 5784980255996254394, guid: b3182dcc8faee9546bc8c08acd8a4e47, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -66,6 +67,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree02Rework
     unityTerrainPrototypeIndex: 1
     lodMeshes:
@@ -77,6 +83,7 @@ MonoBehaviour:
     - {fileID: 3539699505251262783, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 2
     heightOffset: 0
@@ -119,6 +126,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree03Rework
     unityTerrainPrototypeIndex: 2
     lodMeshes:
@@ -130,6 +142,7 @@ MonoBehaviour:
     - {fileID: -4610279647616300368, guid: 6d4f01d532fbd9440b6a582b58ff1d35, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -172,6 +185,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree01Rework
     unityTerrainPrototypeIndex: 3
     lodMeshes:
@@ -182,6 +200,7 @@ MonoBehaviour:
     - {fileID: 4614324947569104867, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -224,6 +243,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree04Rework
     unityTerrainPrototypeIndex: 4
     lodMeshes:
@@ -234,6 +258,7 @@ MonoBehaviour:
     - {fileID: -5198286234402889611, guid: 07c175d92c1ab574da29acc3e3080bba, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -276,6 +301,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Tree01ReworkSavana
     unityTerrainPrototypeIndex: 5
     lodMeshes:
@@ -286,6 +316,7 @@ MonoBehaviour:
     - {fileID: 4614324947569104867, guid: 7b03b6d693fad3348bee78e0b2e61863, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -328,6 +359,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Rock05Rework
     unityTerrainPrototypeIndex: 6
     lodMeshes:
@@ -337,6 +373,7 @@ MonoBehaviour:
     - {fileID: -3433263269455883675, guid: 6f3c5cd50b5b71947a7e1bb1f331dad7, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -379,11 +416,17 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Palm146
     unityTerrainPrototypeIndex: 7
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 0
     baseHeight: 0
     heightOffset: 0
@@ -426,6 +469,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Grass0
     unityTerrainPrototypeIndex: 8
     lodMeshes:
@@ -433,6 +481,7 @@ MonoBehaviour:
     - {fileID: -5887197880629875785, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -475,6 +524,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Grass1
     unityTerrainPrototypeIndex: 9
     lodMeshes:
@@ -485,6 +539,7 @@ MonoBehaviour:
     - {fileID: -5630491982682799407, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 23a7c21d0f1186840aa7e101259e766b, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -529,6 +584,11 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: WoodFence01
     unityTerrainPrototypeIndex: -1
     lodMeshes:
@@ -536,6 +596,7 @@ MonoBehaviour:
     - {fileID: 6344693156608189947, guid: 5516e868e87af1d4cbd912f1fe7b37a8, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 4ac3cc2baa46d154ba587ffd124b2915, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -580,6 +641,11 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: StoneFence01
     unityTerrainPrototypeIndex: -1
     lodMeshes:
@@ -588,6 +654,7 @@ MonoBehaviour:
     - {fileID: 4300000, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -632,12 +699,18 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 42
     unityTerrainPrototypeIndex: 10
     lodMeshes:
     - {fileID: 4300000, guid: 37dd4b05334ea334498fae7f5b6633d1, type: 2}
     lodGameObjects: []
     material: {fileID: 2100000, guid: 140f4691f4fe0fc488e6e891e786012b, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -682,6 +755,11 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 58
     unityTerrainPrototypeIndex: 11
     lodMeshes:
@@ -690,6 +768,7 @@ MonoBehaviour:
     - {fileID: 4300000, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -734,11 +813,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 59
     unityTerrainPrototypeIndex: 12
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -783,11 +868,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 424
     unityTerrainPrototypeIndex: 13
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -832,11 +923,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 446
     unityTerrainPrototypeIndex: 14
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -881,11 +978,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 456
     unityTerrainPrototypeIndex: 15
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -930,11 +1033,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 488
     unityTerrainPrototypeIndex: 16
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -979,11 +1088,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 489
     unityTerrainPrototypeIndex: 17
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -1028,11 +1143,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 500
     unityTerrainPrototypeIndex: 18
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -1077,11 +1198,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 504
     unityTerrainPrototypeIndex: 19
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -1126,11 +1253,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 511
     unityTerrainPrototypeIndex: 20
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -1175,11 +1308,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 533
     unityTerrainPrototypeIndex: 21
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 0}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -1224,11 +1363,17 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: BasicTree 549
     unityTerrainPrototypeIndex: 22
     lodMeshes: []
     lodGameObjects: []
     material: {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -1273,6 +1418,11 @@ MonoBehaviour:
     - 0.8
     - 0.7
     - 0.6
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
   - name: Wheat
     unityTerrainPrototypeIndex: 23
     lodMeshes:
@@ -1285,6 +1435,7 @@ MonoBehaviour:
     - {fileID: -8172673075808897758, guid: f1726d2c14d7304469337abb21893e88, type: 3}
     lodGameObjects: []
     material: {fileID: 2100000, guid: c8ac28fd5241e684b901f5ddf06bce21, type: 2}
+    extraSubmeshMaterials: []
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -1320,17 +1471,98 @@ MonoBehaviour:
     lodDistancesVariable:
     - 5
     - 7.5
-    - 10
-    - 12.5
     - 15
-    - 17.5
-    - 450
+    - 20
+    - 25
+    - 40
+    - 100
     lodKeepFractions:
     - 1
-    - 0.9
-    - 0.6
-    - 0.4
-    - 0.2
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Poppy
+    unityTerrainPrototypeIndex: 24
+    lodMeshes:
+    - {fileID: 8345898141891745030, guid: 8165aa37fe7eb0846945e1fc1d3e4120, type: 3}
+    - {fileID: -3556161096569528307, guid: 8165aa37fe7eb0846945e1fc1d3e4120, type: 3}
+    - {fileID: 7140171417753905392, guid: 8165aa37fe7eb0846945e1fc1d3e4120, type: 3}
+    - {fileID: 5912355968850241190, guid: 8165aa37fe7eb0846945e1fc1d3e4120, type: 3}
+    - {fileID: -5507357469671484270, guid: 8165aa37fe7eb0846945e1fc1d3e4120, type: 3}
+    - {fileID: -906558921416845288, guid: 8165aa37fe7eb0846945e1fc1d3e4120, type: 3}
+    - {fileID: 6550511459886236643, guid: 8165aa37fe7eb0846945e1fc1d3e4120, type: 3}
+    lodGameObjects: []
+    material: {fileID: 2100000, guid: afb72d64d677f8841bfe7bde69818f41, type: 2}
+    extraSubmeshMaterials:
+    - {fileID: 2100000, guid: 1435e0dcab42b27409b29ff03398583e, type: 2}
+    - {fileID: 2100000, guid: faf2219a061633a4ab75bef9a10adbd9, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 1099895102284731477, guid: 593f7b6cf431cd443862b8028e876524, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0.75
+    useDistanceLOD: 1
+    lodDistances: {x: 10, y: 20, z: 30, w: 40}
+    lodDistancesVariable:
+    - 20
+    - 25
+    - 30
+    - 35
+    - 40
+    - 45
+    - 900
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
   densityPerLOD: 640000005a000000500000004b00000046000000
   lodWidthMultipliers:
   - 1

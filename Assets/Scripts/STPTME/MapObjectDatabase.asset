@@ -146929,4 +146929,10 @@ MonoBehaviour:
     worldRotation: {x: -0.043100756, y: 0.6095916, z: 0.24465962, w: 0.7527829}
     localScale: {x: 1, y: 1, z: 1}
     anchorMode: 0
-  nextId: 25104
+  - id: 25104
+    prototypeIndex: 26
+    worldPosition: {x: -4037.2886, y: 6933.3975, z: 1499.9634}
+    worldRotation: {x: 0.09555131, y: 0, z: 0.2571851, w: 0.96162665}
+    localScale: {x: 1, y: 1, z: 1}
+    anchorMode: 0
+  nextId: 25105

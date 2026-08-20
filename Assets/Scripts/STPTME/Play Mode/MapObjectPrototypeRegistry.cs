@@ -216,6 +216,19 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         [Tooltip("Shared material for all LODs (should support GPU instancing when shouldInstance=true).")]
         public Material material;
 
+        [Tooltip("Materials for submeshes 1..N, when the source mesh has more than one material.\n\n" +
+                 "A prefab with 3 materials on one MeshRenderer has a mesh with 3 SUBMESHES — each a " +
+                 "separate index range needing its own draw call and material. The instancing pipeline " +
+                 "otherwise draws ONLY submesh 0, rendering a partial mesh: the missing triangles make " +
+                 "the object look torn into offset fragments rather than simply missing a colour.\n\n" +
+                 "Leave EMPTY for single-material meshes. Otherwise put submesh 0's material in " +
+                 "'material' above and submeshes 1,2,... here IN ORDER (element 0 = submesh 1). Order " +
+                 "must match the mesh's submesh order = the material order on the original prefab's " +
+                 "Renderer.\n\n" +
+                 "All submeshes share ONE set of instances (identical positions/rotations); only the " +
+                 "draw call and material differ, so extra submeshes cost draw calls, not instance memory.")]
+        public Material[] extraSubmeshMaterials;
+
         // ── Dimensions ──────────────────────────────────────────────────────
         [Tooltip("Base width in world units (scale=1.0). Instance's widthScale multiplies this.")]
         public float baseWidth = 1f;

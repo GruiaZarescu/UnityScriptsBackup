@@ -207,6 +207,8 @@ public class ImpostorRenderer : MonoBehaviour
         public int indexCount;
         public int startIndex;
         public int baseVertex;
+        public int submeshIndex;     // which submesh of `mesh` this bucket draws
+        public int instanceGroupId;  // buckets sharing this id share one instance region
         public int protoIdx;
         public int lod;
         public int argsBufferOffset; // in uints from start of argsBuffer
@@ -517,13 +519,23 @@ public class ImpostorRenderer : MonoBehaviour
         // Per-bucket (capacity, offset) table for the compute shader. Packed as two uints per
         // bucket in one buffer so a thread fetches both in a single cache line rather than
         // hitting two separate buffers.
-        var bucketLimits = new uint[Mathf.Max(bucketCount, 1) * 2];
+        // 3 uints per bucket: [capacity, offset, countSourceBucket].
+        // countSourceBucket = the bucket whose atomic counter holds this group's instance count:
+        // itself for the group's first bucket, otherwise that first bucket. Extra submesh buckets
+        // never get instances written to their own counter, so without this they'd draw zero.
+        var firstOfGroup = new Dictionary<int, int>();
+        for (int b = 0; b < bucketCount; b++)
+            if (!firstOfGroup.ContainsKey(buckets[b].instanceGroupId))
+                firstOfGroup[buckets[b].instanceGroupId] = b;
+
+        var bucketLimits = new uint[Mathf.Max(bucketCount, 1) * 3];
         for (int b = 0; b < bucketCount; b++)
         {
-            bucketLimits[b * 2 + 0] = (uint)buckets[b].instanceCapacity;
-            bucketLimits[b * 2 + 1] = (uint)buckets[b].instanceOffset;
+            bucketLimits[b * 3 + 0] = (uint)buckets[b].instanceCapacity;
+            bucketLimits[b * 3 + 1] = (uint)buckets[b].instanceOffset;
+            bucketLimits[b * 3 + 2] = (uint)firstOfGroup[buckets[b].instanceGroupId];
         }
-        bucketLimitsBuffer = new ComputeBuffer(Mathf.Max(bucketCount, 1) * 2, sizeof(uint), ComputeBufferType.Structured);
+        bucketLimitsBuffer = new ComputeBuffer(Mathf.Max(bucketCount, 1) * 3, sizeof(uint), ComputeBufferType.Structured);
         bucketLimitsBuffer.SetData(bucketLimits);
         argsBuffer = new ComputeBuffer(
             Mathf.Max(bucketCount, 1) * 5, sizeof(uint),
@@ -535,7 +547,12 @@ public class ImpostorRenderer : MonoBehaviour
         for (int i = 0; i < bucketMap.Length; i++) bucketMap[i] = 0xFFFFFFFF;
         for (int b = 0; b < bucketCount; b++)
         {
-            bucketMap[buckets[b].protoIdx * MAX_LODS_PER_BUCKET + buckets[b].lod] = (uint)b;
+            // First submesh bucket wins: the compute shader increments exactly ONE counter per
+            // (proto, LOD); CSFillArgs mirrors that count onto the group's other submesh buckets.
+            // Without first-wins this pointed at the LAST submesh, leaving the rest at zero.
+            int mapIdx = buckets[b].protoIdx * MAX_LODS_PER_BUCKET + buckets[b].lod;
+            if (bucketMap[mapIdx] == 0xFFFFFFFF)
+                bucketMap[mapIdx] = (uint)b;
         }
         
         // DEBUG: Log bucket map entries for instanceAlways prototypes
@@ -1021,6 +1038,7 @@ public class ImpostorRenderer : MonoBehaviour
 
         // DEBUG: Track instanceAlways prototypes
         var instanceAlwaysProtos = new System.Text.StringBuilder();
+        int instanceGroupCounter = 0;
         instanceAlwaysProtos.AppendLine("[ImpostorRenderer] BuildBuckets - instanceAlways prototypes:");
 
         for (int pi = 0; pi < protoCount; pi++)
@@ -1056,20 +1074,54 @@ public class ImpostorRenderer : MonoBehaviour
                 }
                 if (entry.material == null) continue;
 
-                int bucketIdx = bucketList.Count;
-                bucketList.Add(new IndirectBucket
+                // ONE BUCKET PER SUBMESH. A multi-material prefab is one mesh with several
+                // submeshes (separate index ranges). Drawing only submesh 0 — as this did before —
+                // renders a PARTIAL mesh: with the connecting triangles absent, the object looks
+                // torn into offset fragments rather than simply missing a colour. (A texture atlas
+                // can make that partial geometry still show several colours, which makes the
+                // symptom look like distortion rather than a missing submesh.)
+                //
+                // All submeshes of a (proto, LOD) share the SAME instance data, linked by
+                // instanceGroupId and given one shared capacity/offset below — the compute shader
+                // fills that region once and the extra submeshes are pure draw calls over it.
+                int submeshCount = Mathf.Max(1, mesh.subMeshCount);
+                int availableMaterials = 1 + (entry.extraSubmeshMaterials?.Length ?? 0);
+                if (submeshCount > availableMaterials)
                 {
-                    mesh = mesh,
-                    material = entry.material,
-                    shadowMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off,
-                    receiveShadows = receiveShadows,
-                    indexCount = (int)mesh.GetIndexCount(0),
-                    startIndex = 0,
-                    baseVertex = 0,
-                    argsBufferOffset = bucketIdx * 5 * sizeof(uint),
-                    protoIdx = pi,
-                    lod = lod
-                });
+                    Debug.LogWarning($"[ImpostorRenderer] '{entry.name}' LOD{lod} mesh has {submeshCount} submeshes " +
+                        $"but only {availableMaterials} material(s) assigned. Submeshes {availableMaterials}..{submeshCount - 1} " +
+                        "will NOT render (partial mesh) — add them to extraSubmeshMaterials (element 0 = submesh 1).");
+                    submeshCount = availableMaterials;
+                }
+
+                int instanceGroupId = instanceGroupCounter++;
+
+                for (int sm = 0; sm < submeshCount; sm++)
+                {
+                    Material submeshMat = (sm == 0) ? entry.material : entry.extraSubmeshMaterials[sm - 1];
+                    if (submeshMat == null)
+                    {
+                        Debug.LogWarning($"[ImpostorRenderer] '{entry.name}' LOD{lod} submesh {sm} has a null material — skipped.");
+                        continue;
+                    }
+
+                    int bucketIdx = bucketList.Count;
+                    bucketList.Add(new IndirectBucket
+                    {
+                        mesh = mesh,
+                        material = submeshMat,
+                        shadowMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off,
+                        receiveShadows = receiveShadows,
+                        indexCount = (int)mesh.GetIndexCount(sm),
+                        startIndex = (int)mesh.GetIndexStart(sm),
+                        baseVertex = (int)mesh.GetBaseVertex(sm),
+                        argsBufferOffset = bucketIdx * 5 * sizeof(uint),
+                        protoIdx = pi,
+                        lod = lod,
+                        submeshIndex = sm,
+                        instanceGroupId = instanceGroupId
+                    });
+                }
             }
         }
 
@@ -1083,6 +1135,9 @@ public class ImpostorRenderer : MonoBehaviour
         // previous ended — so both the compute shader (writes) and DrawIndirect (reads) must
         // use these offsets rather than bucketIdx * flatCap.
         int running = 0;
+        // Submeshes of one (proto, LOD) share identical instance data — allocating a region per
+        // submesh bucket would multiply instance memory by the submesh count for no benefit.
+        var groupAlloc = new Dictionary<int, (int cap, int offset)>();
         var capReport = new System.Text.StringBuilder();
         capReport.AppendLine("[ImpostorRenderer] Per-bucket instance capacities:");
         for (int b = 0; b < buckets.Length; b++)
@@ -1090,9 +1145,15 @@ public class ImpostorRenderer : MonoBehaviour
             int lod = Mathf.Clamp(buckets[b].lod, 0, lodInstanceCapacities.Length - 1);
             int cap = Mathf.Max(1, lodInstanceCapacities[lod]);
 
-            buckets[b].instanceCapacity = cap;
-            buckets[b].instanceOffset = running;
-            running += cap;
+            int gid = buckets[b].instanceGroupId;
+            if (!groupAlloc.TryGetValue(gid, out var alloc))
+            {
+                alloc = (cap, running);
+                groupAlloc[gid] = alloc;
+                running += cap;   // one region per GROUP, not per submesh bucket
+            }
+            buckets[b].instanceCapacity = alloc.cap;
+            buckets[b].instanceOffset = alloc.offset;
 
             capReport.AppendLine($"  bucket {b} (proto {buckets[b].protoIdx}, LOD {buckets[b].lod}, " +
                 $"mesh={buckets[b].mesh?.name ?? "null"}): cap={cap}, offset={buckets[b].instanceOffset}");
