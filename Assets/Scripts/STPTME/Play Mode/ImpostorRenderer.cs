@@ -280,6 +280,13 @@ public class ImpostorRenderer : MonoBehaviour
         ReleaseBuffers();
     }
 
+    /// <summary>Unity-object-safe .name accessor. `obj?.name` does NOT protect against a
+    /// destroyed/missing Unity object reference — Unity overloads `==`/`!=` to treat those as
+    /// null, but the null-conditional operator uses the raw C# reference check, which does not,
+    /// so a stale reference sails through `?.` and throws inside Object.get_name's native
+    /// getter. This funnels every diagnostic name lookup through the overloaded check instead.</summary>
+    private static string SafeName(UnityEngine.Object obj) => (obj != null) ? obj.name : "null";
+
     private bool ValidateState()
     {
         if (!systemEnabled) return false;
@@ -569,7 +576,7 @@ public class ImpostorRenderer : MonoBehaviour
                     uint bucketIdx = bucketMap[pi * MAX_LODS_PER_BUCKET + lod];
                     if (bucketIdx != 0xFFFFFFFF)
                     {
-                        bucketMapDebug.AppendLine($"    LOD{lod} -> bucket {bucketIdx} (mesh={buckets[bucketIdx].mesh?.name ?? "null"})");
+                        bucketMapDebug.AppendLine($"    LOD{lod} -> bucket {bucketIdx} (mesh={SafeName(buckets[bucketIdx].mesh)})");
                     }
                 }
             }
@@ -741,6 +748,7 @@ public class ImpostorRenderer : MonoBehaviour
     private void LateUpdate()
     {
         if (!systemEnabled || !enableRendering) return;
+        if (!IsInitialized) return; // Initialize() may have thrown partway through and left buffers null
         if (!ValidateState()) return;
 
         int curFrame = Time.frameCount;
@@ -1050,10 +1058,17 @@ public class ImpostorRenderer : MonoBehaviour
             // DEBUG: Log instanceAlways prototypes
             if (entry.instanceAlways)
             {
-                instanceAlwaysProtos.AppendLine($"  [{pi}] '{entry.name}': lodMeshes.Length={entry.lodMeshes.Length}, material={entry.material?.name ?? "null"}");
+                // NOTE: intentionally NOT `?.name` — Unity overloads `==`/`!=` to treat a
+                // destroyed/missing object reference as null, but the null-conditional operator
+                // uses the raw C# reference check underneath, which does NOT see it as null. A
+                // missing material reference (e.g. deleted after being assigned) sails through
+                // `?.` and throws inside Object.get_name's native getter instead.
+                var lod0Sub0Mat = entry.GetSubmeshMaterial(0, 0);
+                string lod0Sub0MatName = (lod0Sub0Mat != null) ? lod0Sub0Mat.name : "null";
+                instanceAlwaysProtos.AppendLine($"  [{pi}] '{entry.name}': lodMeshes.Length={entry.lodMeshes.Length}, LOD0 submesh0 material={lod0Sub0MatName}");
                 for (int lod = 0; lod < entry.lodMeshes.Length; lod++)
                 {
-                    instanceAlwaysProtos.AppendLine($"    LOD{lod}: mesh={entry.lodMeshes[lod]?.name ?? "null"}");
+                    instanceAlwaysProtos.AppendLine($"    LOD{lod}: mesh={SafeName(entry.lodMeshes[lod])}");
                 }
             }
 
@@ -1072,36 +1087,46 @@ public class ImpostorRenderer : MonoBehaviour
                     }
                     continue;
                 }
-                if (entry.material == null) continue;
+                if (entry.GetSubmeshMaterial(lod, 0) == null) continue;
 
                 // ONE BUCKET PER SUBMESH. A multi-material prefab is one mesh with several
-                // submeshes (separate index ranges). Drawing only submesh 0 — as this did before —
-                // renders a PARTIAL mesh: with the connecting triangles absent, the object looks
-                // torn into offset fragments rather than simply missing a colour. (A texture atlas
-                // can make that partial geometry still show several colours, which makes the
-                // symptom look like distortion rather than a missing submesh.)
+                // submeshes (separate index ranges). Drawing only submesh 0 renders a PARTIAL
+                // mesh: with the connecting triangles absent, the object looks torn into offset
+                // fragments rather than simply missing a colour. (A texture atlas can make that
+                // partial geometry still show several colours, which makes the symptom look like
+                // distortion rather than a missing submesh.)
+                //
+                // Per-LOD, NOT a single shared list: submesh count genuinely varies by LOD (a
+                // hand-authored single-triangle LOD6 has 1 submesh even when LOD0 has 3) — a flat
+                // array shared across every LOD cannot represent that and silently mismatches
+                // whichever LOD it doesn't fit, which is exactly what caused this to be reworked.
                 //
                 // All submeshes of a (proto, LOD) share the SAME instance data, linked by
                 // instanceGroupId and given one shared capacity/offset below — the compute shader
                 // fills that region once and the extra submeshes are pure draw calls over it.
                 int submeshCount = Mathf.Max(1, mesh.subMeshCount);
-                int availableMaterials = 1 + (entry.extraSubmeshMaterials?.Length ?? 0);
-                if (submeshCount > availableMaterials)
+                int authoredSlots = entry.GetSubmeshMaterialCount(lod);
+                if (submeshCount != authoredSlots)
                 {
-                    Debug.LogWarning($"[ImpostorRenderer] '{entry.name}' LOD{lod} mesh has {submeshCount} submeshes " +
-                        $"but only {availableMaterials} material(s) assigned. Submeshes {availableMaterials}..{submeshCount - 1} " +
-                        "will NOT render (partial mesh) — add them to extraSubmeshMaterials (element 0 = submesh 1).");
-                    submeshCount = availableMaterials;
+                    Debug.LogWarning($"[ImpostorRenderer] '{entry.name}' LOD{lod} mesh '{mesh.name}' has {submeshCount} " +
+                        $"submesh(es) but {authoredSlots} material slot(s) are authored for this LOD. " +
+                        (submeshCount > authoredSlots
+                            ? $"Submeshes {authoredSlots}..{submeshCount - 1} will NOT render (partial mesh)."
+                            : "The mesh may have been re-imported with merged/fewer submeshes.") +
+                        " Run 'Sync Submesh Materials From Meshes' on the registry to fix.");
+                    submeshCount = Mathf.Min(submeshCount, authoredSlots);
                 }
 
                 int instanceGroupId = instanceGroupCounter++;
 
                 for (int sm = 0; sm < submeshCount; sm++)
                 {
-                    Material submeshMat = (sm == 0) ? entry.material : entry.extraSubmeshMaterials[sm - 1];
+                    Material submeshMat = entry.GetSubmeshMaterial(lod, sm);
                     if (submeshMat == null)
                     {
-                        Debug.LogWarning($"[ImpostorRenderer] '{entry.name}' LOD{lod} submesh {sm} has a null material — skipped.");
+                        Debug.LogError($"[ImpostorRenderer] '{entry.name}' LOD{lod} submesh {sm} has a null material " +
+                            "— that submesh will NOT render (missing geometry, not a colour/texture bug). " +
+                            "Check submeshMaterialsPerLOD for this LOD on this prototype.");
                         continue;
                     }
 
@@ -1156,7 +1181,7 @@ public class ImpostorRenderer : MonoBehaviour
             buckets[b].instanceOffset = alloc.offset;
 
             capReport.AppendLine($"  bucket {b} (proto {buckets[b].protoIdx}, LOD {buckets[b].lod}, " +
-                $"mesh={buckets[b].mesh?.name ?? "null"}): cap={cap}, offset={buckets[b].instanceOffset}");
+                $"mesh={SafeName(buckets[b].mesh)}): cap={cap}, offset={buckets[b].instanceOffset}");
         }
         totalInstanceCapacity = running;
 
@@ -1704,14 +1729,14 @@ public class ImpostorRenderer : MonoBehaviour
                 {
                     Debug.LogWarning($"[ImpostorRenderer] Bucket {b} OVERFLOW: wanted {wanted}, cap {cap}, " +
                         $"dropped {wanted - cap} (proto {buckets[b].protoIdx}, LOD {buckets[b].lod}, " +
-                        $"mesh={buckets[b].mesh?.name ?? "null"}). Dropped instances vary per frame → strobing.");
+                        $"mesh={SafeName(buckets[b].mesh)}). Dropped instances vary per frame → strobing.");
                 }
                 else if (wanted > cap * 0.5f)
                 {
                     // Early warning while authoring: this spot is close to the ceiling, so a
                     // slightly denser area elsewhere would start strobing.
                     Debug.Log($"[ImpostorRenderer] Bucket {b} at {(wanted * 100f / cap):F0}% capacity " +
-                        $"({wanted}/{cap}, LOD {buckets[b].lod}, mesh={buckets[b].mesh?.name ?? "null"}).");
+                        $"({wanted}/{cap}, LOD {buckets[b].lod}, mesh={SafeName(buckets[b].mesh)}).");
                 }
             }
         });
@@ -1748,7 +1773,7 @@ public class ImpostorRenderer : MonoBehaviour
 
             float pct = cap > 0 ? peak * 100f / cap : 0f;
             string flag = peak > cap ? "  ** OVERFLOWED **" : (pct > 80f ? "  (near limit)" : "");
-            sb.AppendLine($"  bucket {b} LOD{buckets[b].lod} {buckets[b].mesh?.name ?? "null"}: " +
+            sb.AppendLine($"  bucket {b} LOD{buckets[b].lod} {SafeName(buckets[b].mesh)}: " +
                 $"peak {peak}/{cap} ({pct:F0}%){flag}");
         }
         Debug.Log(sb.ToString());

@@ -108,7 +108,18 @@ uint _MaxDistanceBatches;
 // ---- Variable-length LOD distances + per-LOD keep fractions ----
 StructuredBuffer<uint2> _ProtoLODInfo;         // x = offset into flat arrays, y = count
 StructuredBuffer<float> _ProtoLODDistancesFlat;// per-LOD max distance
-StructuredBuffer<float> _ProtoKeepFractions;   // per-LOD density keep fraction [0,1]
+StructuredBuffer<float> _ProtoKeepFractions;
+StructuredBuffer<float> _ProtoWidthMultipliers; // per-LOD horizontal (X/Z) scale multiplier
+
+// Per-prototype, per-LOD width multiplier. Lets far LODs use FEWER but WIDER instances:
+// thinning density alone leaves gaps, widening the survivors keeps coverage looking solid at a
+// fraction of the instance count. Clamps to the last entry so a short table still covers high LODs.
+float WidthMultiplierForLOD(uint protoIdx, uint lod)
+{
+    uint2 info = _ProtoLODInfo[protoIdx];
+    if (info.y == 0) return 1.0;
+    return _ProtoWidthMultipliers[info.x + min(lod, info.y - 1)];
+}   // per-LOD density keep fraction [0,1]
 
 float4 _FrustumPlanes[6];
 float3 _CameraPos; float _PlayerAltitude;
@@ -563,8 +574,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             float4 params = _ProtoBlotchParamsBuffer[protoIdx];
             float radius   = UnpackBlotchRadius(bl.seedAndDensity);   // per-blotch, no longer per-prototype
             float density  = UnpackBlotchDensity(bl.seedAndDensity);  // per-blotch, no longer per-prototype
-            float fadeStart = params.z;      // fade shape stays prototype-level (by design)
-            bool  fadeEnabled = params.w > 0.5;
             uint conflict = UnpackConflict(bl.packedMeta);
             uint seed = bl.seedAndDensity & 0xFFFFu;
             float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
@@ -578,17 +587,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                 uint h1 = pcg_hash(hi); uint h2 = pcg_hash(h1 + 1);
                 float ang = (h1 / 4294967296.0) * 6.283185;
                 float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
-
-                if (fadeEnabled && radius > 0.001)
-                {
-                    float normalizedDist = dst / radius;
-                    if (normalizedDist > fadeStart)
-                    {
-                        float fadeFactor = 1.0 - (normalizedDist - fadeStart) / max(1.0 - fadeStart, 0.0001);
-                        uint fadeHash = pcg_hash(hi + 31337u);
-                        if ((fadeHash / 4294967296.0) > fadeFactor) continue;
-                    }
-                }
 
                 float angularDst = dst / _SphereRadius;
                 float uv_dx = cos(ang) * angularDst;
@@ -626,6 +624,7 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                         if (perBucketSlot < BucketCapacity(bucketIdx))
                         {
                             float2 scales = ComputeSizeScales(protoIdx, hi);
+    scales.y *= WidthMultiplierForLOD(protoIdx, selectedLOD);
                             uint globalSlot = BucketOffset(bucketIdx) + perBucketSlot;
                             _InstanceOutputBuffer[globalSlot].worldPos = wp;
                             _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, selectedLOD, rotQ, 128);
@@ -741,26 +740,12 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
 
     float4 params = _ProtoBlotchParamsBuffer[protoIdx];
     float radius    = UnpackBlotchRadius(bl.seedAndDensity);
-    float fadeStart = params.z;
-    bool  fadeEnabled = params.w > 0.5;
     uint seed = bl.seedAndDensity & 0xFFFFu;
 
     uint hi = (seed << 16) | (inst & 0xFFFFu);
     uint h1 = pcg_hash(hi); uint h2 = pcg_hash(h1 + 1);
     float ang = (h1 / 4294967296.0) * 6.283185;
     float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
-
-    // Radius density fade (existing feature).
-    if (fadeEnabled && radius > 0.001)
-    {
-        float normalizedDist = dst / radius;
-        if (normalizedDist > fadeStart)
-        {
-            float fadeFactor = 1.0 - (normalizedDist - fadeStart) / max(1.0 - fadeStart, 0.0001);
-            uint fadeHash = pcg_hash(hi + 31337u);
-            if ((fadeHash / 4294967296.0) > fadeFactor) return;
-        }
-    }
 
     float angularDst = dst / _SphereRadius;
     float uv_dx = cos(ang) * angularDst;
@@ -820,6 +805,7 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     if (perBucketSlot >= BucketCapacity(bucketIdx)) return;
 
     float2 scales = ComputeSizeScales(protoIdx, hi);
+    scales.y *= WidthMultiplierForLOD(protoIdx, selectedLOD);
     uint globalSlot = BucketOffset(bucketIdx) + perBucketSlot;
     _InstanceOutputBuffer[globalSlot].worldPos = wp;
     _InstanceOutputBuffer[globalSlot].packedMeta = PackMeta(protoIdx, selectedLOD, rotQ, 128);

@@ -90,8 +90,8 @@ public static class UnityTreePrototypeMapper
         System.Collections.Generic.HashSet<int> usedUnityIndices)
     {
         // Pass 1: exact prefab reference match, if the entry's source is itself the tree prefab.
-        GameObject entryPrefab = entry.lodGameObjects != null && entry.lodGameObjects.Length > 0
-            ? entry.lodGameObjects[0] : null;
+        // lodGameObjects was removed (the prefab itself handles LOD now) — match on sourcePrefab.
+        GameObject entryPrefab = entry.sourcePrefab;
         if (entryPrefab != null)
         {
             for (int t = 0; t < treeProtos.Length; t++)

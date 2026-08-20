@@ -181,6 +181,20 @@ public class SizeVariabilitySettings
 [CreateAssetMenu(fileName = "MapObjectPrototypeRegistry", menuName = "STPTME/Map Object Prototype Registry")]
 public class MapObjectPrototypeRegistry : ScriptableObject
 {
+    /// <summary>Wraps a plain Material[] so it serializes as a 2D structure in the Inspector —
+    /// Unity doesn't support Material[][] directly. One instance per LOD, index-aligned with
+    /// lodMeshes, so submesh count can genuinely vary per LOD (see submeshMaterialsPerLOD's
+    /// tooltip on MapObjectPrototypeEntry for why that's necessary).</summary>
+    [Serializable]
+    public class SubmeshMaterialsPerLOD
+    {
+        public Material[] submeshMaterials;
+
+        public Material ForSubmesh(int submeshIndex)
+            => (submeshMaterials != null && submeshIndex >= 0 && submeshIndex < submeshMaterials.Length)
+                ? submeshMaterials[submeshIndex] : null;
+    }
+
     [Serializable]
     public class MapObjectPrototypeEntry
     {
@@ -213,23 +227,38 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                + "When shouldInstance=false, LOD1+ also uses these GameObjects instead of instancing.")]
         public GameObject[] lodGameObjects;
 
-        [Tooltip("Shared material for all LODs (should support GPU instancing when shouldInstance=true).")]
-        public Material material;
+        [Tooltip("Materials for each LOD's submeshes, index-aligned with lodMeshes (element i " +
+                 "describes lodMeshes[i]'s submeshes, in submesh order).\n\n" +
+                 "SUBMESH COUNT VARIES PER LOD — this is why it's per-LOD rather than one shared " +
+                 "list. A hand-authored LOD6 (one triangle) genuinely has 1 submesh even if LOD0 " +
+                 "has 3; a flat list shared across every LOD cannot represent that, and silently " +
+                 "mismatches whichever LOD it doesn't fit — which is exactly what happened before " +
+                 "this was made per-LOD.\n\n" +
+                 "Use 'Sync Submesh Materials From Meshes' on the registry to resize every LOD's " +
+                 "list to match its mesh's real submesh count, then fill in the (correctly sized, " +
+                 "now-empty) slots. A single-material mesh just needs 1 slot filled per LOD.")]
+        public SubmeshMaterialsPerLOD[] submeshMaterialsPerLOD;
 
-        [Tooltip("Materials for submeshes 1..N, when the source mesh has more than one material.\n\n" +
-                 "A prefab with 3 materials on one MeshRenderer has a mesh with 3 SUBMESHES — each a " +
-                 "separate index range needing its own draw call and material. The instancing pipeline " +
-                 "otherwise draws ONLY submesh 0, rendering a partial mesh: the missing triangles make " +
-                 "the object look torn into offset fragments rather than simply missing a colour.\n\n" +
-                 "Leave EMPTY for single-material meshes. Otherwise put submesh 0's material in " +
-                 "'material' above and submeshes 1,2,... here IN ORDER (element 0 = submesh 1). Order " +
-                 "must match the mesh's submesh order = the material order on the original prefab's " +
-                 "Renderer.\n\n" +
-                 "All submeshes share ONE set of instances (identical positions/rotations); only the " +
-                 "draw call and material differ, so extra submeshes cost draw calls, not instance memory.")]
-        public Material[] extraSubmeshMaterials;
+        /// <summary>Material for a specific LOD's specific submesh, or null if out of range /
+        /// unassigned. The single place both array dimensions are indexed together.</summary>
+        public Material GetSubmeshMaterial(int lod, int submeshIndex)
+        {
+            if (submeshMaterialsPerLOD == null || lod < 0 || lod >= submeshMaterialsPerLOD.Length)
+                return null;
+            var entry = submeshMaterialsPerLOD[lod];
+            return entry != null ? entry.ForSubmesh(submeshIndex) : null;
+        }
 
-        // ── Dimensions ──────────────────────────────────────────────────────
+        /// <summary>Number of submesh material slots authored for a given LOD (not necessarily
+        /// the mesh's real submesh count — see the registry's sync tool to reconcile the two).</summary>
+        public int GetSubmeshMaterialCount(int lod)
+        {
+            if (submeshMaterialsPerLOD == null || lod < 0 || lod >= submeshMaterialsPerLOD.Length)
+                return 0;
+            var entry = submeshMaterialsPerLOD[lod];
+            return (entry?.submeshMaterials != null) ? entry.submeshMaterials.Length : 0;
+        }
+
         [Tooltip("Base width in world units (scale=1.0). Instance's widthScale multiplies this.")]
         public float baseWidth = 1f;
 
@@ -488,8 +517,9 @@ public class MapObjectPrototypeRegistry : ScriptableObject
             return lodMeshes[clampedLOD];
         }
 
-        /// <summary>Returns true if this entry has valid render data.</summary>
-        public bool IsValid => lodMeshes != null && lodMeshes.Length > 0 && lodMeshes[0] != null && material != null;
+        /// <summary>Returns true if this entry has valid render data (LOD0 mesh + LOD0's submesh 0 material).</summary>
+        public bool IsValid => lodMeshes != null && lodMeshes.Length > 0 && lodMeshes[0] != null
+            && GetSubmeshMaterial(0, 0) != null;
 
         /// <summary>True when the prototype has >= 2 LODs so the last entry is used as a billboard.</summary>
         public bool HasBillboardLOD => lodMeshes != null && lodMeshes.Length >= 2;
@@ -513,6 +543,97 @@ public class MapObjectPrototypeRegistry : ScriptableObject
 
     [Tooltip("One entry per prototype index. Index in this array = prototypeIndex from baked data.")]
     public MapObjectPrototypeEntry[] entries;
+
+#if UNITY_EDITOR
+    /// <summary>
+    /// Resizes every entry's submeshMaterialsPerLOD to match each LOD mesh's REAL subMeshCount,
+    /// preserving already-assigned materials at matching slots and only adding/removing empty
+    /// slots at the end. Run this after changing any mesh's submesh layout (re-exporting from
+    /// Blender, merging/splitting materials, hand-authoring a new LOD, etc.) — it turns "guess
+    /// how many slots this LOD needs" into "click sync, then fill in the empty slots it made."
+    /// </summary>
+    [ContextMenu("Sync Submesh Materials From Meshes")]
+    public void SyncSubmeshMaterialsFromMeshes()
+    {
+        if (entries == null) return;
+        int changedEntries = 0, changedSlots = 0, autoFilledSlots = 0;
+
+        for (int ei = 0; ei < entries.Length; ei++)
+        {
+            var e = entries[ei];
+            if (e?.lodMeshes == null) continue;
+
+            if (e.submeshMaterialsPerLOD == null || e.submeshMaterialsPerLOD.Length != e.lodMeshes.Length)
+            {
+                var resized = new SubmeshMaterialsPerLOD[e.lodMeshes.Length];
+                for (int lod = 0; lod < resized.Length; lod++)
+                {
+                    resized[lod] = (e.submeshMaterialsPerLOD != null && lod < e.submeshMaterialsPerLOD.Length)
+                        ? e.submeshMaterialsPerLOD[lod]
+                        : new SubmeshMaterialsPerLOD();
+                }
+                e.submeshMaterialsPerLOD = resized;
+                changedEntries++;
+            }
+
+            for (int lod = 0; lod < e.lodMeshes.Length; lod++)
+            {
+                if (e.lodMeshes[lod] == null) continue;
+
+                int realSubmeshCount = Mathf.Max(1, e.lodMeshes[lod].subMeshCount);
+                var perLod = e.submeshMaterialsPerLOD[lod] ??= new SubmeshMaterialsPerLOD();
+                var oldMats = perLod.submeshMaterials;
+
+                if (oldMats != null && oldMats.Length == realSubmeshCount) continue; // already correct
+
+                var newMats = new Material[realSubmeshCount];
+                if (oldMats != null)
+                {
+                    // Preserve existing assignments at matching indices — resizing shouldn't
+                    // discard work already done on the slots that still line up.
+                    for (int sm = 0; sm < Mathf.Min(oldMats.Length, realSubmeshCount); sm++)
+                        newMats[sm] = oldMats[sm];
+                }
+                perLod.submeshMaterials = newMats;
+                changedSlots++;
+            }
+
+            // ── Auto-fill the UNAMBIGUOUS case ──────────────────────────────────
+            // A single-submesh LOD has exactly one slot to fill, and sourcePrefab's own
+            // renderer is the one remaining source of truth for what that material should be
+            // (the old flat `material` field this data used to live in was removed). Only
+            // applies when the prefab's renderer itself has exactly one material — with 2+,
+            // which one is "the" material is genuinely ambiguous and stays manual rather than
+            // guessing (e.g. picking sharedMaterials[0] could silently assign the wrong one).
+            if (e.sourcePrefab != null)
+            {
+                var renderer = e.sourcePrefab.GetComponentInChildren<Renderer>();
+                if (renderer != null && renderer.sharedMaterials != null && renderer.sharedMaterials.Length == 1
+                    && renderer.sharedMaterials[0] != null)
+                {
+                    Material singleMat = renderer.sharedMaterials[0];
+                    for (int lod = 0; lod < e.lodMeshes.Length; lod++)
+                    {
+                        if (e.lodMeshes[lod] == null) continue;
+                        var perLod = e.submeshMaterialsPerLOD[lod];
+                        if (perLod?.submeshMaterials == null || perLod.submeshMaterials.Length != 1) continue;
+                        if (perLod.submeshMaterials[0] != null) continue; // don't overwrite an existing assignment
+
+                        perLod.submeshMaterials[0] = singleMat;
+                        autoFilledSlots++;
+                    }
+                }
+            }
+        }
+
+        UnityEditor.EditorUtility.SetDirty(this);
+        Debug.Log($"[MapObjectPrototypeRegistry] Sync complete: resized {changedEntries} entr{(changedEntries == 1 ? "y" : "ies")}, " +
+            $"{changedSlots} LOD material list(s) adjusted to match their mesh's real submesh count, " +
+            $"{autoFilledSlots} single-submesh slot(s) auto-filled from sourcePrefab. " +
+            "Check the Inspector for any remaining empty slots (multi-submesh LODs still need manual assignment).");
+    }
+#endif
+
 
     // ── LOD pruning density ──────────────────────────────────────────────
     [Tooltip("Percentage of instances kept for each mesh LOD. Index 0 = keep percentage for LOD1, "
@@ -612,10 +733,22 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                 else if (p.lodMeshes[0] == null)
                     Debug.LogWarning($"[MapObjectPrototypeRegistry] {name}: Entry[{i}] '{p.name}' LOD0 mesh is null");
 
-                if (p.material == null)
-                    Debug.LogWarning($"[MapObjectPrototypeRegistry] {name}: Entry[{i}] '{p.name}' has no material (required for LOD1+ instancing)");
-                else if (!p.material.enableInstancing)
-                    Debug.LogWarning($"[MapObjectPrototypeRegistry] {name}: Entry[{i}] '{p.name}' material doesn't have GPU Instancing enabled");
+                var m0 = p.GetSubmeshMaterial(0, 0);
+                if (m0 == null)
+                    Debug.LogWarning($"[MapObjectPrototypeRegistry] {name}: Entry[{i}] '{p.name}' has no LOD0 submesh-0 material (required for LOD1+ instancing)");
+                else if (!m0.enableInstancing)
+                    Debug.LogWarning($"[MapObjectPrototypeRegistry] {name}: Entry[{i}] '{p.name}' LOD0 submesh-0 material doesn't have GPU Instancing enabled");
+
+                for (int lod = 0; lod < p.lodMeshes.Length; lod++)
+                {
+                    if (p.lodMeshes[lod] == null) continue;
+                    int meshSubmeshes = p.lodMeshes[lod].subMeshCount;
+                    int authoredSlots = p.GetSubmeshMaterialCount(lod);
+                    if (meshSubmeshes != authoredSlots)
+                        Debug.LogWarning($"[MapObjectPrototypeRegistry] {name}: Entry[{i}] '{p.name}' LOD{lod} mesh " +
+                            $"'{p.lodMeshes[lod].name}' has {meshSubmeshes} submesh(es) but {authoredSlots} material " +
+                            "slot(s) are authored — run 'Sync Submesh Materials From Meshes' to fix.");
+                }
             }
             else
             {

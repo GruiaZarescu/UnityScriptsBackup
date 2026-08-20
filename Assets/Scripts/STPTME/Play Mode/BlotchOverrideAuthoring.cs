@@ -104,14 +104,10 @@ public class BlotchOverrideAuthoring : MonoBehaviour
 
             bool hasOverride = Lookup.TryGetValue(seed, out Entry ov);
             float radius = hasOverride ? ov.radius : 0f;
-            bool haveDefaultRadius = false;
 
-            if (!hasOverride && registryForGizmoPreview != null
-                && tree.prototypeIndex >= 0 && tree.prototypeIndex < registryForGizmoPreview.entries.Length)
-            {
-                var proto = registryForGizmoPreview.entries[tree.prototypeIndex];
-                if (proto != null) { radius = proto.blotchRadius; haveDefaultRadius = true; }
-            }
+            // Per-prototype blotchRadius was removed — radius now lives per-instance in
+            // BlotchOverrideDatabase. With no override present there is no default to preview,
+            // so the gizmo simply isn't drawn for that tree.
 
             Gizmos.color = hasOverride ? overriddenColor : defaultColor;
 

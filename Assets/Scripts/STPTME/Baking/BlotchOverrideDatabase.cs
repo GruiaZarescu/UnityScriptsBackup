@@ -72,24 +72,9 @@ public class BlotchOverrideDatabase : ScriptableObject
     [Header("Migration (one-time, editor only)")]
     [SerializeField] private MapObjectPrototypeRegistry migrationSourceRegistry;
 
-    #if UNITY_EDITOR
-    [ContextMenu("Migrate Prototype Defaults From Registry")]
-    public void MigrateFromRegistry()
-    {
-        if (migrationSourceRegistry?.entries == null)
-        {
-            Debug.LogWarning("[BlotchOverrideDatabase] Assign migrationSourceRegistry before running migration.");
-            return;
-        }
-        for (int i = 0; i < migrationSourceRegistry.entries.Length; i++)
-        {
-            var e = migrationSourceRegistry.entries[i];
-            if (e == null) continue;
-            SetPrototypeDefault(i, e.blotchRadius, e.blotchDensity);
-        }
-        Debug.Log($"[BlotchOverrideDatabase] Migrated {migrationSourceRegistry.entries.Length} prototype defaults.");
-    }
-    #endif
+    // MigrateFromRegistry() was removed along with the registry's per-prototype
+    // blotchRadius/blotchDensity fields it copied from. Prototype defaults are now authored
+    // directly in this database (SetPrototypeDefault) rather than seeded from the registry.
 
     [SerializeField] private List<Entry> overrides = new List<Entry>();
 
