@@ -111,6 +111,11 @@ StructuredBuffer<float> _ProtoLODDistancesFlat;// per-LOD max distance
 StructuredBuffer<float> _ProtoKeepFractions;
 StructuredBuffer<float> _ProtoWidthMultipliers; // per-LOD horizontal (X/Z) scale multiplier
 
+// Debug trace: writes (instDist, coarseAlt, survived, distBandLOD) for one prototype's first
+// few per-blotch instances, to directly observe a survive/cull flip across frames.
+int _DebugTraceProtoIdx;
+RWStructuredBuffer<uint4> _DebugTraceOutputBuffer;
+
 // Per-prototype, per-LOD width multiplier. Lets far LODs use FEWER but WIDER instances:
 // thinning density alone leaves gaps, widening the survivors keeps coverage looking solid at a
 // fraction of the instance count. Clamps to the last entry so a short table still covers high LODs.
@@ -778,7 +783,22 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float instDist = length(approxWp - _EyePos);
 
     uint distBandLOD;
-    if (!SelectLODByDistance(protoIdx, instDist, distBandLOD)) return; // beyond max -> cull
+    bool survived = SelectLODByDistance(protoIdx, instDist, distBandLOD);
+
+    // Targeted trace for debugging a specific prototype's instance-level flicker. Logs the
+    // exact distance estimate and outcome for one blotch's first few instances, so a survive/cull
+    // flip between two frames can be compared directly instead of inferred from symptoms.
+    if (protoIdx == _DebugTraceProtoIdx && inst < 3)
+    {
+        // Note: instDist uses a COARSE per-chunk heightmap sample (coarseAlt), not the
+        // instance's real height — if this estimate sits near a lodDistancesVariable threshold,
+        // tiny _EyePos changes from camera movement can flip distBandLOD frame to frame with no
+        // relation to the player's actual distance from this specific plant.
+        _DebugTraceOutputBuffer[inst] = uint4(
+            asuint(instDist), asuint(coarseAlt), survived ? 1u : 0u, distBandLOD);
+    }
+
+    if (!survived) return; // beyond max -> cull
 
     // Density pruning keyed to the distance band (thins far grass even if it reuses a mesh).
     float keep = KeepFractionForLOD(protoIdx, distBandLOD);

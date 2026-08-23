@@ -168,6 +168,8 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer protoLODInfoBuffer;
     private ComputeBuffer protoLODDistancesFlatBuffer;
     private ComputeBuffer protoKeepFractionsBuffer;
+    private ComputeBuffer protoWidthMultipliersBuffer;  // per-proto per-LOD width scale
+    private ComputeBuffer debugTraceOutputBuffer;        // per-instance distance/culling trace
     private ComputeBuffer cellStartPosBuffer;
 
     private int kernelCountDistance;
@@ -831,6 +833,9 @@ public class ImpostorRenderer : MonoBehaviour
             CheckBucketOverflow();
         }
 
+        // Runs after the solve dispatches, so the buffer holds this frame's instances.
+        DebugInstanceScale();
+
         DrawIndirect();
     }
 
@@ -1218,31 +1223,46 @@ public class ImpostorRenderer : MonoBehaviour
         var infoPacked   = new uint[protoCount * 2]; // (offset, count) per proto
         var flatDistances = new List<float>();
         var flatKeeps     = new List<float>();
+        var flatWidths    = new List<float>();
 
         for (int i = 0; i < protoCount; i++)
         {
             var e = prototypeRegistry.entries[i];
             int offset = flatDistances.Count;
-            int count = 0;
 
-            if (e != null && e.useDistanceLOD &&
-                e.lodDistancesVariable != null && e.lodDistancesVariable.Length > 0)
+            // Distances are only meaningful for useDistanceLOD prototypes. Keep fractions and
+            // width multipliers are read from this SAME table by the per-chunk-LOD kernel too
+            // (via selectedLOD = mesh LOD), independent of useDistanceLOD — so gating the whole
+            // table's length behind useDistanceLOD leaves count==0 for non-distance prototypes,
+            // making KeepFractionForLOD/WidthMultiplierForLOD silently no-op for them.
+            int distCount = (e != null && e.useDistanceLOD && e.lodDistancesVariable != null)
+                ? e.lodDistancesVariable.Length : 0;
+            int keepCount = (e?.lodKeepFractions != null) ? e.lodKeepFractions.Length : 0;
+            int widthCount = (e?.lodWidthMultipliers != null) ? e.lodWidthMultipliers.Length : 0;
+
+            // For a distance-mode prototype count must be EXACTLY distCount: SelectLODByDistance
+            // treats "no threshold matched within count" as cull, and the padding sentinel below
+            // (float.MaxValue) is greater than any real distance — so extending count past
+            // distCount would create a slot that matches everything, disabling culling.
+            int count = (distCount > 0) ? distCount : Mathf.Max(keepCount, widthCount);
+
+            for (int l = 0; l < count; l++)
             {
-                count = e.lodDistancesVariable.Length;
-                for (int l = 0; l < count; l++)
-                {
-                    flatDistances.Add(e.lodDistancesVariable[l]);
-                    float keep = (e.lodKeepFractions != null && l < e.lodKeepFractions.Length)
-                        ? Mathf.Clamp01(e.lodKeepFractions[l]) : 1f;
-                    flatKeeps.Add(keep);
-                }
+                flatDistances.Add(l < distCount ? e.lodDistancesVariable[l] : float.MaxValue);
+
+                float keep = (l < keepCount) ? Mathf.Clamp01(e.lodKeepFractions[l]) : 1f;
+                flatKeeps.Add(keep);
+
+                float width = (l < widthCount) ? e.lodWidthMultipliers[l] : 1f;
+                flatWidths.Add(Mathf.Max(0.001f, width));
             }
+
             infoPacked[i * 2 + 0] = (uint)offset;
             infoPacked[i * 2 + 1] = (uint)count;
         }
 
-        // Buffers must be non-empty even if no prototype uses distance LOD.
-        if (flatDistances.Count == 0) { flatDistances.Add(0f); flatKeeps.Add(1f); }
+        // Buffers must be non-empty even if no prototype has any per-LOD table.
+        if (flatDistances.Count == 0) { flatDistances.Add(0f); flatKeeps.Add(1f); flatWidths.Add(1f); }
 
         protoLODInfoBuffer = new ComputeBuffer(protoCount, sizeof(uint) * 2, ComputeBufferType.Structured);
         protoLODInfoBuffer.SetData(infoPacked);
@@ -1252,6 +1272,17 @@ public class ImpostorRenderer : MonoBehaviour
 
         protoKeepFractionsBuffer = new ComputeBuffer(flatKeeps.Count, sizeof(float), ComputeBufferType.Structured);
         protoKeepFractionsBuffer.SetData(flatKeeps.ToArray());
+
+        // WITHOUT THIS the compute shader's _ProtoWidthMultipliers is an UNBOUND buffer. It is
+        // declared and read (WidthMultiplierForLOD, multiplied into scales.y at both instance
+        // write sites), so an unbound read returns undefined values that differ per dispatch —
+        // instances render at wildly wrong scale (tiny one moment, astronomic the next) while
+        // their POSITION stays correct, because only the scale term is affected.
+        protoWidthMultipliersBuffer = new ComputeBuffer(flatWidths.Count, sizeof(float), ComputeBufferType.Structured);
+        protoWidthMultipliersBuffer.SetData(flatWidths.ToArray());
+
+        // 4 uints per slot (instDist bits, coarseAlt bits, survived, distBandLOD), 3 slots.
+        debugTraceOutputBuffer = new ComputeBuffer(3, sizeof(uint) * 4, ComputeBufferType.Structured);
     }
 
     private void ResetArgsBuffer()
@@ -1363,6 +1394,13 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoLODInfo", protoLODInfoBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoLODDistancesFlat", protoLODDistancesFlatBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoKeepFractions", protoKeepFractionsBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoWidthMultipliers", protoWidthMultipliersBuffer);
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_DebugTraceOutputBuffer", debugTraceOutputBuffer);
+        impostorSolverCompute.SetInt("_DebugTraceProtoIdx", debugScaleProtoIndex);
+        // kernelExpand reads WidthMultiplierForLOD too, which indexes via _ProtoLODInfo.
+        impostorSolverCompute.SetBuffer(kernelExpand, "_ProtoWidthMultipliers", protoWidthMultipliersBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, "_ProtoKeepFractions", protoKeepFractionsBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, "_ProtoLODInfo", protoLODInfoBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ActiveLOD0SliceMap, activeLOD0SliceMap);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, ShaderIDs.ActiveLOD0ResolutionMap, activeLOD0ResolutionMap);
         impostorSolverCompute.SetTexture(kernelGenerateDistance, ShaderIDs.ActiveLOD0HeightmapArray, activeLOD0HeightmapArray);
@@ -1459,6 +1497,8 @@ public class ImpostorRenderer : MonoBehaviour
         protoLODInfoBuffer?.Release();         protoLODInfoBuffer = null;
         protoLODDistancesFlatBuffer?.Release();protoLODDistancesFlatBuffer = null;
         protoKeepFractionsBuffer?.Release();   protoKeepFractionsBuffer = null;
+        protoWidthMultipliersBuffer?.Release(); protoWidthMultipliersBuffer = null;
+        debugTraceOutputBuffer?.Release();       debugTraceOutputBuffer = null;
         cellStartPosBuffer?.Release(); cellStartPosBuffer = null;
         chunkWidthRatioBuffer?.Release(); chunkWidthRatioBuffer = null;
     }
@@ -1722,6 +1762,130 @@ public class ImpostorRenderer : MonoBehaviour
     // worst spot unless you happen to be standing in it.
     private uint[] _bucketPeakDemand;
 
+    [Header("Scale Debug")]
+    [Tooltip("Prototype index to inspect with the instance scale readback. -1 = off. " +
+             "Reads the FIRST instance of that prototype's largest-count bucket.")]
+    [SerializeField] private int debugScaleProtoIndex = -1;
+    private float _lastScaleDebugTime;
+
+    /// <summary>
+    /// Reads back one real instance for a chosen prototype and reports its final scale factors.
+    /// Targets that prototype's own bucket — reading slot 0 blindly is useless because slot 0
+    /// belongs to bucket 0, whose region is only written if that particular prototype has
+    /// instances nearby (otherwise it reads as all zeros and tells you nothing).
+    /// </summary>
+    private void DebugInstanceScale()
+    {
+        if (debugScaleProtoIndex < 0 || buckets == null || instanceOutputBuffer == null) return;
+        if (Time.time - _lastScaleDebugTime < 1f) return;
+        _lastScaleDebugTime = Time.time;
+
+        // Keep the shader's copy in sync with live Inspector edits — the value set at init
+        // won't reflect changes made while playing otherwise.
+        if (impostorSolverCompute != null)
+            impostorSolverCompute.SetInt("_DebugTraceProtoIdx", debugScaleProtoIndex);
+
+        if (debugTraceOutputBuffer != null)
+        {
+            AsyncGPUReadback.Request(debugTraceOutputBuffer, (treq) =>
+            {
+                if (treq.hasError) return;
+                var td = treq.GetData<uint>();
+                if (td.Length < 12) return; // 3 slots * 4 uints
+
+                for (int slot = 0; slot < 3; slot++)
+                {
+                    int o = slot * 4;
+                    if (td[o] == 0 && td[o + 1] == 0 && td[o + 2] == 0 && td[o + 3] == 0) continue; // never written
+
+                    float instDist = System.BitConverter.Int32BitsToSingle((int)td[o + 0]);
+                    float coarseAlt = System.BitConverter.Int32BitsToSingle((int)td[o + 1]);
+                    bool survived = td[o + 2] != 0;
+                    uint distBandLOD = td[o + 3];
+                    Debug.Log($"[DistTrace] proto={debugScaleProtoIndex} inst={slot}: instDist={instDist:F2} " +
+                        $"coarseAlt={coarseAlt:F2} survived={survived} distBandLOD={distBandLOD}");
+                }
+            });
+        }
+
+        // Find a bucket belonging to this prototype.
+        int targetBucket = -1;
+        for (int b = 0; b < bucketCount; b++)
+        {
+            if (buckets[b].protoIdx == debugScaleProtoIndex) { targetBucket = b; break; }
+        }
+        if (targetBucket < 0)
+        {
+            Debug.LogWarning($"[ScaleDebug] No bucket found for prototype {debugScaleProtoIndex}.");
+            return;
+        }
+
+        int byteOffset = buckets[targetBucket].instanceOffset * INSTANCE_STRIDE;
+        int lod = buckets[targetBucket].lod;
+
+        AsyncGPUReadback.Request(instanceOutputBuffer, INSTANCE_STRIDE, byteOffset, (req) =>
+        {
+            if (req.hasError) { Debug.LogError("[ScaleDebug] Readback error."); return; }
+            var d = req.GetData<uint>();
+            if (d.Length < 8) return;
+
+            // InstanceData: worldPos(3f), heightScale(f), packedMeta(u), seed(u), widthScale(f), pad3(u)
+            float px = System.BitConverter.Int32BitsToSingle((int)d[0]);
+            float py = System.BitConverter.Int32BitsToSingle((int)d[1]);
+            float pz = System.BitConverter.Int32BitsToSingle((int)d[2]);
+            float hScale = System.BitConverter.Int32BitsToSingle((int)d[3]);
+            uint packedMeta = d[4];
+            float wScale = System.BitConverter.Int32BitsToSingle((int)d[6]);
+
+            uint protoFromMeta = packedMeta & 0xFFu;
+            bool allZero = (d[0] | d[1] | d[2] | d[3] | d[4] | d[6]) == 0u;
+
+            if (allZero)
+            {
+                Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} bucket={targetBucket} LOD{lod}: " +
+                    "slot empty this frame (no instances emitted here) — move closer or pick another prototype.");
+                return;
+            }
+
+            Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} (meta says {protoFromMeta}) bucket={targetBucket} LOD{lod}: " +
+                $"pos=({px:F1},{py:F1},{pz:F1}) heightScale={hScale:F4} widthScale={wScale:F4}" +
+                (Mathf.Abs(hScale) > 100f || Mathf.Abs(wScale) > 100f || hScale <= 0f || wScale <= 0f
+                    ? "   <<< OUT OF SANE RANGE" : ""));
+
+            // The instance data is correct — but that only means it was WRITTEN. Whether it's
+            // DRAWN depends on the indirect args for this bucket, and on the prototype base
+            // scale the shader multiplies in. Read both: an instanceCount of 0 means the draw
+            // call renders nothing regardless of buffer contents, and a zero baseScale collapses
+            // the geometry to a point while position/scale factors still look perfect.
+            var b = buckets[targetBucket];
+            AsyncGPUReadback.Request(argsBuffer, 5 * sizeof(uint), b.argsBufferOffset, (areq) =>
+            {
+                if (areq.hasError) { Debug.LogError("[ScaleDebug] Args readback error."); return; }
+                var a = areq.GetData<uint>();
+                if (a.Length < 5) return;
+
+                string flag = a[1] == 0 ? "   <<< instanceCount is ZERO — nothing will be drawn" : "";
+                Debug.Log($"[ScaleDebug] bucket={targetBucket} ARGS: indexCount={a[0]} instanceCount={a[1]} " +
+                    $"startIndex={a[2]} baseVertex={a[3]} startInstance={a[4]}" +
+                    $"  (expected indexCount={b.indexCount}, startIndex={b.startIndex}, baseVertex={b.baseVertex}, " +
+                    $"submesh={b.submeshIndex}, capacity={b.instanceCapacity}, offset={b.instanceOffset}){flag}");
+            });
+
+            AsyncGPUReadback.Request(prototypeScalesBuffer, sizeof(float) * 3, debugScaleProtoIndex * sizeof(float) * 3, (sreq) =>
+            {
+                if (sreq.hasError) return;
+                var sc = sreq.GetData<uint>();
+                if (sc.Length < 3) return;
+                float sx = System.BitConverter.Int32BitsToSingle((int)sc[0]);
+                float sy = System.BitConverter.Int32BitsToSingle((int)sc[1]);
+                float sz = System.BitConverter.Int32BitsToSingle((int)sc[2]);
+                string zflag = (sx == 0f || sy == 0f || sz == 0f) ? "   <<< ZERO base scale — geometry collapses to a point" : "";
+                Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} baseScale=({sx:F4},{sy:F4},{sz:F4}) " +
+                    $"-> finalScale=({sx * wScale:F4},{sy * hScale:F4},{sz * wScale:F4}){zflag}");
+            });
+        });
+    }
+
     private void CheckBucketOverflow()
     {
         if (atomicCounters == null || bucketCount <= 0 || buckets == null) return;
@@ -1760,6 +1924,42 @@ public class ImpostorRenderer : MonoBehaviour
                 }
             }
         });
+
+        // Visible-chunk-list overflow. Same InterlockedAdd-then-drop pattern as the bucket
+        // overflow above, but for _VisibilityCount/_VisibleChunkList — chunk-level visibility,
+        // upstream of everything else in this pipeline. If the true number of frustum-visible
+        // chunks exceeds ConflictGridDefines.MaxVisibleChunks, InterlockedAdd's nondeterministic
+        // thread order means a DIFFERENT random subset of chunks wins a slot each frame — a
+        // chunk can drop in and out of the visible list purely because of which OTHER chunks won
+        // the race that frame, not because its own visibility genuinely changed. This looks
+        // exactly like "content flickers depending on camera angle while standing still", since
+        // panning the camera changes which chunks get tested and in what order threads reach the
+        // InterlockedAdd — nothing to do with any one prototype's density or poly count.
+        if (visibilityCountBuffer != null)
+        {
+            AsyncGPUReadback.Request(visibilityCountBuffer, (vreq) =>
+            {
+                if (vreq.hasError) return;
+                var vdata = vreq.GetData<uint>();
+                if (vdata.Length == 0) return;
+
+                uint wantedChunks = vdata[0];
+                int cap = ConflictGridDefines.MaxVisibleChunks;
+                if (wantedChunks > cap)
+                {
+                    Debug.LogWarning($"[ImpostorRenderer] VISIBLE CHUNK LIST OVERFLOW: wanted {wantedChunks} chunks, " +
+                        $"cap {cap} — {wantedChunks - cap} chunk(s) randomly dropped EACH FRAME. Foliage in the " +
+                        "dropped chunks flickers in/out based on which OTHER chunks win the race, which can look " +
+                        "like it's tied to camera angle even while standing still. This affects EVERY prototype " +
+                        "in the dropped chunks, not just one — raise ConflictGridDefines.MaxVisibleChunks.");
+                }
+                else if (wantedChunks > cap * 0.8f)
+                {
+                    Debug.Log($"[ImpostorRenderer] Visible chunk list at {(wantedChunks * 100f / cap):F0}% " +
+                        $"({wantedChunks}/{cap}).");
+                }
+            });
+        }
     }
 
     /// <summary>Dumps peak demand per bucket for the whole session. Call after walking the map.</summary>
