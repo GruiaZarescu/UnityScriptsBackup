@@ -401,6 +401,15 @@ public class MapObjectPrototypeRegistry : ScriptableObject
             + "Pruning is probabilistic and stable per-instance (no shimmer).")]
         [Range(0f, 1f)] public float[] lodKeepFractions = new float[] { 1f, 1f, 1f, 1f };
 
+        [Tooltip("PER-PROTOTYPE per-LOD horizontal (X/Z) width multiplier, applied on top of size " +
+               "variability. Index = LOD; the LAST entry is reused for any higher LOD. Pair a low " +
+               "lodKeepFractions value with a >1 width here: fewer but wider instances at far LODs " +
+               "keeps coverage looking solid at a fraction of the instance count.\n\n" +
+               "This must stay PER-PROTOTYPE (here, inside MapObjectPrototypeEntry) — a class-level " +
+               "version has been mistakenly reintroduced more than once, which silently disconnects " +
+               "it from the compute shader's per-prototype _ProtoWidthMultipliers buffer.")]
+        public float[] lodWidthMultipliers = new float[] { 1f, 1f, 1f, 1f };
+
         /// <summary>
         /// Returns canopy mask settings for this prototype at the given chunk LOD.
         /// The index is clamped to the last valid tree LOD (lodMeshes.Length - 1) so that
@@ -642,13 +651,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
            + "If a LOD exceeds this array, the last available element is reused.")]
     public int[] densityPerLOD = new int[] { 100, 90, 80, 75, 70 };
 
-    [Header("LOD Width Multipliers (Density Compensation)")]
-    [Tooltip("Per-LOD horizontal width multiplier applied at draw time to visually compensate "
-           + "for reduced instance density at far LODs. Index = LOD (0 = LOD0, 1 = LOD1, ...). "
-           + "LOD0 should stay 1.0. Height is never modified. "
-           + "Pairs with densityPerLOD: e.g. 90% density + 1.1x width ~ same perceived coverage.")]
-    public float[] lodWidthMultipliers = new float[] { 1f, 1.1f, 1.2f, 1.4f, 1.5f };
-
     // ── Far-LOD canopy colour palette ────────────────────────────────────
     [Header("Far-LOD Canopy Palette")]
     [ColorUsage(showAlpha: false),
@@ -692,16 +694,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         if (densityPerLOD == null || densityPerLOD.Length == 0) return 100;
         int index = Mathf.Clamp(lod - 1, 0, densityPerLOD.Length - 1);
         return Mathf.Clamp(densityPerLOD[index], 0, 100);
-    }
-
-    /// <summary>
-    /// Returns the draw-time horizontal width multiplier for a given LOD.
-    /// LOD0 defaults to 1.0 (interactive objects should not be resized).
-    /// </summary>
-    public float GetWidthMultiplierForLOD(int lod)
-    {
-        if (lodWidthMultipliers == null || lodWidthMultipliers.Length == 0) return 1f;
-        return lodWidthMultipliers[Mathf.Clamp(lod, 0, lodWidthMultipliers.Length - 1)];
     }
 
     // ── Validation ───────────────────────────────────────────────────────

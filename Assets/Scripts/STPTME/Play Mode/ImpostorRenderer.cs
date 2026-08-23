@@ -562,15 +562,17 @@ public class ImpostorRenderer : MonoBehaviour
                 bucketMap[mapIdx] = (uint)b;
         }
         
-        // DEBUG: Log bucket map entries for instanceAlways prototypes
+        // DEBUG: Log bucket map entries for every shouldInstance prototype (previously only
+        // instanceAlways ones were logged, which made it impossible to see whether normal
+        // shouldInstance trees actually got buckets at LOD1+ or not).
         var bucketMapDebug = new System.Text.StringBuilder();
-        bucketMapDebug.AppendLine("[ImpostorRenderer] Bucket map for instanceAlways prototypes:");
+        bucketMapDebug.AppendLine("[ImpostorRenderer] Bucket map for ALL shouldInstance prototypes:");
         for (int pi = 0; pi < prototypeRegistry.entries.Length; pi++)
         {
             var entry = prototypeRegistry.entries[pi];
-            if (entry != null && entry.instanceAlways)
+            if (entry != null && entry.shouldInstance)
             {
-                bucketMapDebug.AppendLine($"  [{pi}] '{entry.name}':");
+                bucketMapDebug.AppendLine($"  [{pi}] '{entry.name}' (instanceAlways={entry.instanceAlways}, maxLOD={(entry.lodMeshes != null ? entry.lodMeshes.Length - 1 : -1)}):");
                 for (int lod = 0; lod < MAX_LODS_PER_BUCKET; lod++)
                 {
                     uint bucketIdx = bucketMap[pi * MAX_LODS_PER_BUCKET + lod];
@@ -796,6 +798,24 @@ public class ImpostorRenderer : MonoBehaviour
             impostorSolverCompute.Dispatch(kernelCountDistance, ConflictGridDefines.MaxVisibleChunks, 1, 1);
             impostorSolverCompute.Dispatch(kernelFillBatchArgs, 1, 1, 1);
             impostorSolverCompute.DispatchIndirect(kernelGenerateDistance, batchDispatchArgsBuffer);
+        }
+
+        if (Time.frameCount % 60 == 0)
+        {
+            AsyncGPUReadback.Request(instanceOutputBuffer, 32, 0, (req) =>
+            {
+                if (req.hasError) return;
+                var data = req.GetData<uint>();
+                // InstanceData: worldPos(3 floats), heightScale(float), packedMeta(uint), seed(uint), widthScale(float), pad3(uint)
+                float wpx = System.BitConverter.Int32BitsToSingle((int)data[0]);
+                float wpy = System.BitConverter.Int32BitsToSingle((int)data[1]);
+                float wpz = System.BitConverter.Int32BitsToSingle((int)data[2]);
+                float hScale = System.BitConverter.Int32BitsToSingle((int)data[3]);
+                uint packedMeta = data[4];
+                float wScale = System.BitConverter.Int32BitsToSingle((int)data[6]);
+                uint protoIdx = packedMeta & 0xFFu;
+                Debug.Log($"[InstanceReadback] slot0: proto={protoIdx} pos=({wpx:F1},{wpy:F1},{wpz:F1}) heightScale={hScale:F4} widthScale={wScale:F4}");
+            });
         }
 
         // Fill draw args
