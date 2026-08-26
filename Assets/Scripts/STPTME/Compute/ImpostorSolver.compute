@@ -115,6 +115,8 @@ StructuredBuffer<float> _ProtoWidthMultipliers; // per-LOD horizontal (X/Z) scal
 // few per-blotch instances, to directly observe a survive/cull flip across frames.
 int _DebugTraceProtoIdx;
 RWStructuredBuffer<uint4> _DebugTraceOutputBuffer;
+RWStructuredBuffer<uint4> _DebugBlotchTraceBuffer; // blotch-level gate trace (CSCountDistanceBlotches)
+RWStructuredBuffer<uint4> _DebugChunkTraceBuffer;  // chunk-level trace, independent of prototype
 
 // Per-prototype, per-LOD width multiplier. Lets far LODs use FEWER but WIDER instances:
 // thinning density alone leaves gaps, widening the survivors keeps coverage looking solid at a
@@ -657,6 +659,32 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
     uint storageSlot = _VisibleChunkList[gid.x];
     if (storageSlot == 0xFFFFFFFF) return;
     uint chunkLOD = _GlobalChunkLODBuffer[storageSlot];
+    ChunkVisibilityData visForTrace = _ChunkVisibilityBuffer[storageSlot];
+    BlotchRange rangeForTrace = _BlotchOffsetBuffer[storageSlot];
+
+    // Chunk-level trace, INDEPENDENT of prototype. Tracks the chunk whose center is closest to
+    // the player, regardless of what's in it or whether it even reaches the blotch loop below.
+    // This exists because the blotch-level trace proved the compute shader's distance math is
+    // correct (a 19m-away blotch renders exactly as expected), yet it never found ANY blotch
+    // closer than 45-66m near the player — despite blotches being placed every ~4m covering the
+    // whole field. That contradiction can only be explained by something upstream of the
+    // per-blotch loop: either the player's own chunk isn't in _VisibleChunkList at all (so this
+    // whole function returns before ever touching it), or it IS visible but reports chunkLOD==255
+    // or range.count==0 for reasons unrelated to any specific prototype.
+    {
+        float3 approxChunkCenter = _SphereCenter + float3(visForTrace.centerDirX, visForTrace.centerDirY, visForTrace.centerDirZ)
+            * (_SphereRadius + visForTrace.boundCenterAlt);
+        float chunkCenterDist = length(approxChunkCenter - _EyePos);
+        uint distBits = asuint(chunkCenterDist);
+        uint prevMin;
+        InterlockedMin(_DebugChunkTraceBuffer[0].x, distBits, prevMin);
+        if (distBits <= prevMin || prevMin == 0)
+        {
+            _DebugChunkTraceBuffer[0] = uint4(distBits, storageSlot, chunkLOD, rangeForTrace.count);
+            _DebugChunkTraceBuffer[1] = uint4(rangeForTrace.start, asuint(visForTrace.boundCenterAlt), 0u, 0u);
+        }
+    }
+
     if (chunkLOD == 255) return;
     BlotchRange range = _BlotchOffsetBuffer[storageSlot];
     if (range.count == 0) return;
@@ -680,7 +708,33 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
         float3 centerDir = ComputeExactInstanceDir(face, bl.chunkPacked, storageSlot, base_lx, base_lz);
         float3 approxCenter = ApproxWorldPosFromDir(centerDir, vis.boundCenterAlt);
         float centerDist = length(approxCenter - _EyePos);
-        if (centerDist - radius > GetMaxLODDistance(protoIdx)) continue;
+        bool blotchInRange = (centerDist - radius <= GetMaxLODDistance(protoIdx));
+
+        // Traces the BLOTCH-LEVEL gate, one level upstream of CSGenerateDistanceInstances.
+        // If this never fires with blotchInRange==true near the player, no BatchItem is ever
+        // created for this blotch, so the instance-generation kernel never even dispatches for
+        // it — which looks identical to "instances failing to render" but the actual cause is
+        // here, not in per-instance culling.
+        //
+        // Tracks the CLOSEST blotch seen this dispatch via InterlockedMin on centerDist's bit
+        // pattern (valid ordering for non-negative floats). A blind overwrite here previously
+        // showed whichever thread happened to run last, which could hide a genuinely close,
+        // misbehaving blotch behind repeated logging of distant, correctly-working ones.
+        if (protoIdx == _DebugTraceProtoIdx)
+        {
+            uint distBits = asuint(centerDist);
+            uint prevMin;
+            InterlockedMin(_DebugBlotchTraceBuffer[0].x, distBits, prevMin);
+            if (distBits <= prevMin || prevMin == 0)
+            {
+                _DebugBlotchTraceBuffer[0] = uint4(
+                    distBits, asuint(radius), asuint(GetMaxLODDistance(protoIdx)), blotchInRange ? 1u : 0u);
+                _DebugBlotchTraceBuffer[1] = uint4(
+                    asuint(vis.boundCenterAlt), asuint(_EyePos.x), asuint(_EyePos.y), asuint(_EyePos.z));
+            }
+        }
+
+        if (!blotchInRange) continue;
 
         // Full-density upper bound: stable, no per-frame cliff.
         float dm = _DensityMultiplierPerLOD[0];

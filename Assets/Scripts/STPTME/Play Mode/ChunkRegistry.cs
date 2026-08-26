@@ -536,6 +536,11 @@ public class ChunkRegistry : MonoBehaviour
         return false;
     }
 
+    /// <summary>Public wrapper for debug tooling — resolves a chunk key to the same storage slot
+    /// index used everywhere internally (SetChunkLOD, _VisibleChunkList, _ChunkVisibilityBuffer,
+    /// etc), without duplicating the packed/face-to-flat-index math.</summary>
+    public int DebugGetStorageIndex(int packed, FaceId face) => GetStorageIndex(packed, face);
+
     private int GetStorageIndex(int packed, FaceId face)
     {
         return FaceIdUtility.GetStorageIndex(globalIndexCalculator.GetIndex(packed), face);

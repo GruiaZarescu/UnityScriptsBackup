@@ -170,6 +170,8 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer protoKeepFractionsBuffer;
     private ComputeBuffer protoWidthMultipliersBuffer;  // per-proto per-LOD width scale
     private ComputeBuffer debugTraceOutputBuffer;        // per-instance distance/culling trace
+    private ComputeBuffer debugBlotchTraceBuffer;        // blotch-level gate trace (CSCountDistanceBlotches)
+    private ComputeBuffer debugChunkTraceBuffer;         // chunk-level trace, independent of prototype
     private ComputeBuffer cellStartPosBuffer;
 
     private int kernelCountDistance;
@@ -182,6 +184,16 @@ public class ImpostorRenderer : MonoBehaviour
     private const int MAX_DISTANCE_BATCHES = 65535;
 
     private uint[] cpuChunkLODs;
+
+    /// <summary>Reads the CPU-side chunk LOD array directly for one storage slot, bypassing the
+    /// GPU entirely. 255 means SetChunkLOD has never been called for this slot — i.e. neither
+    /// CreateChunk (LOD0) nor CreateBatchedChunk (LOD1+) in ChunkRegistry has created this chunk
+    /// yet, regardless of what any GPU-side visibility/culling trace reports.</summary>
+    public uint GetCpuChunkLOD(int storageSlot)
+    {
+        if (cpuChunkLODs == null || storageSlot < 0 || storageSlot >= cpuChunkLODs.Length) return 255;
+        return cpuChunkLODs[storageSlot];
+    }
     private bool lodsDirty = false;
 
     // ===== PER-FRAME STATE =====
@@ -797,6 +809,20 @@ public class ImpostorRenderer : MonoBehaviour
         // Distance-mode grass: Phase A (count/emit batches) -> args -> Phase B (instance-parallel)
         if (globalBlotchBuffer != null)
         {
+            // Clear debug trace buffers before this cycle's dispatches. Without this, a slot the
+            // GPU never writes this frame (e.g. because no thread reached the traced line at
+            // all) silently returns whatever was left over from a PREVIOUS frame — which reads
+            // back as plausible-looking but entirely stale data, not "nothing happened here."
+            if (debugScaleProtoIndex >= 0)
+            {
+                if (debugTraceOutputBuffer != null)
+                    debugTraceOutputBuffer.SetData(new uint[3 * 4]);
+                if (debugBlotchTraceBuffer != null)
+                    debugBlotchTraceBuffer.SetData(new uint[2 * 4]);
+                if (debugChunkTraceBuffer != null)
+                    debugChunkTraceBuffer.SetData(new uint[2 * 4]);
+            }
+
             impostorSolverCompute.Dispatch(kernelCountDistance, ConflictGridDefines.MaxVisibleChunks, 1, 1);
             impostorSolverCompute.Dispatch(kernelFillBatchArgs, 1, 1, 1);
             impostorSolverCompute.DispatchIndirect(kernelGenerateDistance, batchDispatchArgsBuffer);
@@ -1283,6 +1309,8 @@ public class ImpostorRenderer : MonoBehaviour
 
         // 4 uints per slot (instDist bits, coarseAlt bits, survived, distBandLOD), 3 slots.
         debugTraceOutputBuffer = new ComputeBuffer(3, sizeof(uint) * 4, ComputeBufferType.Structured);
+        debugBlotchTraceBuffer = new ComputeBuffer(2, sizeof(uint) * 4, ComputeBufferType.Structured);
+        debugChunkTraceBuffer = new ComputeBuffer(2, sizeof(uint) * 4, ComputeBufferType.Structured);
     }
 
     private void ResetArgsBuffer()
@@ -1396,6 +1424,11 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoKeepFractions", protoKeepFractionsBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoWidthMultipliers", protoWidthMultipliersBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_DebugTraceOutputBuffer", debugTraceOutputBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_DebugBlotchTraceBuffer", debugBlotchTraceBuffer);
+        impostorSolverCompute.SetBuffer(kernelCountDistance, "_DebugChunkTraceBuffer", debugChunkTraceBuffer);
+        // Also bound here so the shader compiles cleanly against a single global declaration
+        // even though this kernel never writes it.
+        impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_DebugBlotchTraceBuffer", debugBlotchTraceBuffer);
         impostorSolverCompute.SetInt("_DebugTraceProtoIdx", debugScaleProtoIndex);
         // kernelExpand reads WidthMultiplierForLOD too, which indexes via _ProtoLODInfo.
         impostorSolverCompute.SetBuffer(kernelExpand, "_ProtoWidthMultipliers", protoWidthMultipliersBuffer);
@@ -1499,6 +1532,8 @@ public class ImpostorRenderer : MonoBehaviour
         protoKeepFractionsBuffer?.Release();   protoKeepFractionsBuffer = null;
         protoWidthMultipliersBuffer?.Release(); protoWidthMultipliersBuffer = null;
         debugTraceOutputBuffer?.Release();       debugTraceOutputBuffer = null;
+        debugBlotchTraceBuffer?.Release();       debugBlotchTraceBuffer = null;
+        debugChunkTraceBuffer?.Release();        debugChunkTraceBuffer = null;
         cellStartPosBuffer?.Release(); cellStartPosBuffer = null;
         chunkWidthRatioBuffer?.Release(); chunkWidthRatioBuffer = null;
     }
@@ -1765,7 +1800,7 @@ public class ImpostorRenderer : MonoBehaviour
     [Header("Scale Debug")]
     [Tooltip("Prototype index to inspect with the instance scale readback. -1 = off. " +
              "Reads the FIRST instance of that prototype's largest-count bucket.")]
-    [SerializeField] private int debugScaleProtoIndex = -1;
+    [SerializeField] private int debugScaleProtoIndex = 25;
     private float _lastScaleDebugTime;
 
     /// <summary>
@@ -1805,6 +1840,74 @@ public class ImpostorRenderer : MonoBehaviour
                     Debug.Log($"[DistTrace] proto={debugScaleProtoIndex} inst={slot}: instDist={instDist:F2} " +
                         $"coarseAlt={coarseAlt:F2} survived={survived} distBandLOD={distBandLOD}");
                 }
+            });
+        }
+
+        if (debugBlotchTraceBuffer != null)
+        {
+            AsyncGPUReadback.Request(debugBlotchTraceBuffer, (breq) =>
+            {
+                if (breq.hasError) return;
+                var bd = breq.GetData<uint>();
+                if (bd.Length < 8) return; // 2 slots * 4 uints
+
+                if (bd[0] == 0 && bd[1] == 0 && bd[2] == 0 && bd[3] == 0)
+                {
+                    Debug.Log($"[BlotchTrace] proto={debugScaleProtoIndex}: NEVER WRITTEN this frame — " +
+                        "no thread in CSCountDistanceBlotches reached the trace line for this prototype " +
+                        "(chunk not visible, blotch range empty, or LOD mode routed elsewhere).");
+                    return;
+                }
+
+                float centerDist = System.BitConverter.Int32BitsToSingle((int)bd[0]);
+                float radius = System.BitConverter.Int32BitsToSingle((int)bd[1]);
+                float maxLODDist = System.BitConverter.Int32BitsToSingle((int)bd[2]);
+                bool blotchInRange = bd[3] != 0;
+
+                float boundCenterAlt = System.BitConverter.Int32BitsToSingle((int)bd[4]);
+                float eyeX = System.BitConverter.Int32BitsToSingle((int)bd[5]);
+                float eyeY = System.BitConverter.Int32BitsToSingle((int)bd[6]);
+                float eyeZ = System.BitConverter.Int32BitsToSingle((int)bd[7]);
+
+                Debug.Log($"[BlotchTrace] proto={debugScaleProtoIndex}: centerDist={centerDist:F2} radius={radius:F2} " +
+                    $"maxLODDist={maxLODDist:F2} blotchInRange={blotchInRange} " +
+                    $"boundCenterAlt={boundCenterAlt:F2} eyePos=({eyeX:F1},{eyeY:F1},{eyeZ:F1})" +
+                    (float.IsNaN(centerDist) || float.IsInfinity(centerDist) ? "   <<< centerDist NOT FINITE" : ""));
+            });
+        }
+
+        if (debugChunkTraceBuffer != null)
+        {
+            AsyncGPUReadback.Request(debugChunkTraceBuffer, (creq) =>
+            {
+                if (creq.hasError) return;
+                var cd = creq.GetData<uint>();
+                if (cd.Length < 8) return;
+
+                if (cd[0] == 0 && cd[1] == 0 && cd[2] == 0 && cd[3] == 0)
+                {
+                    Debug.Log("[ChunkTrace] NEVER WRITTEN — CSCountDistanceBlotches dispatched zero threads " +
+                        "that reached the chunk-level trace, meaning _VisibilityCount[0] was 0 or every " +
+                        "storageSlot in _VisibleChunkList was 0xFFFFFFFF this frame.");
+                    return;
+                }
+
+                float chunkCenterDist = System.BitConverter.Int32BitsToSingle((int)cd[0]);
+                uint storageSlot = cd[1];
+                uint chunkLOD = cd[2];
+                uint blotchCount = cd[3];
+                uint blotchStart = cd[4];
+                float boundCenterAlt = System.BitConverter.Int32BitsToSingle((int)cd[5]);
+
+                Debug.Log($"[ChunkTrace] CLOSEST chunk to eye: dist={chunkCenterDist:F2} storageSlot={storageSlot} " +
+                    $"chunkLOD={chunkLOD}{(chunkLOD == 255 ? " <<< SKIP SENTINEL" : "")} " +
+                    $"blotchRange=[{blotchStart}, count={blotchCount}]{(blotchCount == 0 ? " <<< EMPTY — no blotches of ANY prototype in this chunk" : "")} " +
+                    $"boundCenterAlt={boundCenterAlt:F2}");
+
+                Vector3 knownTomatoPosition = new Vector3(-4006.0061f, 7126.51563f, 21.7850056f);
+                uint lod = ChunkManager.Instance.DebugGetChunkLODForPosition(knownTomatoPosition);
+                Debug.Log($"[CpuChunkLOD] = {lod}{(lod == 255 ? " <<< NEVER CREATED" : "")}");
+
             });
         }
 

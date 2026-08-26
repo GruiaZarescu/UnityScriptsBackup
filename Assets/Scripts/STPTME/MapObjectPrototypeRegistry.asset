@@ -1671,10 +1671,9 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-  - name: Tomato Plant
+  - name: Wheat (should be Tomato)
     unityTerrainPrototypeIndex: 25
     lodMeshes:
-    - {fileID: 4300010, guid: b69b26c8b73b8bd49bf243bbe541a2e0, type: 3}
     - {fileID: 4300010, guid: b69b26c8b73b8bd49bf243bbe541a2e0, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
@@ -1713,12 +1712,21 @@ MonoBehaviour:
     useDistanceLOD: 1
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
-    - 10
+    - 5
+    - 7.5
     - 15
+    - 20
     lodKeepFractions:
     - 1
     - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
     lodWidthMultipliers:
+    - 1
+    - 1
     - 1
     - 1
   densityPerLOD: 640000005a000000500000004b00000046000000

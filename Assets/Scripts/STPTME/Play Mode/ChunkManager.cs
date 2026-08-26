@@ -1397,6 +1397,26 @@ public class ChunkManager : MonoBehaviour
 
     // ==== PLAYER POSITION ====
 
+    /// <summary>Debug helper: resolves a world position all the way to its chunk's CPU-side LOD
+    /// value (from ImpostorRenderer.cpuChunkLODs), bypassing every GPU-side visibility/culling
+    /// system entirely. Returns 255 if the chunk has never had SetChunkLOD called for it — i.e.
+    /// ChunkRegistry has never created (CreateChunk or CreateBatchedChunk) this chunk at all,
+    /// regardless of what any compute-shader trace of _VisibleChunkList/_GlobalChunkLODBuffer
+    /// reports (that buffer is just an upload of this same CPU array, so if this reads 255 the
+    /// GPU-side value is certainly 255 too — this exists to check without a GPU round-trip).</summary>
+    public uint DebugGetChunkLODForPosition(Vector3 position)
+    {
+        if (chunkRegistry == null || ImpostorRenderer.Instance == null) return 255;
+        ChunkKey key = DebugGetChunkKeyForPosition(position);
+        int storageSlot = chunkRegistry.DebugGetStorageIndex(key.packed, key.face);
+        return ImpostorRenderer.Instance.GetCpuChunkLOD(storageSlot);
+    }
+
+    /// <summary>Public wrapper around the private world-position-to-chunk-key projection, for
+    /// debug tooling and cross-system lookups that need to identify "which chunk is this
+    /// position in" without duplicating the projection math.</summary>
+    public ChunkKey DebugGetChunkKeyForPosition(Vector3 position) => GetProjectedChunkFromWorldPosition(position);
+
     private ChunkKey GetProjectedChunkFromWorldPosition(Vector3 position)
     {
         float subdividedChunkSize = terrainSize / tilingFactor;
