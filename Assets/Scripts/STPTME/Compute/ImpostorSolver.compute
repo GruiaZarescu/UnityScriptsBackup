@@ -708,7 +708,23 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
         float3 centerDir = ComputeExactInstanceDir(face, bl.chunkPacked, storageSlot, base_lx, base_lz);
         float3 approxCenter = ApproxWorldPosFromDir(centerDir, vis.boundCenterAlt);
         float centerDist = length(approxCenter - _EyePos);
-        bool blotchInRange = (centerDist - radius <= GetMaxLODDistance(protoIdx));
+        // centerDist is a COARSE estimate: it places the blotch at vis.boundCenterAlt, the
+        // chunk's height-range MIDPOINT, not the blotch's real altitude. On a chunk spanning a
+        // large vertical range that midpoint can sit tens of metres from the actual instance, so
+        // centerDist reads 20-50m even when the camera is 1m away.
+        //
+        // Without slack, any prototype whose max LOD distance is SMALLER than that error can
+        // never pass this gate at any distance — no BatchItem is created, CSGenerateDistanceInstances
+        // never dispatches for it, and the instance is invisible everywhere. Prototypes with a
+        // generous max range (e.g. 100m) sail through and never expose the problem, which is why
+        // this only ever bit short-range prototypes.
+        //
+        // boundHalfH is the chunk's own half-height — exactly the uncertainty in boundCenterAlt —
+        // so adding it bounds the worst-case error this approximation can introduce. The gate stays
+        // conservative (it may let through blotches that CSGenerateDistanceInstances then culls
+        // precisely via the real heightmap-sampled instDist, which is harmless), but can no longer
+        // wrongly reject one that is genuinely in range.
+        bool blotchInRange = (centerDist - radius <= GetMaxLODDistance(protoIdx) + vis.boundHalfH);
 
         // Traces the BLOTCH-LEVEL gate, one level upstream of CSGenerateDistanceInstances.
         // If this never fires with blotchInRange==true near the player, no BatchItem is ever

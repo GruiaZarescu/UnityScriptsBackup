@@ -1712,10 +1712,7 @@ MonoBehaviour:
     useDistanceLOD: 1
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
-    - 5
-    - 7.5
     - 15
-    - 20
     lodKeepFractions:
     - 1
     - 1
