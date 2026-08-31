@@ -842,7 +842,7 @@ public class ImpostorRenderer : MonoBehaviour
                 uint packedMeta = data[4];
                 float wScale = System.BitConverter.Int32BitsToSingle((int)data[6]);
                 uint protoIdx = packedMeta & 0xFFu;
-                Debug.Log($"[InstanceReadback] slot0: proto={protoIdx} pos=({wpx:F1},{wpy:F1},{wpz:F1}) heightScale={hScale:F4} widthScale={wScale:F4}");
+                //Debug.Log($"[InstanceReadback] slot0: proto={protoIdx} pos=({wpx:F1},{wpy:F1},{wpz:F1}) heightScale={hScale:F4} widthScale={wScale:F4}");
             });
         }
 
@@ -860,7 +860,7 @@ public class ImpostorRenderer : MonoBehaviour
         }
 
         // Runs after the solve dispatches, so the buffer holds this frame's instances.
-        DebugInstanceScale();
+        //DebugInstanceScale();
 
         DrawIndirect();
     }
@@ -1809,7 +1809,7 @@ public class ImpostorRenderer : MonoBehaviour
     /// belongs to bucket 0, whose region is only written if that particular prototype has
     /// instances nearby (otherwise it reads as all zeros and tells you nothing).
     /// </summary>
-    private void DebugInstanceScale()
+    /*private void DebugInstanceScale()
     {
         if (debugScaleProtoIndex < 0 || buckets == null || instanceOutputBuffer == null) return;
         if (Time.time - _lastScaleDebugTime < 1f) return;
@@ -1983,11 +1983,11 @@ public class ImpostorRenderer : MonoBehaviour
                 float sy = System.BitConverter.Int32BitsToSingle((int)sc[1]);
                 float sz = System.BitConverter.Int32BitsToSingle((int)sc[2]);
                 string zflag = (sx == 0f || sy == 0f || sz == 0f) ? "   <<< ZERO base scale — geometry collapses to a point" : "";
-                Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} baseScale=({sx:F4},{sy:F4},{sz:F4}) " +
-                    $"-> finalScale=({sx * wScale:F4},{sy * hScale:F4},{sz * wScale:F4}){zflag}");
+                //Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} baseScale=({sx:F4},{sy:F4},{sz:F4}) " +
+                    //$"-> finalScale=({sx * wScale:F4},{sy * hScale:F4},{sz * wScale:F4}){zflag}");
             });
         });
-    }
+    } */
 
     private void CheckBucketOverflow()
     {

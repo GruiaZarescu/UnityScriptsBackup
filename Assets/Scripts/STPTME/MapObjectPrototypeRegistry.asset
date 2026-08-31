@@ -540,13 +540,28 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-  - name: Grass0
+  - name: Grass02
     unityTerrainPrototypeIndex: 8
     lodMeshes:
-    - {fileID: 7855247728046881105, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
-    - {fileID: -5887197880629875785, guid: 638dc165572d2a84081d13ce1afb4d52, type: 3}
+    - {fileID: 7855247728046881105, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -5887197880629875785, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -5360216713068180800, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -5104220837330123484, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: 7731215442789207376, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -1300123225995191822, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     - submeshMaterials:
       - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     - submeshMaterials:
@@ -575,20 +590,26 @@ MonoBehaviour:
       maxWidthScale: 1.2
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 3356751432538110193, guid: ffbddc4ef9676cc419e81e06aaa836d8, type: 3}
+    sourcePrefab: {fileID: 2187675500484698034, guid: 1df18117c30006641a272380d7141b24, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
     densityFadeEnabled: 0
     densityFadeStart: 0
-    useDistanceLOD: 0
+    useDistanceLOD: 1
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
-    - 20
-    - 40
-    - 80
-    - 120
+    - 15
+    - 25
+    - 45
+    - 60
+    - 100
+    - 150
+    - 200
     lodKeepFractions:
+    - 1
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -598,7 +619,10 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-  - name: Grass1
+    - 1
+    - 1
+    - 1
+  - name: Grass003
     unityTerrainPrototypeIndex: 9
     lodMeshes:
     - {fileID: -8366505637189061574, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
@@ -670,10 +694,16 @@ MonoBehaviour:
   - name: WoodFence01
     unityTerrainPrototypeIndex: -1
     lodMeshes:
-    - {fileID: -2173118628331998079, guid: 5516e868e87af1d4cbd912f1fe7b37a8, type: 3}
-    - {fileID: 6344693156608189947, guid: 5516e868e87af1d4cbd912f1fe7b37a8, type: 3}
+    - {fileID: 5222393262919304575, guid: 00a8a08e0b8407a4da651bc7d8834704, type: 3}
+    - {fileID: 4184239683295433606, guid: 00a8a08e0b8407a4da651bc7d8834704, type: 3}
+    - {fileID: -7726968719267719712, guid: 00a8a08e0b8407a4da651bc7d8834704, type: 3}
+    - {fileID: 1694352921554764446, guid: 00a8a08e0b8407a4da651bc7d8834704, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 4ac3cc2baa46d154ba587ffd124b2915, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 4ac3cc2baa46d154ba587ffd124b2915, type: 2}
     - submeshMaterials:
       - {fileID: 2100000, guid: 4ac3cc2baa46d154ba587ffd124b2915, type: 2}
     - submeshMaterials:
@@ -702,7 +732,7 @@ MonoBehaviour:
       maxWidthScale: 1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 569840946655350902, guid: 1f9cbca3307064d43810b3cd42a450b2, type: 3}
+    sourcePrefab: {fileID: 6894414501059510312, guid: a6403b8858d1b384a9495a1064a28c04, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -1671,7 +1701,7 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-  - name: Wheat (should be Tomato)
+  - name: Tomato
     unityTerrainPrototypeIndex: 25
     lodMeshes:
     - {fileID: 4300010, guid: b69b26c8b73b8bd49bf243bbe541a2e0, type: 3}
@@ -1712,7 +1742,481 @@ MonoBehaviour:
     useDistanceLOD: 1
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
+    - 7.5
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Corn
+    unityTerrainPrototypeIndex: 26
+    lodMeshes:
+    - {fileID: 4300012, guid: b69b26c8b73b8bd49bf243bbe541a2e0, type: 3}
+    lodGameObjects: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 1
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 1000012235373026, guid: 1c8776a0b36cd9a4f813bf0d2d59d109, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 1
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 7.5
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Grass02 representing potato
+    unityTerrainPrototypeIndex: 8
+    lodMeshes:
+    - {fileID: 7855247728046881105, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -5887197880629875785, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -5360216713068180800, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -5104220837330123484, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: 7731215442789207376, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -1300123225995191822, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    lodGameObjects: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -0.5, y: 0, z: 0}
+    connectorEndLocal: {x: 0.5, y: 0, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 0
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 0.8
+      maxHeightScale: 1.2
+      minWidthScale: 0.8
+      maxWidthScale: 1.2
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 2187675500484698034, guid: 1df18117c30006641a272380d7141b24, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 1
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
     - 15
+    - 25
+    - 45
+    - 60
+    - 100
+    - 150
+    - 200
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Tree_Apple
+    unityTerrainPrototypeIndex: 28
+    lodMeshes:
+    - {fileID: -8632904520735799153, guid: 0927e31ec4a50574eab8f6b01af22e4e, type: 3}
+    - {fileID: -8632904520735799153, guid: 0927e31ec4a50574eab8f6b01af22e4e, type: 3}
+    lodGameObjects: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 1
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 2192826064039612326, guid: 36c24025c77681c48af12ac6e2c548e4, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 7.5
+    - 15
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Sunflower0
+    unityTerrainPrototypeIndex: 29
+    lodMeshes:
+    - {fileID: 1309913426880147577, guid: 7cee3be891ae0354691bc69598c55711, type: 3}
+    lodGameObjects: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 1
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 3422266734081095270, guid: 35648b328306de740a0f5eebf7fc0ad7, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 1
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 6
+    lodKeepFractions:
+    - 1
+    - 0.9
+    - 0.8
+    - 0.7
+    - 0.6
+    - 0.5
+    - 0.1
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Sunflower1
+    unityTerrainPrototypeIndex: 30
+    lodMeshes:
+    - {fileID: 1312488039872172972, guid: 9a5260498946dfc479706f4453ece5a2, type: 3}
+    lodGameObjects: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 1
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 1
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 2192826064039612326, guid: 36c24025c77681c48af12ac6e2c548e4, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 1
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 7.5
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Hay Bale 0
+    unityTerrainPrototypeIndex: -1
+    lodMeshes: []
+    lodGameObjects: []
+    submeshMaterialsPerLOD: []
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 9148481128548636457, guid: 5ed59e74e6f341b4db9daaa6742fde02, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 7.5
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Hay Bale 1
+    unityTerrainPrototypeIndex: -1
+    lodMeshes: []
+    lodGameObjects: []
+    submeshMaterialsPerLOD: []
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 0
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 4887810154651259153, guid: b928a214b7d16b64fafd7785f6fb902b, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 7.5
+    lodKeepFractions:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 0.15
+    lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
+  - name: Hay Bale 2
+    unityTerrainPrototypeIndex: -1
+    lodMeshes: []
+    lodGameObjects: []
+    submeshMaterialsPerLOD: []
+    baseWidth: 1
+    baseHeight: 1
+    heightOffset: 0
+    lod1PlusHeightOffset: 0
+    shouldInstance: 1
+    instanceAlways: 0
+    hasConnectors: 0
+    connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
+    connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
+    blotchRadius: 0
+    blotchDensity: 1
+    conflictCategory: 3
+    cullLOD: 4
+    sizeVariability:
+      enabled: 0
+      mode: 1
+      minUniformScale: 0.7
+      maxUniformScale: 1.3
+      minHeightScale: 1.4
+      maxHeightScale: 0.8
+      minWidthScale: 0.9
+      maxWidthScale: 1.1
+      distributionSteepness: 2
+    impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
+    sourcePrefab: {fileID: 2506629543241375690, guid: 58286f80828da354dbb2aad5c98c9722, type: 3}
+    canopyOverlayEnabled: 0
+    canopyPaletteIndex: 0
+    canopyMaskByLOD: []
+    densityFadeEnabled: 0
+    densityFadeStart: 0
+    useDistanceLOD: 0
+    lodDistances: {x: 20, y: 40, z: 80, w: 120}
+    lodDistancesVariable:
+    - 7.5
     lodKeepFractions:
     - 1
     - 1
