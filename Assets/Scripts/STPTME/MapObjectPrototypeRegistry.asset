@@ -760,11 +760,23 @@ MonoBehaviour:
   - name: StoneFence01
     unityTerrainPrototypeIndex: -1
     lodMeshes:
-    - {fileID: 4300004, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
-    - {fileID: 4300002, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
-    - {fileID: 4300000, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
+    - {fileID: 1882522150084221840, guid: 626d7940a285e304b82998ce5d1e5643, type: 3}
+    - {fileID: -2632007173776493097, guid: 626d7940a285e304b82998ce5d1e5643, type: 3}
+    - {fileID: 125514252490901173, guid: 626d7940a285e304b82998ce5d1e5643, type: 3}
+    - {fileID: -2430076031308747306, guid: 626d7940a285e304b82998ce5d1e5643, type: 3}
+    - {fileID: 307566296624666388, guid: 626d7940a285e304b82998ce5d1e5643, type: 3}
+    - {fileID: -6465016992897978615, guid: 626d7940a285e304b82998ce5d1e5643, type: 3}
+    - {fileID: 5925661513938836045, guid: 626d7940a285e304b82998ce5d1e5643, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
     - submeshMaterials:
       - {fileID: 2100000, guid: bc6c64563667d4046a3790adcfcae344, type: 2}
     - submeshMaterials:
@@ -811,11 +823,16 @@ MonoBehaviour:
     - 25
     lodKeepFractions:
     - 1
-    - 0.9
-    - 0.8
-    - 0.7
-    - 0.6
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
     lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
     - 1
     - 1
     - 1

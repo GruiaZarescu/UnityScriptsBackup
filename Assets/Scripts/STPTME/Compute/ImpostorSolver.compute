@@ -624,6 +624,23 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                 {
                     uint rotQ = ResolveRotQ(bl, (h1 >> 24) & 0xFFu);
                     uint bucketIdx = _BucketMap[protoIdx * MAX_BUCKET_LODS + selectedLOD];
+
+                    // Traces the kernelExpand (chunk-LOD) bucket lookup for a chosen prototype.
+                    // Reuses the existing _DebugTraceOutputBuffer (normally written by
+                    // CSGenerateDistanceInstances) since both kernels already have it bound —
+                    // slot 0 = (chunkLOD, selectedLOD, bucketIdx, protoMaxLOD). Exists because
+                    // bucket-building and _ProtoMaxLODs both verified correct via C#-side logs,
+                    // and chunkLOD itself verified correct via wireframe inspection, yet nothing
+                    // renders past LOD1 for any non-instanceAlways prototype — meaning either
+                    // selectedLOD never actually reaches what chunkLOD alone would suggest, or
+                    // the _BucketMap lookup fails (returns 0xFFFFFFFF) for a genuinely correct
+                    // selectedLOD, and this is the only place that can distinguish the two.
+                    if (protoIdx == _DebugTraceProtoIdx)
+                    {
+                        _DebugTraceOutputBuffer[0] = uint4(
+                            chunkLOD, selectedLOD, bucketIdx, _ProtoMaxLODs[protoIdx]);
+                    }
+
                     if (bucketIdx != 0xFFFFFFFF)
                     {
                         uint perBucketSlot;

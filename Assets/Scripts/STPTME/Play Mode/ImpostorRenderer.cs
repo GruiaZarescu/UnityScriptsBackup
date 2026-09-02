@@ -802,6 +802,20 @@ public class ImpostorRenderer : MonoBehaviour
             impostorSolverCompute.Dispatch(kernelVisibility, vGroups, 1, 1);
         }
 
+        // Clear debug trace buffers before ANY dispatch that could write them this cycle
+        // (kernelExpand's chunk-LOD trace runs before the distance-mode dispatches below, so
+        // this must happen before kernelExpand too — clearing afterward would wipe out whatever
+        // kernelExpand had just written, before the async readback ever saw it).
+        if (debugScaleProtoIndex >= 0)
+        {
+            if (debugTraceOutputBuffer != null)
+                debugTraceOutputBuffer.SetData(new uint[3 * 4]);
+            if (debugBlotchTraceBuffer != null)
+                debugBlotchTraceBuffer.SetData(new uint[2 * 4]);
+            if (debugChunkTraceBuffer != null)
+                debugChunkTraceBuffer.SetData(new uint[2 * 4]);
+        }
+
         // Chunk-LOD expansion (trees + conflict-grid foliage). Skips distance-mode blotches.
         if (globalBlotchBuffer != null)
             impostorSolverCompute.Dispatch(kernelExpand, ConflictGridDefines.MaxVisibleChunks, 1, 1);
@@ -809,20 +823,6 @@ public class ImpostorRenderer : MonoBehaviour
         // Distance-mode grass: Phase A (count/emit batches) -> args -> Phase B (instance-parallel)
         if (globalBlotchBuffer != null)
         {
-            // Clear debug trace buffers before this cycle's dispatches. Without this, a slot the
-            // GPU never writes this frame (e.g. because no thread reached the traced line at
-            // all) silently returns whatever was left over from a PREVIOUS frame — which reads
-            // back as plausible-looking but entirely stale data, not "nothing happened here."
-            if (debugScaleProtoIndex >= 0)
-            {
-                if (debugTraceOutputBuffer != null)
-                    debugTraceOutputBuffer.SetData(new uint[3 * 4]);
-                if (debugBlotchTraceBuffer != null)
-                    debugBlotchTraceBuffer.SetData(new uint[2 * 4]);
-                if (debugChunkTraceBuffer != null)
-                    debugChunkTraceBuffer.SetData(new uint[2 * 4]);
-            }
-
             impostorSolverCompute.Dispatch(kernelCountDistance, ConflictGridDefines.MaxVisibleChunks, 1, 1);
             impostorSolverCompute.Dispatch(kernelFillBatchArgs, 1, 1, 1);
             impostorSolverCompute.DispatchIndirect(kernelGenerateDistance, batchDispatchArgsBuffer);
@@ -1424,6 +1424,7 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoKeepFractions", protoKeepFractionsBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoWidthMultipliers", protoWidthMultipliersBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_DebugTraceOutputBuffer", debugTraceOutputBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, "_DebugTraceOutputBuffer", debugTraceOutputBuffer);
         impostorSolverCompute.SetBuffer(kernelCountDistance, "_DebugBlotchTraceBuffer", debugBlotchTraceBuffer);
         impostorSolverCompute.SetBuffer(kernelCountDistance, "_DebugChunkTraceBuffer", debugChunkTraceBuffer);
         // Also bound here so the shader compiles cleanly against a single global declaration
@@ -1839,6 +1840,16 @@ public class ImpostorRenderer : MonoBehaviour
                     uint distBandLOD = td[o + 3];
                     Debug.Log($"[DistTrace] proto={debugScaleProtoIndex} inst={slot}: instDist={instDist:F2} " +
                         $"coarseAlt={coarseAlt:F2} survived={survived} distBandLOD={distBandLOD}");
+
+                    // Same physical slot, written by kernelExpand's chunk-LOD bucket lookup with
+                    // RAW uint semantics instead — printed separately since DistTrace's read above
+                    // would bit-cast these as floats and show nonsense. For a non-distance-mode
+                    // prototype only THIS interpretation is meaningful (kernelGenerateDistance
+                    // never runs for it, so DistTrace's own line above will be garbage/stale).
+                    uint bucketIdx = td[o + 2];
+                    string bucketNote = bucketIdx == 0xFFFFFFFFu ? " <<< NO BUCKET (0xFFFFFFFF) — this LOD was never created" : "";
+                    Debug.Log($"[ChunkLODTrace] proto={debugScaleProtoIndex}: chunkLOD={td[o + 0]} " +
+                        $"selectedLOD={td[o + 1]} bucketIdx={bucketIdx}{bucketNote} protoMaxLOD={td[o + 3]}");
                 }
             });
         }

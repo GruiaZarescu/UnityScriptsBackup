@@ -160,6 +160,28 @@ public class ChunkManager : MonoBehaviour
     private readonly int[] hmCornerChunks = new int[4];
     private Texture2DArray globalHeightmapArray;
 
+    // Number of downsampled LOD levels to store, in ADDITION to the base (LOD1) resolution.
+    // Each level halves both resolution and terrain-grid slice count relative to the one above,
+    // so total memory is base * (1 + 1/4 + 1/16 + ...) -> converges to ~4/3 * base regardless of
+    // how many levels are stored (LOD4 alone is already >99% of that limit). Storing all of them
+    // costs about 33% more than the single-resolution array this replaces.
+    //
+    // Exists because object placement (BlotchWorldPosDir's non-LOD0 branch, and
+    // CSGenerateDistanceInstances' coarseAlt sample) previously always sampled the SAME
+    // fine-resolution array regardless of the instance's actual chunkLOD. A far chunk rendered
+    // at LOD7 (2 triangles, one flat quad) has no fine elevation detail in its own geometry, but
+    // was placing objects using elevation samples fine enough for LOD1 — producing height that
+    // disagreed with what the chunk's own mesh actually shows, and for prototypes needing precise
+    // relative height (fences meeting end-to-end) this showed up as visible floating/sinking.
+    private const int GLOBAL_HEIGHTMAP_LOD_LEVELS = 7; // LOD1..LOD7
+
+    /// <summary>Per-LOD heightmap arrays. Index 0 = LOD1 (finest, same data as the old single
+    /// array), index i = LOD(i+1). A chunk at chunkLOD N samples globalHeightmapArrays[N-1]
+    /// (chunkLOD 0 uses the exact active-terrain path in BlotchWorldPosDir and never reaches
+    /// this array at all).</summary>
+    private Texture2DArray[] globalHeightmapArrays;
+    private int[] globalHeightmapTerrainGridSizePerLOD;
+
     void Awake()
     {
         Instance = this;
@@ -404,11 +426,18 @@ public class ChunkManager : MonoBehaviour
         int sliceResolution = lod1CellRes * subdivisionsPowerOf2;
         sliceResolution = Mathf.Min(sliceResolution, 1024); 
 
-        globalHeightmapArray = new Texture2DArray(
+        globalHeightmapArrays = new Texture2DArray[GLOBAL_HEIGHTMAP_LOD_LEVELS];
+        globalHeightmapTerrainGridSizePerLOD = new int[GLOBAL_HEIGHTMAP_LOD_LEVELS];
+        globalHeightmapTerrainGridSizePerLOD[0] = terrainGridSize;
+
+        globalHeightmapArrays[0] = new Texture2DArray(
             sliceResolution, sliceResolution, totalSlices,
             TextureFormat.RHalf, false, true);
-        globalHeightmapArray.filterMode = FilterMode.Bilinear;
-        globalHeightmapArray.wrapMode = TextureWrapMode.Clamp;
+        globalHeightmapArrays[0].filterMode = FilterMode.Bilinear;
+        globalHeightmapArrays[0].wrapMode = TextureWrapMode.Clamp;
+        // Kept for any code still reading the old field name directly (e.g. inspector debug
+        // views) — always an alias for globalHeightmapArrays[0], never written to separately.
+        globalHeightmapArray = globalHeightmapArrays[0];
 
         int subPow2 = subdivisionsPowerOf2;
         float cellWorldSize = terrainSize / subPow2;
@@ -485,17 +514,130 @@ public class ChunkManager : MonoBehaviour
                             cellReader.Evict(new Vector2SByte(mapX, mapY), face);
                         }
                     }
-                    globalHeightmapArray.SetPixelData(sliceData, 0, sliceIndex);
+                    globalHeightmapArrays[0].SetPixelData(sliceData, 0, sliceIndex);
                 }
             }
         }
-        globalHeightmapArray.Apply();
+        globalHeightmapArrays[0].Apply(false, false); // explicit: downsampling below needs CPU-readable texel data
+
+        // Derive LOD2..LOD_MAX by box-filter downsampling the LOD ABOVE each one — never
+        // re-reading cell files. Resolution AND terrain-grid slice count both halve per level, so
+        // 4 texels of one LOD's finest cell average into 1 texel of the coarser cell that replaces
+        // them, matching how chunk LOD itself reduces the number of distinct chunks rendered.
+        for (int lod = 1; lod < GLOBAL_HEIGHTMAP_LOD_LEVELS; lod++)
+        {
+            BuildDownsampledHeightmapLOD(lod, sliceResolution, terrainGridSize);
+        }
 
         var impostor = GetComponent<ImpostorRenderer>();
         if (impostor != null)
         {
-            impostor.SetGlobalHeightmap(globalHeightmapArray, terrainGridSize);
+            impostor.SetGlobalHeightmaps(globalHeightmapArrays, globalHeightmapTerrainGridSizePerLOD);
         }
+    }
+
+    /// <summary>
+    /// Builds globalHeightmapArrays[lodIndex] by 2x2 box-filter downsampling
+    /// globalHeightmapArrays[lodIndex - 1]. Halves both texel resolution and terrain-grid slice
+    /// count relative to the source LOD — four of the source LOD's cells (in a 2x2 layout) become
+    /// one cell here, and each new cell's texel data is the average of the corresponding 2x2 texel
+    /// blocks from its four source cells. Source-cell resolution is halved independently of the
+    /// grid-size halving, so a lodIndex-1 slice at sliceResolutionPrev texels contributes a
+    /// sliceResolutionPrev/2-texel quadrant to the new, coarser cell it belongs to.
+    /// </summary>
+    private void BuildDownsampledHeightmapLOD(int lodIndex, int baseSliceResolution, int baseTerrainGridSize)
+    {
+        Texture2DArray src = globalHeightmapArrays[lodIndex - 1];
+        int srcGridSize = globalHeightmapTerrainGridSizePerLOD[lodIndex - 1];
+        int srcRes = src.width;
+
+        // Halve the grid (fewer, larger cells) and halve resolution per cell. Floor rather than
+        // round so an odd grid size still produces a valid, if slightly uneven, coarser level
+        // instead of failing outright — acceptable for a fallback LOD that's already an
+        // approximation by design.
+        int dstGridSize = Mathf.Max(1, srcGridSize / 2);
+        int dstRes = Mathf.Max(1, srcRes / 2);
+        int dstSlicesPerFace = dstGridSize * dstGridSize;
+        int dstTotalSlices = dstSlicesPerFace * FaceIdUtility.StorageFaceCount;
+
+        globalHeightmapTerrainGridSizePerLOD[lodIndex] = dstGridSize;
+
+        var dst = new Texture2DArray(dstRes, dstRes, dstTotalSlices, TextureFormat.RHalf, false, true);
+        dst.filterMode = FilterMode.Bilinear;
+        dst.wrapMode = TextureWrapMode.Clamp;
+
+        // Read the whole source array's raw texel data once per face-pass rather than per
+        // destination cell, since GetPixelData involves a readback and this runs once at startup,
+        // not per-frame — still worth batching by face to avoid re-fetching a source slice for
+        // each of the (up to) 4 destination cells that read from it independently... in practice
+        // each source slice contributes to exactly ONE destination cell (2x2 grid collapse), so a
+        // straightforward per-source-slice read is both simplest and already minimal.
+        ushort[] dstSliceData = new ushort[dstRes * dstRes];
+
+        for (int f = 0; f < FaceIdUtility.StorageFaceCount; f++)
+        {
+            for (int dstY = 0; dstY < dstGridSize; dstY++)
+            {
+                for (int dstX = 0; dstX < dstGridSize; dstX++)
+                {
+                    System.Array.Clear(dstSliceData, 0, dstSliceData.Length);
+                    int dstSliceIndex = f * dstSlicesPerFace + dstY * dstGridSize + dstX;
+
+                    // The 2x2 block of source cells that collapse into this one destination cell.
+                    for (int subY = 0; subY < 2; subY++)
+                    {
+                        int srcCellY = dstY * 2 + subY;
+                        if (srcCellY >= srcGridSize) continue;
+
+                        for (int subX = 0; subX < 2; subX++)
+                        {
+                            int srcCellX = dstX * 2 + subX;
+                            if (srcCellX >= srcGridSize) continue;
+
+                            int srcSliceIndex = f * (srcGridSize * srcGridSize) + srcCellY * srcGridSize + srcCellX;
+                            ushort[] srcSliceData = src.GetPixelData<ushort>(0, srcSliceIndex).ToArray();
+
+                            // This source cell's texels map to one quadrant of the destination
+                            // cell (subX, subY selects which quadrant), at half resolution.
+                            int quadW = dstRes / 2;
+                            int quadH = dstRes / 2;
+                            int quadBaseX = subX * quadW;
+                            int quadBaseY = subY * quadH;
+
+                            for (int qy = 0; qy < quadH; qy++)
+                            {
+                                int dstYPix = quadBaseY + qy;
+                                if (dstYPix >= dstRes) break;
+
+                                for (int qx = 0; qx < quadW; qx++)
+                                {
+                                    int dstXPix = quadBaseX + qx;
+                                    if (dstXPix >= dstRes) break;
+
+                                    // 2x2 box filter over the source cell's texels.
+                                    int sx0 = Mathf.Min(qx * 2, srcRes - 1);
+                                    int sx1 = Mathf.Min(qx * 2 + 1, srcRes - 1);
+                                    int sy0 = Mathf.Min(qy * 2, srcRes - 1);
+                                    int sy1 = Mathf.Min(qy * 2 + 1, srcRes - 1);
+
+                                    float h00 = Mathf.HalfToFloat(srcSliceData[sy0 * srcRes + sx0]);
+                                    float h10 = Mathf.HalfToFloat(srcSliceData[sy0 * srcRes + sx1]);
+                                    float h01 = Mathf.HalfToFloat(srcSliceData[sy1 * srcRes + sx0]);
+                                    float h11 = Mathf.HalfToFloat(srcSliceData[sy1 * srcRes + sx1]);
+                                    float avg = (h00 + h10 + h01 + h11) * 0.25f;
+
+                                    dstSliceData[dstYPix * dstRes + dstXPix] = Mathf.FloatToHalf(avg);
+                                }
+                            }
+                        }
+                    }
+
+                    dst.SetPixelData(dstSliceData, 0, dstSliceIndex);
+                }
+            }
+        }
+        dst.Apply();
+        globalHeightmapArrays[lodIndex] = dst;
     }
 
     private IEnumerator ChunkManagementLoop()
