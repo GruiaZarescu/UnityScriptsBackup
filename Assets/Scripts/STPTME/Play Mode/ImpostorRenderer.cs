@@ -1883,8 +1883,8 @@ public class ImpostorRenderer : MonoBehaviour
                     float coarseAlt = System.BitConverter.Int32BitsToSingle((int)td[o + 1]);
                     bool survived = td[o + 2] != 0;
                     uint distBandLOD = td[o + 3];
-                    Debug.Log($"[DistTrace] proto={debugScaleProtoIndex} inst={slot}: instDist={instDist:F2} " +
-                        $"coarseAlt={coarseAlt:F2} survived={survived} distBandLOD={distBandLOD}");
+                    /*Debug.Log($"[DistTrace] proto={debugScaleProtoIndex} inst={slot}: instDist={instDist:F2} " +
+                        $"coarseAlt={coarseAlt:F2} survived={survived} distBandLOD={distBandLOD}");*/
 
                     // Same physical slot, written by kernelExpand's chunk-LOD bucket lookup with
                     // RAW uint semantics instead — printed separately since DistTrace's read above
@@ -1893,8 +1893,8 @@ public class ImpostorRenderer : MonoBehaviour
                     // never runs for it, so DistTrace's own line above will be garbage/stale).
                     uint bucketIdx = td[o + 2];
                     string bucketNote = bucketIdx == 0xFFFFFFFFu ? " <<< NO BUCKET (0xFFFFFFFF) — this LOD was never created" : "";
-                    Debug.Log($"[ChunkLODTrace] proto={debugScaleProtoIndex}: chunkLOD={td[o + 0]} " +
-                        $"selectedLOD={td[o + 1]} bucketIdx={bucketIdx}{bucketNote} protoMaxLOD={td[o + 3]}");
+                    /*Debug.Log($"[ChunkLODTrace] proto={debugScaleProtoIndex}: chunkLOD={td[o + 0]} " +
+                        $"selectedLOD={td[o + 1]} bucketIdx={bucketIdx}{bucketNote} protoMaxLOD={td[o + 3]}");*/
                 }
             });
         }
@@ -1909,9 +1909,9 @@ public class ImpostorRenderer : MonoBehaviour
 
                 if (bd[0] == 0 && bd[1] == 0 && bd[2] == 0 && bd[3] == 0)
                 {
-                    Debug.Log($"[BlotchTrace] proto={debugScaleProtoIndex}: NEVER WRITTEN this frame — " +
+                    /*Debug.Log($"[BlotchTrace] proto={debugScaleProtoIndex}: NEVER WRITTEN this frame — " +
                         "no thread in CSCountDistanceBlotches reached the trace line for this prototype " +
-                        "(chunk not visible, blotch range empty, or LOD mode routed elsewhere).");
+                        "(chunk not visible, blotch range empty, or LOD mode routed elsewhere).");*/
                     return;
                 }
 
@@ -1955,14 +1955,14 @@ public class ImpostorRenderer : MonoBehaviour
                 uint blotchStart = cd[4];
                 float boundCenterAlt = System.BitConverter.Int32BitsToSingle((int)cd[5]);
 
-                Debug.Log($"[ChunkTrace] CLOSEST chunk to eye: dist={chunkCenterDist:F2} storageSlot={storageSlot} " +
+                /*Debug.Log($"[ChunkTrace] CLOSEST chunk to eye: dist={chunkCenterDist:F2} storageSlot={storageSlot} " +
                     $"chunkLOD={chunkLOD}{(chunkLOD == 255 ? " <<< SKIP SENTINEL" : "")} " +
                     $"blotchRange=[{blotchStart}, count={blotchCount}]{(blotchCount == 0 ? " <<< EMPTY — no blotches of ANY prototype in this chunk" : "")} " +
-                    $"boundCenterAlt={boundCenterAlt:F2}");
+                    $"boundCenterAlt={boundCenterAlt:F2}");*/
 
                 Vector3 knownTomatoPosition = new Vector3(-4006.0061f, 7126.51563f, 21.7850056f);
                 uint lod = ChunkManager.Instance.DebugGetChunkLODForPosition(knownTomatoPosition);
-                Debug.Log($"[CpuChunkLOD] = {lod}{(lod == 255 ? " <<< NEVER CREATED" : "")}");
+                /*Debug.Log($"[CpuChunkLOD] = {lod}{(lod == 255 ? " <<< NEVER CREATED" : "")}");*/
 
             });
         }
@@ -2001,15 +2001,15 @@ public class ImpostorRenderer : MonoBehaviour
 
             if (allZero)
             {
-                Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} bucket={targetBucket} LOD{lod}: " +
+                /*Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} bucket={targetBucket} LOD{lod}: " +
                     "slot empty this frame (no instances emitted here) — move closer or pick another prototype.");
-                return;
+                return;*/
             }
 
-            Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} (meta says {protoFromMeta}) bucket={targetBucket} LOD{lod}: " +
+           /* Debug.Log($"[ScaleDebug] proto={debugScaleProtoIndex} (meta says {protoFromMeta}) bucket={targetBucket} LOD{lod}: " +
                 $"pos=({px:F1},{py:F1},{pz:F1}) heightScale={hScale:F4} widthScale={wScale:F4}" +
                 (Mathf.Abs(hScale) > 100f || Mathf.Abs(wScale) > 100f || hScale <= 0f || wScale <= 0f
-                    ? "   <<< OUT OF SANE RANGE" : ""));
+                    ? "   <<< OUT OF SANE RANGE" : ""));*/
 
             // The instance data is correct — but that only means it was WRITTEN. Whether it's
             // DRAWN depends on the indirect args for this bucket, and on the prototype base
@@ -2024,10 +2024,10 @@ public class ImpostorRenderer : MonoBehaviour
                 if (a.Length < 5) return;
 
                 string flag = a[1] == 0 ? "   <<< instanceCount is ZERO — nothing will be drawn" : "";
-                Debug.Log($"[ScaleDebug] bucket={targetBucket} ARGS: indexCount={a[0]} instanceCount={a[1]} " +
+                /*Debug.Log($"[ScaleDebug] bucket={targetBucket} ARGS: indexCount={a[0]} instanceCount={a[1]} " +
                     $"startIndex={a[2]} baseVertex={a[3]} startInstance={a[4]}" +
                     $"  (expected indexCount={b.indexCount}, startIndex={b.startIndex}, baseVertex={b.baseVertex}, " +
-                    $"submesh={b.submeshIndex}, capacity={b.instanceCapacity}, offset={b.instanceOffset}){flag}");
+                    $"submesh={b.submeshIndex}, capacity={b.instanceCapacity}, offset={b.instanceOffset}){flag}");*/
             });
 
             AsyncGPUReadback.Request(prototypeScalesBuffer, sizeof(float) * 3, debugScaleProtoIndex * sizeof(float) * 3, (sreq) =>

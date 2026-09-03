@@ -405,6 +405,142 @@ public class ChunkManager : MonoBehaviour
             impostor.PrepareFrame(pos, PlayerAltitude);
     }
 
+    [Header("Heightmap Validation (debug)")]
+    [Tooltip("Set these in the Inspector, then right-click this component -> Validate Global " +
+             "Heightmap Base Array (Grid Sweep). [ContextMenu] only shows PARAMETERLESS methods, " +
+             "which is why these are fields rather than method arguments.\n\n" +
+             "chunkX/chunkY select the sub-cell WITHIN terrain (mapX,mapY) — i.e. the same unit " +
+             "the build loop and LOD system operate on (0..subdivisionsPowerOf2-1 on each axis). " +
+             "A grid of gridSamples x gridSamples UV points is then swept across that one sub-cell " +
+             "and each point compared against the true source-cell height — no need to know or " +
+             "derive any world-position coordinates.")]
+    public sbyte validateMapX = 0;
+    public sbyte validateMapY = 0;
+    public FaceId validateFace = FaceId.Up;
+    [Range(0, 7)] public int validateChunkX = 0;
+    [Range(0, 7)] public int validateChunkY = 0;
+    [Range(2, 16)] public int validateGridSamples = 5;
+    [Tooltip("Only log mismatches beyond this many metres, to keep output readable on a fine grid.")]
+    public float validateMismatchThreshold = 1f;
+
+    /// <summary>
+    /// Diagnostic: sweeps a grid of UV points across one sub-cell (chunkX, chunkY within terrain
+    /// mapX, mapY) and compares globalHeightmapArrays[0]'s stored value at each point against the
+    /// true height computed straight from the source cell data — using the SAME forward math
+    /// BuildGlobalHeightmapArray uses to write those values (not the shader's
+    /// SampleGlobalHeightAtLOD), so this isolates whether the base array itself is correct from
+    /// whether the shader addresses it correctly.
+    ///
+    /// Call AFTER BuildGlobalHeightmapArray() has completed (any time after Awake in Play Mode).
+    /// </summary>
+    [ContextMenu("Validate Global Heightmap Base Array (Grid Sweep)")]
+    public void ValidateGlobalHeightmapBaseArrayGrid()
+    {
+        sbyte mapX = validateMapX;
+        sbyte mapY = validateMapY;
+        FaceId face = validateFace;
+
+        if (globalHeightmapArrays == null || globalHeightmapArrays.Length == 0 || globalHeightmapArrays[0] == null)
+        {
+            Debug.LogError("[HeightmapValidate] globalHeightmapArrays[0] not built yet — call after BuildGlobalHeightmapArray().");
+            return;
+        }
+
+        int terrainGridSize = globalHeightmapTerrainGridSizePerLOD[0];
+        int slicesPerFace = terrainGridSize * terrainGridSize;
+        int sliceResolution = globalHeightmapArrays[0].width;
+        int subPow2 = subdivisionsPowerOf2;
+        float cellWorldSize = terrainSize / subPow2;
+
+        if (validateChunkX >= subPow2 || validateChunkY >= subPow2)
+        {
+            Debug.LogError($"[HeightmapValidate] chunkX/chunkY must be in [0, {subPow2 - 1}] " +
+                $"(subdivisionsPowerOf2={subPow2}). Got ({validateChunkX},{validateChunkY}).");
+            return;
+        }
+
+        int tgX = (mapX - minX) / subPow2;
+        int scX = (mapX - minX) % subPow2;
+        int tgY = (mapY - minX) / subPow2;
+        int scY = (mapY - minX) % subPow2;
+
+        if (tgX < 0 || tgX >= terrainGridSize || tgY < 0 || tgY >= terrainGridSize)
+        {
+            Debug.LogError($"[HeightmapValidate] map=({mapX},{mapY}) is outside the terrain grid " +
+                $"(tgX={tgX}, tgY={tgY}, gridSize={terrainGridSize}).");
+            return;
+        }
+
+        int sliceIndex = (int)face * slicesPerFace + tgY * terrainGridSize + tgX;
+
+        CellReader.CellData data = cellReader.GetOrLoadSync(new Vector2SByte(mapX, mapY), face);
+        if (data?.heights == null)
+        {
+            Debug.LogError($"[HeightmapValidate] No source cell data for map=({mapX},{mapY}) face={face}.");
+            return;
+        }
+
+        byte dsSteps = GetCellDsSteps(new Vector2SByte(mapX, mapY), face);
+        float facePixelDistance = GetFacePixelDistance(face) * (1 << dsSteps);
+        float fMaxHeight = GetFaceMaxHeight(face);
+
+        ushort[] sliceRaw = globalHeightmapArrays[0].GetPixelData<ushort>(0, sliceIndex).ToArray();
+
+        int n = validateGridSamples;
+        int mismatches = 0;
+        float worstDiff = 0f;
+        float sumAbsDiff = 0f;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"[HeightmapValidate] Grid sweep: map=({mapX},{mapY}) face={face} " +
+            $"chunk=({validateChunkX},{validateChunkY}) within tg=({tgX},{tgY}) sc=({scX},{scY}) " +
+            $"slice={sliceIndex} sliceRes={sliceResolution} grid={n}x{n}");
+
+        for (int gy = 0; gy < n; gy++)
+        {
+            float vFrac = n == 1 ? 0.5f : (float)gy / (n - 1);
+            float worldZ = vFrac * cellWorldSize;
+
+            for (int gx = 0; gx < n; gx++)
+            {
+                float uFrac = n == 1 ? 0.5f : (float)gx / (n - 1);
+                float worldX = uFrac * cellWorldSize;
+
+                // ---- Path A: what the build loop wrote for this point in the sub-cell ----
+                float cellOriginX = validateChunkX * cellWorldSize;
+                float cellOriginY = validateChunkY * cellWorldSize;
+                float planeX = cellOriginX + worldX;
+                float planeY = cellOriginY + worldZ;
+                float u = planeX / terrainSize;
+                float v = planeY / terrainSize;
+                int sliceX = Mathf.Clamp(Mathf.RoundToInt(u * (sliceResolution - 1)), 0, sliceResolution - 1);
+                int sliceY = Mathf.Clamp(Mathf.RoundToInt(v * (sliceResolution - 1)), 0, sliceResolution - 1);
+                float storedHeight = Mathf.HalfToFloat(sliceRaw[sliceY * sliceResolution + sliceX]);
+
+                // ---- Path B: true height straight from the source cell, independently computed ----
+                int hmX = Mathf.Clamp(Mathf.FloorToInt(worldX / facePixelDistance), 0, data.heights.GetLength(1) - 1);
+                int hmY = Mathf.Clamp(Mathf.FloorToInt(worldZ / facePixelDistance), 0, data.heights.GetLength(0) - 1);
+                float trueHeight = (data.heights[hmY, hmX] / 65535f) * fMaxHeight;
+
+                float diff = storedHeight - trueHeight;
+                sumAbsDiff += Mathf.Abs(diff);
+                if (Mathf.Abs(diff) > Mathf.Abs(worstDiff)) worstDiff = diff;
+
+                if (Mathf.Abs(diff) > validateMismatchThreshold)
+                {
+                    mismatches++;
+                    sb.AppendLine($"  uv=({uFrac:F2},{vFrac:F2}) world=({worldX:F1},{worldZ:F1}) " +
+                        $"sliceXY=({sliceX},{sliceY}) hmXY=({hmX},{hmY}) stored={storedHeight:F2} true={trueHeight:F2} diff={diff:F2}");
+                }
+            }
+        }
+
+        sb.AppendLine($"[HeightmapValidate] {mismatches}/{n * n} points exceeded {validateMismatchThreshold}m — " +
+            $"worst diff={worstDiff:F2}, avg abs diff={sumAbsDiff / (n * n):F2}" +
+            (mismatches > 0 ? "  <<< BASE ARRAY HAS REAL ERROR IN THIS CHUNK" : "  (all agree)"));
+        Debug.Log(sb.ToString());
+    }
+
     private void BuildGlobalHeightmapArray()
     {
         int terrainGridSize = (int)Mathf.Sqrt(numberOfTerrains);

@@ -413,7 +413,12 @@ float SampleGlobalHeightAtLOD(uint chunkLOD, float globalLX, float globalLZ, uin
     // decimation level FINER than the mesh actually renders: identical on flat ground (where
     // every level agrees) but divergent on steep ground, where the finer data keeps peaks the
     // coarser mesh dropped, leaving instances floating above the flattened surface.
-    uint lodIndex = min(chunkLOD, lodCount - 1u);
+    // globalHeightmapArrays[0] holds LOD1 data, NOT the undecimated base: ChunkManager builds it
+    // at lod1CellRes = ((cellBaseRes - 1) >> 1) + 1, i.e. every 2nd source sample. So array index
+    // i holds LOD(i+1), and chunkLOD N reads index N-1. (A previous version indexed by chunkLOD
+    // directly, on the mistaken assumption that [0] was the full-resolution base — that shifted
+    // every LOD by one level and made the error uniform across all of them.)
+    uint lodIndex = clamp(chunkLOD, 1u, lodCount) - 1u;
 
     uint gridSize = _TerrainGridSizePerLOD[lodIndex];
     if (gridSize == 0) gridSize = 1;
@@ -511,10 +516,9 @@ float3 BlotchWorldPosDir(float3 instanceDir, uint face,
         }
         else
         {
-            // chunkLOD is 0 here (this is the chunkLOD==0 branch's fallback for when no active
-            // LOD0 slice is loaded). Array index 0 holds the undecimated base, which is exactly
-            // what chunkLOD 0 should sample — so pass it through rather than forcing it to 1.
-            terrainHeight = SampleGlobalHeightAtLOD(chunkLOD, globalLX, globalLZ, face);
+            // chunkLOD is 0 here (fallback when no active LOD0 slice is loaded). The coarsest
+            // data available is array[0] = LOD1, so clamp up to it.
+            terrainHeight = SampleGlobalHeightAtLOD(max(1u, chunkLOD), globalLX, globalLZ, face);
         }
     }
     else
@@ -897,7 +901,7 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float globalLX, globalLZ;
     DirectionToFaceUV(instanceDir, face, globalLX, globalLZ);
 
-    float coarseAlt = SampleGlobalHeightAtLOD(chunkLOD, globalLX, globalLZ, face);
+    float coarseAlt = SampleGlobalHeightAtLOD(max(1u, chunkLOD), globalLX, globalLZ, face);
 
     float3 approxWp = _SphereCenter + instanceDir * (_SphereRadius + coarseAlt);
     float instDist = length(approxWp - _EyePos);
