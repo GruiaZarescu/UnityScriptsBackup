@@ -556,7 +556,20 @@ public class ChunkManager : MonoBehaviour
         // instead of failing outright — acceptable for a fallback LOD that's already an
         // approximation by design.
         int dstGridSize = Mathf.Max(1, srcGridSize / 2);
-        int dstRes = Mathf.Max(1, srcRes / 2);
+        // NOT srcRes/2. Four source cells collapse into ONE destination cell, so each source cell
+        // occupies a quadrant of dstRes/2 texels per axis. The 2x2 box filter below reduces each
+        // source cell's srcRes texels by half, giving srcRes/2 texels — which must equal that
+        // quadrant size, i.e. dstRes/2 == srcRes/2, i.e. dstRes == srcRes.
+        //
+        // Halving resolution AND collapsing the grid at the same time (the original mistake) made
+        // each quadrant only srcRes/4 texels wide while the filter still walked srcRes source
+        // texels, so the far half of every source cell was silently dropped and each destination
+        // cell ended up representing the wrong world area — real terrain data at plausible-looking
+        // but geometrically wrong heights, degrading further at each successive LOD.
+        //
+        // Memory still converges: resolution stays constant per level but the SLICE COUNT quarters
+        // (dstGridSize halves per axis), so the series is still 1 + 1/4 + 1/16 + ... -> ~4/3 total.
+        int dstRes = srcRes;
         int dstSlicesPerFace = dstGridSize * dstGridSize;
         int dstTotalSlices = dstSlicesPerFace * FaceIdUtility.StorageFaceCount;
 
