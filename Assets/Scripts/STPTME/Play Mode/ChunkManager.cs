@@ -537,13 +537,22 @@ public class ChunkManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Builds globalHeightmapArrays[lodIndex] by 2x2 box-filter downsampling
-    /// globalHeightmapArrays[lodIndex - 1]. Halves both texel resolution and terrain-grid slice
-    /// count relative to the source LOD — four of the source LOD's cells (in a 2x2 layout) become
-    /// one cell here, and each new cell's texel data is the average of the corresponding 2x2 texel
-    /// blocks from its four source cells. Source-cell resolution is halved independently of the
-    /// grid-size halving, so a lodIndex-1 slice at sliceResolutionPrev texels contributes a
-    /// sliceResolutionPrev/2-texel quadrant to the new, coarser cell it belongs to.
+    /// Builds globalHeightmapArrays[lodIndex] from the level above it using the SAME decimation
+    /// the terrain meshes themselves use (STPTMEUtils.GetHeightsLodUshort), so sampled elevation
+    /// agrees with what a chunk's own rendered geometry actually shows — by construction, not by
+    /// approximation.
+    ///
+    /// This matters more than it looks: GetHeightsLodUshort POINT-SAMPLES (takes every Nth vertex
+    /// exactly, discarding the rest). An earlier version of this function box-filtered 2x2 blocks
+    /// instead, which averages toward the local mean — placing instances below peaks and above
+    /// valleys, consistently offset from the surface the mesh actually renders. Matching the real
+    /// downsampler is the only way to be correct here; any independent filter can only approximate
+    /// the mesh it is supposed to agree with.
+    ///
+    /// Four source cells collapse into one destination cell (grid halves per axis), and each
+    /// source cell contributes one quadrant of the destination at half its own resolution — so
+    /// destination resolution equals source resolution, and only the SLICE COUNT quarters per
+    /// level. Memory series stays 1 + 1/4 + 1/16 + ... -> ~4/3 of the base level.
     /// </summary>
     private void BuildDownsampledHeightmapLOD(int lodIndex, int baseSliceResolution, int baseTerrainGridSize)
     {
@@ -551,24 +560,7 @@ public class ChunkManager : MonoBehaviour
         int srcGridSize = globalHeightmapTerrainGridSizePerLOD[lodIndex - 1];
         int srcRes = src.width;
 
-        // Halve the grid (fewer, larger cells) and halve resolution per cell. Floor rather than
-        // round so an odd grid size still produces a valid, if slightly uneven, coarser level
-        // instead of failing outright — acceptable for a fallback LOD that's already an
-        // approximation by design.
         int dstGridSize = Mathf.Max(1, srcGridSize / 2);
-        // NOT srcRes/2. Four source cells collapse into ONE destination cell, so each source cell
-        // occupies a quadrant of dstRes/2 texels per axis. The 2x2 box filter below reduces each
-        // source cell's srcRes texels by half, giving srcRes/2 texels — which must equal that
-        // quadrant size, i.e. dstRes/2 == srcRes/2, i.e. dstRes == srcRes.
-        //
-        // Halving resolution AND collapsing the grid at the same time (the original mistake) made
-        // each quadrant only srcRes/4 texels wide while the filter still walked srcRes source
-        // texels, so the far half of every source cell was silently dropped and each destination
-        // cell ended up representing the wrong world area — real terrain data at plausible-looking
-        // but geometrically wrong heights, degrading further at each successive LOD.
-        //
-        // Memory still converges: resolution stays constant per level but the SLICE COUNT quarters
-        // (dstGridSize halves per axis), so the series is still 1 + 1/4 + 1/16 + ... -> ~4/3 total.
         int dstRes = srcRes;
         int dstSlicesPerFace = dstGridSize * dstGridSize;
         int dstTotalSlices = dstSlicesPerFace * FaceIdUtility.StorageFaceCount;
@@ -579,13 +571,8 @@ public class ChunkManager : MonoBehaviour
         dst.filterMode = FilterMode.Bilinear;
         dst.wrapMode = TextureWrapMode.Clamp;
 
-        // Read the whole source array's raw texel data once per face-pass rather than per
-        // destination cell, since GetPixelData involves a readback and this runs once at startup,
-        // not per-frame — still worth batching by face to avoid re-fetching a source slice for
-        // each of the (up to) 4 destination cells that read from it independently... in practice
-        // each source slice contributes to exactly ONE destination cell (2x2 grid collapse), so a
-        // straightforward per-source-slice read is both simplest and already minimal.
         ushort[] dstSliceData = new ushort[dstRes * dstRes];
+        int quadSize = dstRes / 2; // each source cell fills one quadrant of the destination cell
 
         for (int f = 0; f < FaceIdUtility.StorageFaceCount; f++)
         {
@@ -596,7 +583,6 @@ public class ChunkManager : MonoBehaviour
                     System.Array.Clear(dstSliceData, 0, dstSliceData.Length);
                     int dstSliceIndex = f * dstSlicesPerFace + dstY * dstGridSize + dstX;
 
-                    // The 2x2 block of source cells that collapse into this one destination cell.
                     for (int subY = 0; subY < 2; subY++)
                     {
                         int srcCellY = dstY * 2 + subY;
@@ -608,38 +594,35 @@ public class ChunkManager : MonoBehaviour
                             if (srcCellX >= srcGridSize) continue;
 
                             int srcSliceIndex = f * (srcGridSize * srcGridSize) + srcCellY * srcGridSize + srcCellX;
-                            ushort[] srcSliceData = src.GetPixelData<ushort>(0, srcSliceIndex).ToArray();
+                            ushort[] srcFlat = src.GetPixelData<ushort>(0, srcSliceIndex).ToArray();
 
-                            // This source cell's texels map to one quadrant of the destination
-                            // cell (subX, subY selects which quadrant), at half resolution.
-                            int quadW = dstRes / 2;
-                            int quadH = dstRes / 2;
-                            int quadBaseX = subX * quadW;
-                            int quadBaseY = subY * quadH;
+                            // GetHeightsLodUshort works on [y, x] arrays, so reshape, decimate by
+                            // one LOD step, then write the result into this source cell's quadrant.
+                            var srcGrid = new ushort[srcRes, srcRes];
+                            for (int y = 0; y < srcRes; y++)
+                                for (int x = 0; x < srcRes; x++)
+                                    srcGrid[y, x] = srcFlat[y * srcRes + x];
 
-                            for (int qy = 0; qy < quadH; qy++)
+                            ushort[,] decimated = STPTMEUtils.GetHeightsLodUshort(srcGrid, 1);
+                            int decH = decimated.GetLength(0);
+                            int decW = decimated.GetLength(1);
+
+                            int quadBaseX = subX * quadSize;
+                            int quadBaseY = subY * quadSize;
+
+                            for (int qy = 0; qy < quadSize; qy++)
                             {
                                 int dstYPix = quadBaseY + qy;
                                 if (dstYPix >= dstRes) break;
+                                int sy = Mathf.Min(qy, decH - 1);
 
-                                for (int qx = 0; qx < quadW; qx++)
+                                for (int qx = 0; qx < quadSize; qx++)
                                 {
                                     int dstXPix = quadBaseX + qx;
                                     if (dstXPix >= dstRes) break;
+                                    int sx = Mathf.Min(qx, decW - 1);
 
-                                    // 2x2 box filter over the source cell's texels.
-                                    int sx0 = Mathf.Min(qx * 2, srcRes - 1);
-                                    int sx1 = Mathf.Min(qx * 2 + 1, srcRes - 1);
-                                    int sy0 = Mathf.Min(qy * 2, srcRes - 1);
-                                    int sy1 = Mathf.Min(qy * 2 + 1, srcRes - 1);
-
-                                    float h00 = Mathf.HalfToFloat(srcSliceData[sy0 * srcRes + sx0]);
-                                    float h10 = Mathf.HalfToFloat(srcSliceData[sy0 * srcRes + sx1]);
-                                    float h01 = Mathf.HalfToFloat(srcSliceData[sy1 * srcRes + sx0]);
-                                    float h11 = Mathf.HalfToFloat(srcSliceData[sy1 * srcRes + sx1]);
-                                    float avg = (h00 + h10 + h01 + h11) * 0.25f;
-
-                                    dstSliceData[dstYPix * dstRes + dstXPix] = Mathf.FloatToHalf(avg);
+                                    dstSliceData[dstYPix * dstRes + dstXPix] = decimated[sy, sx];
                                 }
                             }
                         }
