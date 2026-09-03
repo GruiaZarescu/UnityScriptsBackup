@@ -537,101 +537,66 @@ public class ChunkManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Builds globalHeightmapArrays[lodIndex] from the level above it using the SAME decimation
-    /// the terrain meshes themselves use (STPTMEUtils.GetHeightsLodUshort), so sampled elevation
-    /// agrees with what a chunk's own rendered geometry actually shows — by construction, not by
-    /// approximation.
+    /// Builds globalHeightmapArrays[lodIndex] by halving the RESOLUTION WITHIN each slice, using
+    /// the same decimation the terrain meshes use (STPTMEUtils.GetHeightsLodUshort).
     ///
-    /// This matters more than it looks: GetHeightsLodUshort POINT-SAMPLES (takes every Nth vertex
-    /// exactly, discarding the rest). An earlier version of this function box-filtered 2x2 blocks
-    /// instead, which averages toward the local mean — placing instances below peaks and above
-    /// valleys, consistently offset from the surface the mesh actually renders. Matching the real
-    /// downsampler is the only way to be correct here; any independent filter can only approximate
-    /// the mesh it is supposed to agree with.
+    /// Slice count and terrain grid size stay IDENTICAL at every LOD. This is the critical part:
+    /// terrainGridSize describes the map's fixed spatial partition — which world position falls
+    /// in which terrain cell — so that mapping must be the same at every LOD. An earlier version
+    /// halved the grid per level and merged 2x2 blocks of cells into one, which meant a given
+    /// world position resolved to a DIFFERENT slice at LOD2 than at LOD1, and
+    /// SampleGlobalHeightAtLOD read an entirely unrelated cell. That produced real terrain data at
+    /// plausible-but-wrong heights, and no amount of fixing the filter itself could help, because
+    /// the filter was never the problem — the slice addressing was.
     ///
-    /// Four source cells collapse into one destination cell (grid halves per axis), and each
-    /// source cell contributes one quadrant of the destination at half its own resolution — so
-    /// destination resolution equals source resolution, and only the SLICE COUNT quarters per
-    /// level. Memory series stays 1 + 1/4 + 1/16 + ... -> ~4/3 of the base level.
+    /// Memory still converges identically: quartering texels-per-slice does the same work as
+    /// quartering slice count, so the series is 1 + 1/4 + 1/16 + ... -> ~4/3 of the base level.
     /// </summary>
     private void BuildDownsampledHeightmapLOD(int lodIndex, int baseSliceResolution, int baseTerrainGridSize)
     {
         Texture2DArray src = globalHeightmapArrays[lodIndex - 1];
         int srcGridSize = globalHeightmapTerrainGridSizePerLOD[lodIndex - 1];
         int srcRes = src.width;
+        int totalSlices = src.depth;
 
-        int dstGridSize = Mathf.Max(1, srcGridSize / 2);
-        int dstRes = srcRes;
-        int dstSlicesPerFace = dstGridSize * dstGridSize;
-        int dstTotalSlices = dstSlicesPerFace * FaceIdUtility.StorageFaceCount;
+        int dstRes = Mathf.Max(1, srcRes / 2);
 
-        globalHeightmapTerrainGridSizePerLOD[lodIndex] = dstGridSize;
+        // Grid size is a fixed property of the map layout, NOT something that varies per LOD.
+        globalHeightmapTerrainGridSizePerLOD[lodIndex] = srcGridSize;
 
-        var dst = new Texture2DArray(dstRes, dstRes, dstTotalSlices, TextureFormat.RHalf, false, true);
+        var dst = new Texture2DArray(dstRes, dstRes, totalSlices, TextureFormat.RHalf, false, true);
         dst.filterMode = FilterMode.Bilinear;
         dst.wrapMode = TextureWrapMode.Clamp;
 
-        ushort[] dstSliceData = new ushort[dstRes * dstRes];
-        int quadSize = dstRes / 2; // each source cell fills one quadrant of the destination cell
+        var dstSliceData = new ushort[dstRes * dstRes];
 
-        for (int f = 0; f < FaceIdUtility.StorageFaceCount; f++)
+        for (int slice = 0; slice < totalSlices; slice++)
         {
-            for (int dstY = 0; dstY < dstGridSize; dstY++)
+            ushort[] srcFlat = src.GetPixelData<ushort>(0, slice).ToArray();
+
+            // GetHeightsLodUshort works on [y, x] arrays — reshape, decimate one LOD step, flatten.
+            var srcGrid = new ushort[srcRes, srcRes];
+            for (int y = 0; y < srcRes; y++)
+                for (int x = 0; x < srcRes; x++)
+                    srcGrid[y, x] = srcFlat[y * srcRes + x];
+
+            ushort[,] decimated = STPTMEUtils.GetHeightsLodUshort(srcGrid, 1);
+            int decH = decimated.GetLength(0);
+            int decW = decimated.GetLength(1);
+
+            for (int y = 0; y < dstRes; y++)
             {
-                for (int dstX = 0; dstX < dstGridSize; dstX++)
+                int sy = Mathf.Min(y, decH - 1);
+                for (int x = 0; x < dstRes; x++)
                 {
-                    System.Array.Clear(dstSliceData, 0, dstSliceData.Length);
-                    int dstSliceIndex = f * dstSlicesPerFace + dstY * dstGridSize + dstX;
-
-                    for (int subY = 0; subY < 2; subY++)
-                    {
-                        int srcCellY = dstY * 2 + subY;
-                        if (srcCellY >= srcGridSize) continue;
-
-                        for (int subX = 0; subX < 2; subX++)
-                        {
-                            int srcCellX = dstX * 2 + subX;
-                            if (srcCellX >= srcGridSize) continue;
-
-                            int srcSliceIndex = f * (srcGridSize * srcGridSize) + srcCellY * srcGridSize + srcCellX;
-                            ushort[] srcFlat = src.GetPixelData<ushort>(0, srcSliceIndex).ToArray();
-
-                            // GetHeightsLodUshort works on [y, x] arrays, so reshape, decimate by
-                            // one LOD step, then write the result into this source cell's quadrant.
-                            var srcGrid = new ushort[srcRes, srcRes];
-                            for (int y = 0; y < srcRes; y++)
-                                for (int x = 0; x < srcRes; x++)
-                                    srcGrid[y, x] = srcFlat[y * srcRes + x];
-
-                            ushort[,] decimated = STPTMEUtils.GetHeightsLodUshort(srcGrid, 1);
-                            int decH = decimated.GetLength(0);
-                            int decW = decimated.GetLength(1);
-
-                            int quadBaseX = subX * quadSize;
-                            int quadBaseY = subY * quadSize;
-
-                            for (int qy = 0; qy < quadSize; qy++)
-                            {
-                                int dstYPix = quadBaseY + qy;
-                                if (dstYPix >= dstRes) break;
-                                int sy = Mathf.Min(qy, decH - 1);
-
-                                for (int qx = 0; qx < quadSize; qx++)
-                                {
-                                    int dstXPix = quadBaseX + qx;
-                                    if (dstXPix >= dstRes) break;
-                                    int sx = Mathf.Min(qx, decW - 1);
-
-                                    dstSliceData[dstYPix * dstRes + dstXPix] = decimated[sy, sx];
-                                }
-                            }
-                        }
-                    }
-
-                    dst.SetPixelData(dstSliceData, 0, dstSliceIndex);
+                    int sx = Mathf.Min(x, decW - 1);
+                    dstSliceData[y * dstRes + x] = decimated[sy, sx];
                 }
             }
+
+            dst.SetPixelData(dstSliceData, 0, slice);
         }
+
         dst.Apply();
         globalHeightmapArrays[lodIndex] = dst;
     }
