@@ -875,7 +875,7 @@ public class ImpostorRenderer : MonoBehaviour
         }
 
         // Runs after the solve dispatches, so the buffer holds this frame's instances.
-        //DebugInstanceScale();
+        DebugInstanceScale();
 
         DrawIndirect();
     }
@@ -1855,7 +1855,7 @@ public class ImpostorRenderer : MonoBehaviour
     /// belongs to bucket 0, whose region is only written if that particular prototype has
     /// instances nearby (otherwise it reads as all zeros and tells you nothing).
     /// </summary>
-    /*private void DebugInstanceScale()
+    private void DebugInstanceScale()
     {
         if (debugScaleProtoIndex < 0 || buckets == null || instanceOutputBuffer == null) return;
         if (Time.time - _lastScaleDebugTime < 1f) return;
@@ -2043,7 +2043,7 @@ public class ImpostorRenderer : MonoBehaviour
                     //$"-> finalScale=({sx * wScale:F4},{sy * hScale:F4},{sz * wScale:F4}){zflag}");
             });
         });
-    } */
+    }
 
     private void CheckBucketOverflow()
     {
