@@ -407,7 +407,13 @@ float SampleHeightGlobalTri(float2 uv, uint slice)
 float SampleGlobalHeightAtLOD(uint chunkLOD, float globalLX, float globalLZ, uint face)
 {
     uint lodCount = max(1u, _GlobalHeightmapLODCount);
-    uint lodIndex = clamp(chunkLOD, 1u, lodCount) - 1u;
+    // globalHeightmapArrays[i] holds the base heightmap decimated i times (base / 2^i), and the
+    // terrain mesh at chunkLOD N is built with GetHeightsLodUshort(heights, N) = base / 2^N.
+    // So chunkLOD N must read array index N — NOT N-1. Indexing by chunkLOD-1 sampled one
+    // decimation level FINER than the mesh actually renders: identical on flat ground (where
+    // every level agrees) but divergent on steep ground, where the finer data keeps peaks the
+    // coarser mesh dropped, leaving instances floating above the flattened surface.
+    uint lodIndex = min(chunkLOD, lodCount - 1u);
 
     uint gridSize = _TerrainGridSizePerLOD[lodIndex];
     if (gridSize == 0) gridSize = 1;
@@ -505,7 +511,10 @@ float3 BlotchWorldPosDir(float3 instanceDir, uint face,
         }
         else
         {
-            terrainHeight = SampleGlobalHeightAtLOD(max(1u, chunkLOD), globalLX, globalLZ, face);
+            // chunkLOD is 0 here (this is the chunkLOD==0 branch's fallback for when no active
+            // LOD0 slice is loaded). Array index 0 holds the undecimated base, which is exactly
+            // what chunkLOD 0 should sample — so pass it through rather than forcing it to 1.
+            terrainHeight = SampleGlobalHeightAtLOD(chunkLOD, globalLX, globalLZ, face);
         }
     }
     else
@@ -888,7 +897,7 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float globalLX, globalLZ;
     DirectionToFaceUV(instanceDir, face, globalLX, globalLZ);
 
-    float coarseAlt = SampleGlobalHeightAtLOD(max(1u, chunkLOD), globalLX, globalLZ, face);
+    float coarseAlt = SampleGlobalHeightAtLOD(chunkLOD, globalLX, globalLZ, face);
 
     float3 approxWp = _SphereCenter + instanceDir * (_SphereRadius + coarseAlt);
     float instDist = length(approxWp - _EyePos);
