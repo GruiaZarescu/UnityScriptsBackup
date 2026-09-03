@@ -144,9 +144,25 @@ uint _TimeMS;
 uint _DefaultChunkLOD;
 uint _MaxVisibleChunks;
 
-Texture2DArray<float> _GlobalHeightmapArray;
+Texture2DArray<float> _GlobalHeightmapArray;  // legacy alias, always == _GlobalHeightmapArray_LOD1
 SamplerState sampler_GlobalHeightmapArray;
-uint _TerrainGridSize;
+uint _TerrainGridSize;                        // legacy alias, always == _TerrainGridSizePerLOD[0]
+
+// Per-chunk-LOD heightmap arrays. Index i (0-based) holds chunk LOD (i+1)'s data — chunkLOD 0
+// never reaches these (BlotchWorldPosDir's chunkLOD==0 branch uses the exact active-terrain
+// path instead). Declared as separate named textures rather than one indexable array because
+// HLSL/DX11 compute shaders cannot runtime-index an array of Texture2DArray resource handles —
+// SampleGlobalHeightAtLOD below branches over a fixed, small set of them instead.
+Texture2DArray<float> _GlobalHeightmapArray_LOD1;
+Texture2DArray<float> _GlobalHeightmapArray_LOD2;
+Texture2DArray<float> _GlobalHeightmapArray_LOD3;
+Texture2DArray<float> _GlobalHeightmapArray_LOD4;
+Texture2DArray<float> _GlobalHeightmapArray_LOD5;
+Texture2DArray<float> _GlobalHeightmapArray_LOD6;
+Texture2DArray<float> _GlobalHeightmapArray_LOD7;
+StructuredBuffer<uint> _TerrainGridSizePerLOD; // grid cells-per-axis for each LOD, index 0 = LOD1
+uint _GlobalHeightmapLODCount;                 // how many of the above are actually populated
+
 Texture2DArray<float> _ActiveLOD0HeightmapArray;
 SamplerState sampler_ActiveLOD0HeightmapArray;
 StructuredBuffer<uint> _ActiveLOD0SliceMap;
@@ -360,21 +376,56 @@ float SampleHeightActiveTri(float2 uv, uint2 res, uint slice)
     return TriInterp(h00, h10, h01, h11, f);
 }
 
-float SampleHeightGlobalTri(float2 uv, uint slice)
+float SampleHeightGlobalTriFrom(Texture2DArray<float> tex, float2 uv, uint slice)
 {
     uint w, h, elems;
-    _GlobalHeightmapArray.GetDimensions(w, h, elems);
+    tex.GetDimensions(w, h, elems);
     float2 res   = float2(w, h);
     float2 coord = saturate(uv) * (res - 1.0);
     int2   i0    = (int2)floor(coord);
     int2   i1    = min(i0 + 1, (int2)res - 1);
     float2 f     = coord - (float2)i0;
 
-    float h00 = _GlobalHeightmapArray.Load(int4(i0.x, i0.y, (int)slice, 0));
-    float h10 = _GlobalHeightmapArray.Load(int4(i1.x, i0.y, (int)slice, 0));
-    float h01 = _GlobalHeightmapArray.Load(int4(i0.x, i1.y, (int)slice, 0));
-    float h11 = _GlobalHeightmapArray.Load(int4(i1.x, i1.y, (int)slice, 0));
+    float h00 = tex.Load(int4(i0.x, i0.y, (int)slice, 0));
+    float h10 = tex.Load(int4(i1.x, i0.y, (int)slice, 0));
+    float h01 = tex.Load(int4(i0.x, i1.y, (int)slice, 0));
+    float h11 = tex.Load(int4(i1.x, i1.y, (int)slice, 0));
     return TriInterp(h00, h10, h01, h11, f);   // same corrected diagonal
+}
+
+// Legacy name, kept so nothing calling it directly needs to change: always samples LOD1.
+float SampleHeightGlobalTri(float2 uv, uint slice)
+{
+    return SampleHeightGlobalTriFrom(_GlobalHeightmapArray, uv, slice);
+}
+
+/// <summary>
+/// Samples elevation at a world-space face UV using the heightmap array matching chunkLOD, not
+/// always the finest one. Recomputes the terrain-grid coordinate and slice index using THAT
+/// LOD's own grid size (coarser LODs have fewer, larger cells).
+/// </summary>
+float SampleGlobalHeightAtLOD(uint chunkLOD, float globalLX, float globalLZ, uint face)
+{
+    uint lodCount = max(1u, _GlobalHeightmapLODCount);
+    uint lodIndex = clamp(chunkLOD, 1u, lodCount) - 1u;
+
+    uint gridSize = _TerrainGridSizePerLOD[lodIndex];
+    if (gridSize == 0) gridSize = 1;
+
+    float terrainXf = globalLX * gridSize;
+    float terrainYf = globalLZ * gridSize;
+    uint terrainX = min((uint)terrainXf, gridSize - 1);
+    uint terrainY = min((uint)terrainYf, gridSize - 1);
+    float2 uv = float2(frac(terrainXf), frac(terrainYf));
+    uint sliceIndex = face * (gridSize * gridSize) + terrainY * gridSize + terrainX;
+
+    if (lodIndex == 0) return SampleHeightGlobalTriFrom(_GlobalHeightmapArray_LOD1, uv, sliceIndex);
+    if (lodIndex == 1) return SampleHeightGlobalTriFrom(_GlobalHeightmapArray_LOD2, uv, sliceIndex);
+    if (lodIndex == 2) return SampleHeightGlobalTriFrom(_GlobalHeightmapArray_LOD3, uv, sliceIndex);
+    if (lodIndex == 3) return SampleHeightGlobalTriFrom(_GlobalHeightmapArray_LOD4, uv, sliceIndex);
+    if (lodIndex == 4) return SampleHeightGlobalTriFrom(_GlobalHeightmapArray_LOD5, uv, sliceIndex);
+    if (lodIndex == 5) return SampleHeightGlobalTriFrom(_GlobalHeightmapArray_LOD6, uv, sliceIndex);
+    return SampleHeightGlobalTriFrom(_GlobalHeightmapArray_LOD7, uv, sliceIndex);
 }
 
 float3 ComputeExactInstanceDir(uint face, int chunkPacked, uint storageSlot, float dispLX, float dispLZ)
@@ -454,30 +505,12 @@ float3 BlotchWorldPosDir(float3 instanceDir, uint face,
         }
         else
         {
-            float terrainX_f = globalLX * _TerrainGridSize;
-            float terrainY_f = globalLZ * _TerrainGridSize;
-            uint terrainX = (uint)floor(terrainX_f);
-            uint terrainY = (uint)floor(terrainY_f);
-            float2 terrainUV = saturate(float2(terrainX_f - terrainX, terrainY_f - terrainY));
-            terrainX = min(terrainX, _TerrainGridSize - 1);
-            terrainY = min(terrainY, _TerrainGridSize - 1);
-            uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize)
-                            + terrainY * _TerrainGridSize + terrainX;
-            terrainHeight = SampleHeightGlobalTri(terrainUV, sliceIndex);
+            terrainHeight = SampleGlobalHeightAtLOD(max(1u, chunkLOD), globalLX, globalLZ, face);
         }
     }
     else
     {
-        float terrainX_f = globalLX * _TerrainGridSize;
-        float terrainY_f = globalLZ * _TerrainGridSize;
-        uint terrainX = (uint)floor(terrainX_f);
-        uint terrainY = (uint)floor(terrainY_f);
-        float2 terrainUV = saturate(float2(terrainX_f - terrainX, terrainY_f - terrainY));
-        terrainX = min(terrainX, _TerrainGridSize - 1);
-        terrainY = min(terrainY, _TerrainGridSize - 1);
-        uint sliceIndex = face * (_TerrainGridSize * _TerrainGridSize)
-                        + terrainY * _TerrainGridSize + terrainX;
-        terrainHeight = SampleHeightGlobalTri(terrainUV, sliceIndex);
+        terrainHeight = SampleGlobalHeightAtLOD(chunkLOD, globalLX, globalLZ, face);
     }
 
     float2 offsets = _ProtoHeightOffsetBuffer[protoIdx];
@@ -850,21 +883,12 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float3 instanceDir = ComputeExactInstanceDir(face, bl.chunkPacked, storageSlot, dispLX, dispLZ);
 
     // Coarse real altitude for the distance test — kills the boundCenterAlt radial error.
+    // Uses chunkLOD's own array so the estimate matches what this chunk's own rendered mesh
+    // actually shows.
     float globalLX, globalLZ;
     DirectionToFaceUV(instanceDir, face, globalLX, globalLZ);
 
-    float coarseXf = globalLX * _TerrainGridSize;
-    float coarseYf = globalLZ * _TerrainGridSize;
-    uint  coarseX  = (uint)floor(coarseXf);
-    uint  coarseY  = (uint)floor(coarseYf);
-    float2 coarseUV = saturate(float2(coarseXf - coarseX, coarseYf - coarseY));
-    coarseX = min(coarseX, _TerrainGridSize - 1);
-    coarseY = min(coarseY, _TerrainGridSize - 1);
-    uint coarseSlice = face * (_TerrainGridSize * _TerrainGridSize)
-                    + coarseY * _TerrainGridSize + coarseX;
-
-    float coarseAlt = _GlobalHeightmapArray.SampleLevel(
-        sampler_GlobalHeightmapArray, float3(coarseUV, coarseSlice), 0);
+    float coarseAlt = SampleGlobalHeightAtLOD(max(1u, chunkLOD), globalLX, globalLZ, face);
 
     float3 approxWp = _SphereCenter + instanceDir * (_SphereRadius + coarseAlt);
     float instDist = length(approxWp - _EyePos);

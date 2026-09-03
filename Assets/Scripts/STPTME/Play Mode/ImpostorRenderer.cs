@@ -269,8 +269,9 @@ public class ImpostorRenderer : MonoBehaviour
     private Vector3 lastPlayerPosition;
     private float lastPlayerAltitude;
 
-    private Texture2DArray globalHeightmapArray;
-    private int terrainGridSize;
+    private Texture2DArray[] globalHeightmapArrays; // index 0 = LOD1, index i = LOD(i+1)
+    private int[] terrainGridSizePerLOD;
+    private ComputeBuffer terrainGridSizeBuffer; // uploaded so the shader can pick the right grid math per chunkLOD
 
     public void PrepareFrame(Vector3 playerPosition, float playerAltitude)
     {
@@ -348,12 +349,15 @@ public class ImpostorRenderer : MonoBehaviour
         this.mapsPerRow = mapsPerRow;
         prototypeRegistry = registry;
 
-        // Capture the global heightmap up-front so it is bound regardless of
-        // whether SetGlobalHeightmap() is called before or after Initialize().
-        if (globalHeightmap != null)
+        // Legacy single-texture params: kept for signature compatibility, but the real per-LOD
+        // heightmap data always arrives via SetGlobalHeightmaps(), called by ChunkManager right
+        // after BuildGlobalHeightmapArray() finishes building every LOD. A single texture handed
+        // in here (if ever non-null) is treated as LOD1-only, with every coarser LOD simply
+        // absent — acceptable as a degraded fallback, never the normal path.
+        if (globalHeightmap != null && globalHeightmapArrays == null)
         {
-            this.globalHeightmapArray = globalHeightmap;
-            this.terrainGridSize = terrainGridSize;
+            globalHeightmapArrays = new Texture2DArray[] { globalHeightmap };
+            terrainGridSizePerLOD = new int[] { terrainGridSize };
         }
 
         planetBounds = new Bounds(sphereCenter, halfExtent * 2f);
@@ -754,6 +758,17 @@ public class ImpostorRenderer : MonoBehaviour
 
 
         IsInitialized = true;
+
+        // SetGlobalHeightmaps() is called by ChunkManager.BuildGlobalHeightmapArray() BEFORE
+        // this Initialize() runs, so its own internal bind attempt correctly no-oped (IsInitialized
+        // was still false, kernels didn't exist yet). Re-bind now that kernels are real, or every
+        // LOD texture stays unset and every dispatch errors despite the data having arrived and
+        // been stored correctly.
+        if (globalHeightmapArrays != null)
+        {
+            BindGlobalHeightmapsToKernel(kernelExpand);
+            BindGlobalHeightmapsToKernel(kernelGenerateDistance);
+        }
     }
 
     // ===== PER-FRAME UPDATE =====
@@ -1045,23 +1060,55 @@ public class ImpostorRenderer : MonoBehaviour
         }
     }
 
+    /// <summary>Legacy single-array entry point, kept for any external caller that hasn't moved
+    /// to the multi-LOD path. Treated as LOD1-only.</summary>
     public void SetGlobalHeightmap(Texture2DArray heightmapArray, int gridSize)
-    {
-        this.globalHeightmapArray = heightmapArray;
-        this.terrainGridSize = gridSize;
-        // Re-bind to the compute shader so the heightmap is available to the
-        // CSExpandBlotches kernel regardless of when this is called relative to Initialize().
-        if (IsInitialized && impostorSolverCompute != null && kernelExpand >= 0 && globalHeightmapArray != null)
-        {
-            impostorSolverCompute.SetTexture(kernelExpand, "_GlobalHeightmapArray", globalHeightmapArray);
-            impostorSolverCompute.SetInt("_TerrainGridSize", terrainGridSize);
-        }
+        => SetGlobalHeightmaps(new Texture2DArray[] { heightmapArray }, new int[] { gridSize });
 
-        if (IsInitialized && impostorSolverCompute != null && kernelGenerateDistance >= 0 && globalHeightmapArray != null)
+    /// <summary>
+    /// Binds one heightmap array PER chunk LOD level, so BlotchWorldPosDir's non-LOD0 branch and
+    /// CSGenerateDistanceInstances' coarseAlt sample can read elevation at a resolution matching
+    /// the instance's ACTUAL rendered chunk LOD, instead of always reading the single finest
+    /// array regardless of how coarse that chunk's own geometry is.
+    ///
+    /// heightmapArrays[i] = chunk LOD (i+1)'s heightmap (index 0 = LOD1; chunkLOD 0 uses the
+    /// exact active-terrain sampling path in BlotchWorldPosDir and never reads these arrays).
+    /// </summary>
+    public void SetGlobalHeightmaps(Texture2DArray[] heightmapArrays, int[] gridSizePerLOD)
+    {
+        globalHeightmapArrays = heightmapArrays;
+        terrainGridSizePerLOD = gridSizePerLOD;
+
+        if (globalHeightmapArrays == null || globalHeightmapArrays.Length == 0) return;
+
+        terrainGridSizeBuffer?.Release();
+        var gridSizesUint = new uint[globalHeightmapArrays.Length];
+        for (int i = 0; i < globalHeightmapArrays.Length; i++)
+            gridSizesUint[i] = (uint)(gridSizePerLOD != null && i < gridSizePerLOD.Length ? gridSizePerLOD[i] : 0);
+        terrainGridSizeBuffer = new ComputeBuffer(Mathf.Max(1, gridSizesUint.Length), sizeof(uint), ComputeBufferType.Structured);
+        terrainGridSizeBuffer.SetData(gridSizesUint);
+
+        BindGlobalHeightmapsToKernel(kernelExpand);
+        BindGlobalHeightmapsToKernel(kernelGenerateDistance);
+    }
+
+    /// <summary>Binds every available LOD's heightmap array to one kernel under its own named
+    /// property (_GlobalHeightmapArray_LOD1.._LOD{N}), plus the shared grid-size buffer.</summary>
+    private void BindGlobalHeightmapsToKernel(int kernel)
+    {
+        if (!IsInitialized || impostorSolverCompute == null || kernel < 0 || globalHeightmapArrays == null) return;
+
+        for (int i = 0; i < globalHeightmapArrays.Length; i++)
         {
-            impostorSolverCompute.SetTexture(kernelGenerateDistance, "_GlobalHeightmapArray", globalHeightmapArray);
-            impostorSolverCompute.SetInt("_TerrainGridSize", terrainGridSize);
+            if (globalHeightmapArrays[i] == null) continue;
+            impostorSolverCompute.SetTexture(kernel, $"_GlobalHeightmapArray_LOD{i + 1}", globalHeightmapArrays[i]);
         }
+        if (terrainGridSizeBuffer != null)
+            impostorSolverCompute.SetBuffer(kernel, "_TerrainGridSizePerLOD", terrainGridSizeBuffer);
+        impostorSolverCompute.SetInt("_GlobalHeightmapLODCount", globalHeightmapArrays.Length);
+
+        if (globalHeightmapArrays.Length > 0 && terrainGridSizePerLOD != null && terrainGridSizePerLOD.Length > 0)
+            impostorSolverCompute.SetInt("_TerrainGridSize", terrainGridSizePerLOD[0]);
     }
 
     public void SetChunkLOD(int storageSlot, byte lod)
@@ -1443,8 +1490,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ProtoMaxLODs", protoMaxLODBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_CellStartPosBuffer", cellStartPosBuffer);
         impostorSolverCompute.SetBuffer(kernelGenerateDistance, "_ChunkWidthRatioBuffer", chunkWidthRatioBuffer);
-        if (globalHeightmapArray != null)
-            impostorSolverCompute.SetTexture(kernelGenerateDistance, "_GlobalHeightmapArray", globalHeightmapArray);
+        if (globalHeightmapArrays != null)
+            BindGlobalHeightmapsToKernel(kernelGenerateDistance);
 
         // Global constants.
         impostorSolverCompute.SetInt(ShaderIDs.BucketCount, bucketCount);
@@ -1468,11 +1515,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetInt(ShaderIDs.NumBuckets, bucketCount);
         impostorSolverCompute.SetInt(ShaderIDs.ConflictGridResolution, ConflictGridDefines.resolution);
 
-        if (globalHeightmapArray != null)
-        {
-            impostorSolverCompute.SetTexture(kernelExpand, "_GlobalHeightmapArray", globalHeightmapArray);
-            impostorSolverCompute.SetInt("_TerrainGridSize", terrainGridSize);
-        }
+        if (globalHeightmapArrays != null)
+            BindGlobalHeightmapsToKernel(kernelExpand);
     }
 
     private void UploadLODConfig()
@@ -1535,6 +1579,7 @@ public class ImpostorRenderer : MonoBehaviour
         debugTraceOutputBuffer?.Release();       debugTraceOutputBuffer = null;
         debugBlotchTraceBuffer?.Release();       debugBlotchTraceBuffer = null;
         debugChunkTraceBuffer?.Release();        debugChunkTraceBuffer = null;
+        terrainGridSizeBuffer?.Release();        terrainGridSizeBuffer = null;
         cellStartPosBuffer?.Release(); cellStartPosBuffer = null;
         chunkWidthRatioBuffer?.Release(); chunkWidthRatioBuffer = null;
     }
