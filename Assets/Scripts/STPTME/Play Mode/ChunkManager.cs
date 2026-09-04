@@ -695,7 +695,17 @@ public class ChunkManager : MonoBehaviour
         int srcRes = src.width;
         int totalSlices = src.depth;
 
-        int dstRes = Mathf.Max(1, srcRes / 2);
+        // GetHeightsLodUshort ALWAYS returns (srcRes/2 + 1) samples, not srcRes/2 — it computes a
+        // deliberate edge-clamped row/column beyond the "clean" newRes so the last sample matches
+        // the source's true final texel exactly, mirroring how the real chunk mesh's edge vertex
+        // is built. dst must be sized to match that exactly (decW x decH), NOT forced to srcRes/2:
+        // the previous version clamped writes to (srcRes/2 - 1) and so silently read the
+        // SECOND-to-last decimated row/column, never writing GetHeightsLodUshort's actual computed
+        // edge at all. That truncation compounds at every downsample step, so by LOD6 the array's
+        // last row/column was several truncation-steps removed from the true edge — confined
+        // entirely to the boundary, which is exactly what ValidateGlobalHeightmapAtTargetLOD found
+        // (errors only at vFrac==1.00, everywhere else within RHalf noise).
+        int dstRes = Mathf.Max(1, srcRes / 2) + 1;
 
         // Grid size is a fixed property of the map layout, NOT something that varies per LOD.
         globalHeightmapTerrainGridSizePerLOD[lodIndex] = srcGridSize;
@@ -720,9 +730,11 @@ public class ChunkManager : MonoBehaviour
             int decH = decimated.GetLength(0);
             int decW = decimated.GetLength(1);
 
+            // decH/decW must equal dstRes exactly now — no clamping needed, every decimated
+            // sample (including the true edge) is copied through unmodified.
             for (int y = 0; y < dstRes; y++)
             {
-                int sy = Mathf.Min(y, decH - 1);
+                int sy = Mathf.Min(y, decH - 1); // safety only; should never actually clamp now
                 for (int x = 0; x < dstRes; x++)
                 {
                     int sx = Mathf.Min(x, decW - 1);
