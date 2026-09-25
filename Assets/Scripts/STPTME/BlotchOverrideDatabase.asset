@@ -2478069,3 +2478069,99 @@ MonoBehaviour:
     seedHash: 1977473878
     radius: 6
     density: 10
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 869130915
+    radius: 6
+    density: 10
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 868935660
+    radius: 6
+    density: 10
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 868887531
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 952284714
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1035693150
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1119068615
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1202485160
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1285863236
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1369260645
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1452640891
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1536048592
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1619444178
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1702846834
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1786229735
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1869661172
+    radius: 0
+    density: 1
+  - face: 0
+    terrainGridX: 1
+    terrainGridY: 3
+    seedHash: 1953040345
+    radius: 0
+    density: 1

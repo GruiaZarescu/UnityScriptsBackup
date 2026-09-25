@@ -1131,6 +1131,35 @@ public class ImpostorRenderer : MonoBehaviour
     // ===== BUCKET BUILDING =====
 
     /// <summary>
+    /// Resolves how many instance slots a (prototype, LOD) bucket gets. A prototype's own
+    /// lodInstanceCapacityOverride wins when present and non-zero at that LOD index (index
+    /// clamps to the array's last entry beyond its length, same convention as
+    /// lodWidthMultipliers); otherwise falls back to the global lodInstanceCapacities table.
+    ///
+    /// This exists because the global table is sized for worst-case dense ground cover — every
+    /// instanced prototype used to pay that same flat per-LOD cost whether it needed it or not,
+    /// which is what pushed the shared instance buffer over the 2 GiB single-ComputeBuffer limit
+    /// as more sparse things (trees) were added. Sparse prototypes should override this down.
+    /// </summary>
+    private int ResolveInstanceCapacity(MapObjectPrototypeRegistry.MapObjectPrototypeEntry entry, int lod, out bool usedOverride)
+    {
+        var overrideArr = entry?.lodInstanceCapacityOverride;
+        if (overrideArr != null && overrideArr.Length > 0)
+        {
+            int oIdx = Mathf.Clamp(lod, 0, overrideArr.Length - 1);
+            int oVal = overrideArr[oIdx];
+            if (oVal > 0)
+            {
+                usedOverride = true;
+                return oVal;
+            }
+        }
+        usedOverride = false;
+        int gIdx = Mathf.Clamp(lod, 0, lodInstanceCapacities.Length - 1);
+        return lodInstanceCapacities[gIdx];
+    }
+
+    /// <summary>
     /// Builds bucket metadata from the prototype registry.
     /// Each (prototypeIndex, LOD) pair gets a bucket slot.
     /// The bucket holds the mesh + material for that LOD.
@@ -1263,10 +1292,13 @@ public class ImpostorRenderer : MonoBehaviour
         var groupAlloc = new Dictionary<int, (int cap, int offset)>();
         var capReport = new System.Text.StringBuilder();
         capReport.AppendLine("[ImpostorRenderer] Per-bucket instance capacities:");
+        long defaultCapBytes = 0, overrideCapBytes = 0;
         for (int b = 0; b < buckets.Length; b++)
         {
-            int lod = Mathf.Clamp(buckets[b].lod, 0, lodInstanceCapacities.Length - 1);
-            int cap = Mathf.Max(1, lodInstanceCapacities[lod]);
+            int lod = buckets[b].lod;
+            var protoEntry = entries[buckets[b].protoIdx];
+            bool usedOverride;
+            int cap = Mathf.Max(1, ResolveInstanceCapacity(protoEntry, lod, out usedOverride));
 
             int gid = buckets[b].instanceGroupId;
             if (!groupAlloc.TryGetValue(gid, out var alloc))
@@ -1274,17 +1306,20 @@ public class ImpostorRenderer : MonoBehaviour
                 alloc = (cap, running);
                 groupAlloc[gid] = alloc;
                 running += cap;   // one region per GROUP, not per submesh bucket
+                if (usedOverride) overrideCapBytes += cap * (long)INSTANCE_STRIDE;
+                else defaultCapBytes += cap * (long)INSTANCE_STRIDE;
             }
             buckets[b].instanceCapacity = alloc.cap;
             buckets[b].instanceOffset = alloc.offset;
 
-            capReport.AppendLine($"  bucket {b} (proto {buckets[b].protoIdx}, LOD {buckets[b].lod}, " +
-                $"mesh={SafeName(buckets[b].mesh)}): cap={cap}, offset={buckets[b].instanceOffset}");
+            capReport.AppendLine($"  bucket {b} (proto {buckets[b].protoIdx} '{protoEntry?.name}', LOD {buckets[b].lod}, " +
+                $"mesh={SafeName(buckets[b].mesh)}): cap={cap}{(usedOverride ? " [override]" : "")}, offset={buckets[b].instanceOffset}");
         }
         totalInstanceCapacity = running;
 
         capReport.AppendLine($"  TOTAL: {totalInstanceCapacity} slots " +
-            $"({(totalInstanceCapacity * 32L) / (1024 * 1024)} MB at 32 B/instance)");
+            $"({(totalInstanceCapacity * 32L) / (1024 * 1024)} MB at 32 B/instance) — " +
+            $"{defaultCapBytes / (1024 * 1024)} MB at global defaults, {overrideCapBytes / (1024 * 1024)} MB from per-prototype overrides");
         Debug.Log(capReport.ToString());
 
         return buckets.Length;

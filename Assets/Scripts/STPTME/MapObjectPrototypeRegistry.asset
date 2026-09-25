@@ -840,19 +840,40 @@ MonoBehaviour:
   - name: BasicTree 42
     unityTerrainPrototypeIndex: 10
     lodMeshes:
-    - {fileID: 4300000, guid: 37dd4b05334ea334498fae7f5b6633d1, type: 2}
+    - {fileID: -6504054430584498242, guid: a42afae1900ae8b439563ec5d1eb0264, type: 3}
+    - {fileID: -6937438142028375751, guid: a42afae1900ae8b439563ec5d1eb0264, type: 3}
+    - {fileID: 9086473002122389107, guid: a42afae1900ae8b439563ec5d1eb0264, type: 3}
+    - {fileID: 3376665718151993250, guid: a42afae1900ae8b439563ec5d1eb0264, type: 3}
+    - {fileID: 6370959431037186200, guid: a42afae1900ae8b439563ec5d1eb0264, type: 3}
+    - {fileID: -4768418910068575458, guid: a42afae1900ae8b439563ec5d1eb0264, type: 3}
+    - {fileID: -3578766350874580833, guid: a42afae1900ae8b439563ec5d1eb0264, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
     - submeshMaterials:
       - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
       - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
-      - {fileID: 2100000, guid: 140f4691f4fe0fc488e6e891e786012b, type: 2}
-      - {fileID: 2100000, guid: 140f4691f4fe0fc488e6e891e786012b, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: 0, y: 0, z: 0}
@@ -872,7 +893,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 8098855741298022152, guid: 21d57f1f179b14b40b5298f882e16387, type: 3}
+    sourcePrefab: {fileID: 3240415618152019629, guid: 1d0747a613ca3714499b786c5c3d3989, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -900,22 +921,40 @@ MonoBehaviour:
   - name: BasicTree 58
     unityTerrainPrototypeIndex: 11
     lodMeshes:
-    - {fileID: 4300004, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
-    - {fileID: 4300002, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
-    - {fileID: 4300000, guid: 62c5fae6b2d72074cb87730bf5c27475, type: 3}
+    - {fileID: -8467615239695660526, guid: 7705d306ba7c0264eb2f4fd2361a69fa, type: 3}
+    - {fileID: -7560599746697360295, guid: 7705d306ba7c0264eb2f4fd2361a69fa, type: 3}
+    - {fileID: -6834556463622709379, guid: 7705d306ba7c0264eb2f4fd2361a69fa, type: 3}
+    - {fileID: 6735912361700875917, guid: 7705d306ba7c0264eb2f4fd2361a69fa, type: 3}
+    - {fileID: 2414973497851094936, guid: 7705d306ba7c0264eb2f4fd2361a69fa, type: 3}
+    - {fileID: -5032256071989229232, guid: 7705d306ba7c0264eb2f4fd2361a69fa, type: 3}
+    - {fileID: 5119774318704824265, guid: 7705d306ba7c0264eb2f4fd2361a69fa, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
     - submeshMaterials:
-      - {fileID: 0}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     - submeshMaterials:
-      - {fileID: 0}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     - submeshMaterials:
-      - {fileID: 0}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -935,7 +974,7 @@ MonoBehaviour:
       maxWidthScale: 1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 6236864987135843168, guid: 55c63bf17b3964641be77470b608ba6b, type: 3}
+    sourcePrefab: {fileID: 8206392905740980017, guid: 96b8716b9dc3ac34b919293108305398, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -962,14 +1001,41 @@ MonoBehaviour:
     - 1
   - name: BasicTree 59
     unityTerrainPrototypeIndex: 12
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: 5218559966181167694, guid: 6944196264f1a044ba53dd24dca086e4, type: 3}
+    - {fileID: -7468632414625348203, guid: 6944196264f1a044ba53dd24dca086e4, type: 3}
+    - {fileID: -2770619138307980953, guid: 6944196264f1a044ba53dd24dca086e4, type: 3}
+    - {fileID: 1762094386132966057, guid: 6944196264f1a044ba53dd24dca086e4, type: 3}
+    - {fileID: -812005043409254038, guid: 6944196264f1a044ba53dd24dca086e4, type: 3}
+    - {fileID: -1794334891401816396, guid: 6944196264f1a044ba53dd24dca086e4, type: 3}
+    - {fileID: 9016759585238265989, guid: 6944196264f1a044ba53dd24dca086e4, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -989,7 +1055,7 @@ MonoBehaviour:
       maxWidthScale: 1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 1466816736198048661, guid: 518c19be2217dad4daecbdd084ae4320, type: 3}
+    sourcePrefab: {fileID: 9002924414819403709, guid: e7da364557bafa9469c29b40c89ab7b9, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -1016,14 +1082,41 @@ MonoBehaviour:
     - 1
   - name: BasicTree 424
     unityTerrainPrototypeIndex: 13
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: 6588448189911460802, guid: 60a2654efc138d44cbf6e16d4f0ab550, type: 3}
+    - {fileID: -1404245723736759125, guid: 60a2654efc138d44cbf6e16d4f0ab550, type: 3}
+    - {fileID: 7461115126809373457, guid: 60a2654efc138d44cbf6e16d4f0ab550, type: 3}
+    - {fileID: 1870205304773916130, guid: 60a2654efc138d44cbf6e16d4f0ab550, type: 3}
+    - {fileID: 971615985921227252, guid: 60a2654efc138d44cbf6e16d4f0ab550, type: 3}
+    - {fileID: 261871071591944929, guid: 60a2654efc138d44cbf6e16d4f0ab550, type: 3}
+    - {fileID: -8369105632957155772, guid: 60a2654efc138d44cbf6e16d4f0ab550, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -1043,7 +1136,7 @@ MonoBehaviour:
       maxWidthScale: 1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 2647246285112798508, guid: 1298381633084fe4c80b7219906a7ba9, type: 3}
+    sourcePrefab: {fileID: 5791519373297166308, guid: 4d3664a83df5dce4091cb9598d4df727, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -1070,14 +1163,41 @@ MonoBehaviour:
     - 1
   - name: BasicTree 446
     unityTerrainPrototypeIndex: 14
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: -1269937265038845389, guid: 2e7a77ebb53c2dc40a95bc31de91f2ef, type: 3}
+    - {fileID: 7098101649070020743, guid: 2e7a77ebb53c2dc40a95bc31de91f2ef, type: 3}
+    - {fileID: 5927511876851530841, guid: 2e7a77ebb53c2dc40a95bc31de91f2ef, type: 3}
+    - {fileID: -7999401117273884975, guid: 2e7a77ebb53c2dc40a95bc31de91f2ef, type: 3}
+    - {fileID: -5671221287271808652, guid: 2e7a77ebb53c2dc40a95bc31de91f2ef, type: 3}
+    - {fileID: 9201955801434096932, guid: 2e7a77ebb53c2dc40a95bc31de91f2ef, type: 3}
+    - {fileID: 7698390783109040161, guid: 2e7a77ebb53c2dc40a95bc31de91f2ef, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+      - {fileID: 2100000, guid: 56757789df7229e49a43e16979912597, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -1097,7 +1217,7 @@ MonoBehaviour:
       maxWidthScale: 1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 7631902593108975263, guid: 1cbac464a835ba0459edb158d577a7c8, type: 3}
+    sourcePrefab: {fileID: 6687408717111411400, guid: 5d291a2e176f5c04a9aad16da540aa2c, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -1124,14 +1244,41 @@ MonoBehaviour:
     - 1
   - name: BasicTree 456
     unityTerrainPrototypeIndex: 15
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: 520817688607348777, guid: 7289d910ef22c3946ad3b5eacca2ac76, type: 3}
+    - {fileID: 2978254229752315511, guid: 7289d910ef22c3946ad3b5eacca2ac76, type: 3}
+    - {fileID: 2833833526242292267, guid: 7289d910ef22c3946ad3b5eacca2ac76, type: 3}
+    - {fileID: 1071795334683082344, guid: 7289d910ef22c3946ad3b5eacca2ac76, type: 3}
+    - {fileID: 8048185390699743686, guid: 7289d910ef22c3946ad3b5eacca2ac76, type: 3}
+    - {fileID: -1785204510455046116, guid: 7289d910ef22c3946ad3b5eacca2ac76, type: 3}
+    - {fileID: 1717853295360888042, guid: 7289d910ef22c3946ad3b5eacca2ac76, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -1151,7 +1298,7 @@ MonoBehaviour:
       maxWidthScale: 1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 159522606334933498, guid: 96dc1dbec4c6ada41bb1e1e6d54b7a83, type: 3}
+    sourcePrefab: {fileID: 6906507968301382974, guid: ecf5a18e165119a4e8b10256ed098916, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -1178,14 +1325,41 @@ MonoBehaviour:
     - 1
   - name: BasicTree 488
     unityTerrainPrototypeIndex: 16
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: -5650980570465049469, guid: 24be65788194a0b48a441fec7c24b7b6, type: 3}
+    - {fileID: -7210448035801538978, guid: 24be65788194a0b48a441fec7c24b7b6, type: 3}
+    - {fileID: -5471049311137254666, guid: 24be65788194a0b48a441fec7c24b7b6, type: 3}
+    - {fileID: 2682487637389266984, guid: 24be65788194a0b48a441fec7c24b7b6, type: 3}
+    - {fileID: 1336889899551705982, guid: 24be65788194a0b48a441fec7c24b7b6, type: 3}
+    - {fileID: -3306176020685180897, guid: 24be65788194a0b48a441fec7c24b7b6, type: 3}
+    - {fileID: 311891109723876368, guid: 24be65788194a0b48a441fec7c24b7b6, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 659cde74f63466c45ac1889fcb9e71a2, type: 2}
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 4814f1b7976d220488a4b5ba8f6e12a3, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -1205,7 +1379,7 @@ MonoBehaviour:
       maxWidthScale: 1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 6649753578074978152, guid: e944b03d392a41f438bfe4bf6a909a3e, type: 3}
+    sourcePrefab: {fileID: 6511631713749476185, guid: 44ac90bd570fb224fa295e9a8108a2e7, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []

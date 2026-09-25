@@ -410,6 +410,21 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                "it from the compute shader's per-prototype _ProtoWidthMultipliers buffer.")]
         public float[] lodWidthMultipliers = new float[] { 1f, 1f, 1f, 1f };
 
+        [Tooltip("PER-PROTOTYPE override for how many GPU instance slots each LOD bucket gets. " +
+               "Index = LOD; the LAST entry is reused for any higher LOD, same convention as " +
+               "lodWidthMultipliers. Leave EMPTY (default) to fall back to ImpostorRenderer's " +
+               "global lodInstanceCapacities table.\n\n" +
+               "The global table is sized for worst-case dense ground cover (wheat can genuinely " +
+               "have hundreds of thousands of blades in view at LOD6) and every instanced prototype " +
+               "pays that same flat cost per LOD whether it needs it or not — a single fully-LOD'd " +
+               "prototype at global defaults costs 63.5 MB of the shared 2 GiB instance buffer " +
+               "regardless of species. Sparse things (a large tree species that will never have " +
+               "anywhere near a million individual trees visible at once) should override this down " +
+               "to something realistic instead of silently eating wheat-sized capacity — that's what " +
+               "pushed the instance buffer over the 2 GiB single-ComputeBuffer limit. " +
+               "0 or a negative value at a given index falls back to the global table for THAT LOD only.")]
+        public int[] lodInstanceCapacityOverride = new int[0];
+
         /// <summary>
         /// Returns canopy mask settings for this prototype at the given chunk LOD.
         /// The index is clamped to the last valid tree LOD (lodMeshes.Length - 1) so that
