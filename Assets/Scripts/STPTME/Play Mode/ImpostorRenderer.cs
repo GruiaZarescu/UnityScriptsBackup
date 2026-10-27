@@ -99,7 +99,7 @@ public class ImpostorRenderer : MonoBehaviour
     // Index = LOD level; the last entry is reused for any LOD beyond the array.
     // Tune per project: dense ground foliage (wheat) needs far more at high LOD than trees do.
     [SerializeField]
-    private int[] lodInstanceCapacities = new int[]
+    private int[] lodInstanceCapacitiesToBeDeprecatedSoonInFavorOrPerProto = new int[]
     {
         16384,   // LOD0 — few, close, full detail
         32768,   // LOD1
@@ -1155,8 +1155,8 @@ public class ImpostorRenderer : MonoBehaviour
             }
         }
         usedOverride = false;
-        int gIdx = Mathf.Clamp(lod, 0, lodInstanceCapacities.Length - 1);
-        return lodInstanceCapacities[gIdx];
+        int gIdx = Mathf.Clamp(lod, 0, lodInstanceCapacitiesToBeDeprecatedSoonInFavorOrPerProto.Length - 1);
+        return lodInstanceCapacitiesToBeDeprecatedSoonInFavorOrPerProto[gIdx];
     }
 
     /// <summary>
