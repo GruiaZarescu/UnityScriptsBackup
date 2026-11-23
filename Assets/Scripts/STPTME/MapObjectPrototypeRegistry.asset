@@ -2144,7 +2144,7 @@ MonoBehaviour:
     heightOffset: 0
     lod1PlusHeightOffset: 0
     shouldInstance: 1
-    instanceAlways: 0
+    instanceAlways: 1
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
     connectorEndLocal: {x: 1.716, y: 0.45, z: 0}
@@ -2173,6 +2173,13 @@ MonoBehaviour:
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
+    - 10
+    - 15
+    - 18
+    - 24
+    - 30
+    - 35
+    - 40
     lodKeepFractions:
     - 1
     - 1
@@ -2186,13 +2193,34 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    lodInstanceCapacityOverride: 
+    lodInstanceCapacityOverride: 0904000075030000840900007f0700008f0f0000fb150000b6020000c5140000
   - name: Corn
     unityTerrainPrototypeIndex: 26
     lodMeshes:
-    - {fileID: 4300012, guid: b69b26c8b73b8bd49bf243bbe541a2e0, type: 3}
+    - {fileID: 2137213841388483582, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
+    - {fileID: 2170831320185955648, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
+    - {fileID: 8750531296751962216, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
+    - {fileID: 2599690168683456102, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
+    - {fileID: -1540922105532300278, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
+    - {fileID: -1587936087176371860, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
+    - {fileID: -4455396321265027993, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
+    - {fileID: -153190762893901832, guid: 07a10b53155acb94abb6650a53f0b66c, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
     - submeshMaterials:
       - {fileID: 2100000, guid: e9d4d370508625844a6e775116b6335b, type: 2}
     baseWidth: 1
@@ -2219,7 +2247,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 1000012235373026, guid: 1c8776a0b36cd9a4f813bf0d2d59d109, type: 3}
+    sourcePrefab: {fileID: 8743631638060845357, guid: 833d9298ff2a46647ab07ba5d5809d33, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -2229,6 +2257,13 @@ MonoBehaviour:
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
+    - 10
+    - 15
+    - 20
+    - 25
+    - 30
+    - 35
+    - 40
     lodKeepFractions:
     - 1
     - 1
@@ -2329,8 +2364,13 @@ MonoBehaviour:
   - name: Tree_Apple
     unityTerrainPrototypeIndex: 28
     lodMeshes:
-    - {fileID: -8632904520735799153, guid: 0927e31ec4a50574eab8f6b01af22e4e, type: 3}
-    - {fileID: -8632904520735799153, guid: 0927e31ec4a50574eab8f6b01af22e4e, type: 3}
+    - {fileID: -5731820101379589144, guid: 0e566bd9ed633144f9acabb3e08018d9, type: 3}
+    - {fileID: 4201858009029047350, guid: 0e566bd9ed633144f9acabb3e08018d9, type: 3}
+    - {fileID: 6033800674601179908, guid: 0e566bd9ed633144f9acabb3e08018d9, type: 3}
+    - {fileID: -1281950402145757862, guid: 0e566bd9ed633144f9acabb3e08018d9, type: 3}
+    - {fileID: -7531317312642307370, guid: 0e566bd9ed633144f9acabb3e08018d9, type: 3}
+    - {fileID: 1491180935174121460, guid: 0e566bd9ed633144f9acabb3e08018d9, type: 3}
+    - {fileID: 5391801970721507529, guid: 0e566bd9ed633144f9acabb3e08018d9, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
     - submeshMaterials:
@@ -2341,6 +2381,22 @@ MonoBehaviour:
       - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
       - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
       - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
+      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
+      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
+      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -2365,7 +2421,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 2192826064039612326, guid: 36c24025c77681c48af12ac6e2c548e4, type: 3}
+    sourcePrefab: {fileID: 652670346789628146, guid: a0b83c7d385cfa24b917f7c5ffe8f70d, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -2393,12 +2449,39 @@ MonoBehaviour:
   - name: Sunflower0
     unityTerrainPrototypeIndex: 29
     lodMeshes:
-    - {fileID: 1309913426880147577, guid: 7cee3be891ae0354691bc69598c55711, type: 3}
+    - {fileID: -5859209357875859051, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
+    - {fileID: 4248780948580851727, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
+    - {fileID: 3842302143545838118, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
+    - {fileID: 9115643050387222724, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
+    - {fileID: -2087272823096111077, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
+    - {fileID: -3044069893052026500, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
+    - {fileID: -1629736172231737962, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
+    - {fileID: 7880357137904659684, guid: 5ddea00a4eaafbf45863e4efa28ac999, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
     - submeshMaterials:
       - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
       - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
       - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
     baseWidth: 1
     baseHeight: 1
@@ -2424,7 +2507,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 3422266734081095270, guid: 35648b328306de740a0f5eebf7fc0ad7, type: 3}
+    sourcePrefab: {fileID: 6195624265997435708, guid: 51e12fe6729d4854e884fb5f7c2bdf27, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -2434,15 +2517,26 @@ MonoBehaviour:
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 6
+    - 10
+    - 15
+    - 20
+    - 25
+    - 30
+    - 35
+    - 40
     lodKeepFractions:
     - 1
-    - 0.9
-    - 0.8
-    - 0.7
-    - 0.6
-    - 0.5
-    - 0.1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
     lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -2451,17 +2545,40 @@ MonoBehaviour:
   - name: Sunflower1
     unityTerrainPrototypeIndex: 30
     lodMeshes:
-    - {fileID: 1312488039872172972, guid: 9a5260498946dfc479706f4453ece5a2, type: 3}
+    - {fileID: 4237780820175414805, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
+    - {fileID: -800749815161859361, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
+    - {fileID: -804524877654429661, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
+    - {fileID: -7671361542734610378, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
+    - {fileID: -4253622665150985801, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
+    - {fileID: -5589787340332421631, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
+    - {fileID: -6779436092862617885, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
+    - {fileID: 9146918542838315963, guid: a2f0edf36b2205d438758ef9fe635e41, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
     - submeshMaterials:
-      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
-      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
-      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 2fa1712cb0bdc224889db2d6b54832ec, type: 2}
-      - {fileID: 2100000, guid: 46438f15415ddaf41846c94536f29471, type: 2}
-      - {fileID: 2100000, guid: ae377ddca1ec0cd4092e4aadb4056f44, type: 2}
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 71d8c2fe624125b4f801330a6c6c410f, type: 2}
+      - {fileID: 2100000, guid: 68555c0bc3334ad45b501cba8b7185db, type: 2}
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: f01f0ae0b7a146543b0a430600da6d23, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -2486,7 +2603,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 2192826064039612326, guid: 36c24025c77681c48af12ac6e2c548e4, type: 3}
+    sourcePrefab: {fileID: 756033216307222911, guid: 36ff1667b05f9fa439a1f60235c22ebe, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -2496,6 +2613,13 @@ MonoBehaviour:
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
+    - 10
+    - 15
+    - 20
+    - 25
+    - 30
+    - 35
+    - 40
     lodKeepFractions:
     - 1
     - 1
@@ -2503,8 +2627,13 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    - 0.15
+    - 1
+    - 1
     lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -2512,14 +2641,32 @@ MonoBehaviour:
     lodInstanceCapacityOverride: 
   - name: Hay Bale 0
     unityTerrainPrototypeIndex: -1
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: -7927571621852893134, guid: 8d321a518efce8e41a5224dd6fc25c28, type: 3}
+    - {fileID: 5981623537047118957, guid: 8d321a518efce8e41a5224dd6fc25c28, type: 3}
+    - {fileID: 1728413682734173831, guid: 8d321a518efce8e41a5224dd6fc25c28, type: 3}
+    - {fileID: 5758981882025065879, guid: 8d321a518efce8e41a5224dd6fc25c28, type: 3}
+    - {fileID: 5211174723534134083, guid: 8d321a518efce8e41a5224dd6fc25c28, type: 3}
+    - {fileID: -5788686589351839329, guid: 8d321a518efce8e41a5224dd6fc25c28, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -2527,7 +2674,7 @@ MonoBehaviour:
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
-    cullLOD: 4
+    cullLOD: 255
     sizeVariability:
       enabled: 0
       mode: 1
@@ -2539,7 +2686,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 9148481128548636457, guid: 5ed59e74e6f341b4db9daaa6742fde02, type: 3}
+    sourcePrefab: {fileID: 6013389289159470428, guid: 83cfe3f09fcd49046a784d530952cec7, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -2556,23 +2703,40 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    - 0.15
+    - 1
     lodWidthMultipliers:
     - 1
     - 1
     - 1
     - 1
-    lodInstanceCapacityOverride: 
+    - 1
+    - 1
+    lodInstanceCapacityOverride: 010000008001000073010000730100007301000073010000
   - name: Hay Bale 1
     unityTerrainPrototypeIndex: -1
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: -7994181479623964341, guid: 9416eee0b5188e145a65dee64c546c92, type: 3}
+    - {fileID: 155193091930338484, guid: 9416eee0b5188e145a65dee64c546c92, type: 3}
+    - {fileID: -4560233059413780904, guid: 9416eee0b5188e145a65dee64c546c92, type: 3}
+    - {fileID: -8452527739613072966, guid: 9416eee0b5188e145a65dee64c546c92, type: 3}
+    - {fileID: -6076307693607490600, guid: 9416eee0b5188e145a65dee64c546c92, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
     lod1PlusHeightOffset: 0
-    shouldInstance: 0
+    shouldInstance: 1
     instanceAlways: 0
     hasConnectors: 0
     connectorStartLocal: {x: -1.66, y: 0.45, z: -0.05}
@@ -2580,7 +2744,7 @@ MonoBehaviour:
     blotchRadius: 0
     blotchDensity: 1
     conflictCategory: 3
-    cullLOD: 4
+    cullLOD: 255
     sizeVariability:
       enabled: 0
       mode: 1
@@ -2592,7 +2756,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 4887810154651259153, guid: b928a214b7d16b64fafd7785f6fb902b, type: 3}
+    sourcePrefab: {fileID: 3725202123622390840, guid: ee171a48253f0ec4e8eba60669d2fe5c, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
@@ -2618,9 +2782,24 @@ MonoBehaviour:
     lodInstanceCapacityOverride: 
   - name: Hay Bale 2
     unityTerrainPrototypeIndex: -1
-    lodMeshes: []
+    lodMeshes:
+    - {fileID: 6191132040023081800, guid: feb50d91bf71ce74c894b307350e3720, type: 3}
+    - {fileID: 5528149470745252711, guid: feb50d91bf71ce74c894b307350e3720, type: 3}
+    - {fileID: 9025487039798362690, guid: feb50d91bf71ce74c894b307350e3720, type: 3}
+    - {fileID: -1850547780172058139, guid: feb50d91bf71ce74c894b307350e3720, type: 3}
+    - {fileID: -7314151560403862371, guid: feb50d91bf71ce74c894b307350e3720, type: 3}
     lodGameObjects: []
-    submeshMaterialsPerLOD: []
+    submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 7e6e59799c479a945b64e754f8dfe4bf, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -2645,7 +2824,7 @@ MonoBehaviour:
       maxWidthScale: 1.1
       distributionSteepness: 2
     impostorColorOverride: {r: 1, g: 1, b: 1, a: 1}
-    sourcePrefab: {fileID: 2506629543241375690, guid: 58286f80828da354dbb2aad5c98c9722, type: 3}
+    sourcePrefab: {fileID: 8716195933166358406, guid: d8e85e3065d09814cb9857954d62946e, type: 3}
     canopyOverlayEnabled: 0
     canopyPaletteIndex: 0
     canopyMaskByLOD: []
