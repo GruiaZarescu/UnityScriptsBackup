@@ -15,6 +15,7 @@ Shader "Custom/ImpostorInstanced_URP"
         _Variation_Offset ("Variation Offset", Vector) = (1, 1, 0, 0)
         _Color_Variation_Scale ("Color Variation Scale", Float) = 0.01
         _Color_Variation ("Color Variation", Color) = (0.539, 0.575, 0.236, 1)
+        _BillboardNormalUp ("Billboard Normal Up", Range(0, 4)) = 1
 
         [Header(Grass Color Toggle)]
         [Toggle(_USEGRASSCOLOR_ON)] _UseGrassColor ("Use Grass Color Effects", Float) = 0
@@ -82,6 +83,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 nointerpolation uint chunkLOD : TEXCOORD5;
                 float  windMask    : TEXCOORD3; // pre-baked wind intensity → fragment color tint
                 float2 worldPosXZ  : TEXCOORD4; // world XZ for variation texture UV
+                float  fogFactor   : TEXCOORD6; // URP fog — prefabs (URP Lit) get it, so this must too
             };
 
             // ── Textures ─────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ Shader "Custom/ImpostorInstanced_URP"
 
                 // row: camera pos + pad
                 float3 _CameraPos;
-                float  _CBPad;
+                float  _BillboardNormalUp;   // was _CBPad
             CBUFFER_END
 
             // ── Instance buffer & per-proto buffers ───────────────────────────
@@ -181,10 +183,11 @@ Shader "Custom/ImpostorInstanced_URP"
                 rotatedPos.y = localPos.y;
                 rotatedPos.z = localPos.x * s + localPos.z * c;
 
+                float3 nOS = IN.normalOS / finalScale;   // inverse-transpose of a pure scale
                 float3 rotatedNormal;
-                rotatedNormal.x = IN.normalOS.x * c - IN.normalOS.z * s;
-                rotatedNormal.y = IN.normalOS.y;
-                rotatedNormal.z = IN.normalOS.x * s + IN.normalOS.z * c;
+                rotatedNormal.x = nOS.x * c - nOS.z * s;
+                rotatedNormal.y = nOS.y;
+                rotatedNormal.z = nOS.x * s + nOS.z * c;
 
                 // ── Billboard vs. 3-D mesh ──
                 float3 worldOffset;
@@ -199,7 +202,7 @@ Shader "Custom/ImpostorInstanced_URP"
                     float3 right       = cross(dir, forwardProj);
 
                     worldOffset = right * localPos.x + dir * localPos.y + forwardProj * localPos.z;
-                    finalNormal = forwardProj;
+                    finalNormal = normalize(forwardProj + dir * _BillboardNormalUp);
                 }
                 else
                 {
@@ -249,6 +252,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 // ─────────────────────────────────────────────────────────────
 
                 OUT.positionHCS = TransformWorldToHClip(worldPos);
+                OUT.fogFactor   = ComputeFogFactor(OUT.positionHCS.z);
                 OUT.uv          = TRANSFORM_TEX(IN.uv, _MainTex);
                 OUT.worldNormal = finalNormal;
                 OUT.protoIdx    = protoIdx;
@@ -300,6 +304,11 @@ Shader "Custom/ImpostorInstanced_URP"
                 float3 ambient   = SampleSH(normalWS);
 
                 float3 finalColor = texColor.rgb * tint * (mainLight.color * NdotL + ambient);
+
+                // Scene fog. multi_compile_fog was declared above but fog was never applied, so
+                // instanced objects stayed fully saturated at any distance while prefabs (URP Lit)
+                // and terrain faded into the fog colour — the prefab/instanced colour mismatch.
+                finalColor = MixFog(finalColor, IN.fogFactor);
                 return half4(finalColor, texColor.a);
             }
             ENDHLSL
@@ -374,7 +383,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 float  _InstanceOffset;
 
                 float3 _CameraPos;
-                float  _CBPad;
+                float  _BillboardNormalUp;
             CBUFFER_END
 
             struct InstanceData
@@ -425,10 +434,11 @@ Shader "Custom/ImpostorInstanced_URP"
                 rotatedPos.y = localPos.y;
                 rotatedPos.z = localPos.x * s + localPos.z * c;
 
+                float3 nOS = IN.normalOS / finalScale;   // inverse-transpose of a pure scale
                 float3 rotatedNormal;
-                rotatedNormal.x = IN.normalOS.x * c - IN.normalOS.z * s;
-                rotatedNormal.y = IN.normalOS.y;
-                rotatedNormal.z = IN.normalOS.x * s + IN.normalOS.z * c;
+                rotatedNormal.x = nOS.x * c - nOS.z * s;
+                rotatedNormal.y = nOS.y;
+                rotatedNormal.z = nOS.x * s + nOS.z * c;
 
                 float3 worldOffset;
                 float3 finalNormal;
