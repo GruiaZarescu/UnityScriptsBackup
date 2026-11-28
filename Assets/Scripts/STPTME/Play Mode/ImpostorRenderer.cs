@@ -161,6 +161,15 @@ public class ImpostorRenderer : MonoBehaviour
     private ComputeBuffer globalChunkLODBuffer;
     private ComputeBuffer protoMaxLODBuffer;
 
+    // -- Chunk-ring LOD (chunk-LOD-mode prototypes with a chunkRingsPerLOD table) --
+    // Per storage slot: Chebyshev BFS ring distance from the centre chunk (255 = unknown/far).
+    private ComputeBuffer globalChunkRingBuffer;        // StructuredBuffer<uint>
+    // Per prototype, MAX_LODS_PER_BUCKET entries: first ring of each mesh LOD.
+    // Entry 0 == 0xFFFFFFFF means "no table — mesh LOD = chunk LOD (legacy 1:1)".
+    private ComputeBuffer protoLODRingsBuffer;          // StructuredBuffer<uint>
+    private uint[] cpuChunkRings;
+    private bool ringsDirty = false;
+
     // ---- Two-phase distance-mode expansion ----
     private ComputeBuffer batchListBuffer;
     private ComputeBuffer batchCounterBuffer;
@@ -471,6 +480,12 @@ public class ImpostorRenderer : MonoBehaviour
         globalChunkLODBuffer = new ComputeBuffer(chunkData.Length, sizeof(uint), ComputeBufferType.Structured);
         globalChunkLODBuffer.SetData(cpuChunkLODs);
 
+        // ---- 2b'. Global Chunk Ring Buffer: BFS ring distance per slot (255 = unknown/far) ----
+        cpuChunkRings = new uint[chunkData.Length];
+        for (int i = 0; i < cpuChunkRings.Length; i++) cpuChunkRings[i] = 255;
+        globalChunkRingBuffer = new ComputeBuffer(chunkData.Length, sizeof(uint), ComputeBufferType.Structured);
+        globalChunkRingBuffer.SetData(cpuChunkRings);
+
         // ---- 2c. Active LOD0 slice map ----
 
         cpuActiveLOD0SliceMap = new uint[chunkData.Length];
@@ -627,6 +642,9 @@ public class ImpostorRenderer : MonoBehaviour
 
         protoMaxLODBuffer = new ComputeBuffer(maxLods.Length, sizeof(uint));
         protoMaxLODBuffer.SetData(maxLods);
+
+        // ---- 6c'. Per-prototype chunk-ring LOD tables ----
+        BuildProtoLODRingsBuffer();
 
         // ---- 6d. Prototype flags buffer
         // Bit 0: shouldInstance
@@ -795,6 +813,11 @@ public class ImpostorRenderer : MonoBehaviour
         {
             globalChunkLODBuffer.SetData(cpuChunkLODs);
             lodsDirty = false;
+        }
+        if (ringsDirty && globalChunkRingBuffer != null && cpuChunkRings != null)
+        {
+            globalChunkRingBuffer.SetData(cpuChunkRings);
+            ringsDirty = false;
         }
 
         // OPTIMIZATION 2: The GPU clears the counters via CSClearCounters!
@@ -1127,6 +1150,71 @@ public class ImpostorRenderer : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Records a chunk's ring distance (Chebyshev BFS depth from the centre chunk — the same value
+    /// ChunkRegistry feeds into LODFromDistance for the terrain's own chunk LOD). Read only by
+    /// chunk-LOD-mode prototypes that have a chunkRingsPerLOD table. Unlike chunk LOD, ring distance
+    /// changes whenever the centre chunk moves, so ChunkRegistry calls this for every chunk its BFS
+    /// visits each generation cycle, not only on chunk (re)creation.
+    /// </summary>
+    public void SetChunkRing(int storageSlot, int ring)
+    {
+        if (cpuChunkRings == null || storageSlot < 0 || storageSlot >= cpuChunkRings.Length) return;
+        uint r = (uint)Mathf.Clamp(ring, 0, 254); // 255 is reserved for "unknown/far"
+        if (cpuChunkRings[storageSlot] != r)
+        {
+            cpuChunkRings[storageSlot] = r;
+            ringsDirty = true;
+        }
+    }
+
+    /// <summary>
+    /// Flattens every prototype's chunkRingsPerLOD into MAX_LODS_PER_BUCKET uints per prototype.
+    /// Entry i = first ring of mesh LOD i; entries past the table's end are 0xFFFFFFFF (never
+    /// reached). An empty table writes 0xFFFFFFFF into entry 0, which the compute shader reads as
+    /// "no table: mesh LOD = chunk LOD", so prototypes without a table behave exactly as before.
+    /// </summary>
+    private void BuildProtoLODRingsBuffer()
+    {
+        int protoCount = prototypeRegistry.entries.Length;
+        uint[] rings = new uint[Mathf.Max(1, protoCount) * MAX_LODS_PER_BUCKET];
+        for (int i = 0; i < rings.Length; i++) rings[i] = 0xFFFFFFFFu;
+
+        for (int pi = 0; pi < protoCount; pi++)
+        {
+            var e = prototypeRegistry.entries[pi];
+            int[] table = e?.chunkRingsPerLOD;
+            if (table == null || table.Length == 0) continue; // legacy 1:1
+
+            int baseIdx = pi * MAX_LODS_PER_BUCKET;
+            int n = Mathf.Min(table.Length, MAX_LODS_PER_BUCKET);
+            if (table.Length > MAX_LODS_PER_BUCKET)
+                Debug.LogWarning($"[ImpostorRenderer] '{e.name}' chunkRingsPerLOD has {table.Length} entries; " +
+                    $"only the first {MAX_LODS_PER_BUCKET} are used.");
+
+            int prev = 0;
+            for (int lod = 0; lod < n; lod++)
+            {
+                int v = lod == 0 ? 0 : Mathf.Max(0, table[lod]);
+                if (lod == 0 && table[0] != 0)
+                    Debug.LogWarning($"[ImpostorRenderer] '{e.name}' chunkRingsPerLOD[0] = {table[0]}; " +
+                        $"LOD0 always starts at ring 0, treating it as 0.");
+                if (v < prev)
+                {
+                    Debug.LogWarning($"[ImpostorRenderer] '{e.name}' chunkRingsPerLOD is not non-decreasing " +
+                        $"(LOD{lod} = {table[lod]} < previous {prev}); clamping to {prev}.");
+                    v = prev;
+                }
+                rings[baseIdx + lod] = (uint)v;
+                prev = v;
+            }
+        }
+
+        protoLODRingsBuffer?.Release();
+        protoLODRingsBuffer = new ComputeBuffer(rings.Length, sizeof(uint));
+        protoLODRingsBuffer.SetData(rings);
+    }
+
 
     // ===== BUCKET BUILDING =====
 
@@ -1448,6 +1536,8 @@ public class ImpostorRenderer : MonoBehaviour
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoSizeModeBuffer, protoSizeModeBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoColorParamsBuffer, protoColorParamsBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoLODModeBuffer, protoLODModeBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.GlobalChunkRingBuffer, globalChunkRingBuffer);
+        impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoLODRings, protoLODRingsBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, ShaderIDs.ProtoLODDistancesBuffer, protoLODDistancesBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, "_ProtoMaxLODs", protoMaxLODBuffer);
         impostorSolverCompute.SetBuffer(kernelExpand, "_CellStartPosBuffer", cellStartPosBuffer);
@@ -1593,6 +1683,8 @@ public class ImpostorRenderer : MonoBehaviour
         blotchOffsetBuffer?.Release();        blotchOffsetBuffer = null;
         prototypeScalesBuffer?.Release();     prototypeScalesBuffer = null;
         globalChunkLODBuffer?.Release();      globalChunkLODBuffer = null;
+        globalChunkRingBuffer?.Release();     globalChunkRingBuffer = null;
+        protoLODRingsBuffer?.Release();       protoLODRingsBuffer = null;
         protoMaxLODBuffer?.Release();         protoMaxLODBuffer = null;
         protoFlagsBuffer?.Release();          protoFlagsBuffer = null;
         protoHeightOffsetBuffer?.Release();  protoHeightOffsetBuffer = null;
@@ -2294,6 +2386,8 @@ public static class ShaderIDs
     public static readonly int ActiveLOD0ResolutionMap = Shader.PropertyToID("_ActiveLOD0ResolutionMap");
     public static readonly int ActiveLOD0HeightmapArray = Shader.PropertyToID("_ActiveLOD0HeightmapArray");
     public static readonly int ProtoLODModeBuffer      = Shader.PropertyToID("_ProtoLODModeBuffer");
+    public static readonly int GlobalChunkRingBuffer   = Shader.PropertyToID("_GlobalChunkRingBuffer");
+    public static readonly int ProtoLODRings           = Shader.PropertyToID("_ProtoLODRings");
     public static readonly int ProtoLODDistancesBuffer = Shader.PropertyToID("_ProtoLODDistancesBuffer");
 
     // Counts

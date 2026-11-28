@@ -25,17 +25,17 @@ MonoBehaviour:
     lodGameObjects: []
     submeshMaterialsPerLOD:
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: ffaf36d39efa35e4fb314182e944c65b, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: ffaf36d39efa35e4fb314182e944c65b, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: ffaf36d39efa35e4fb314182e944c65b, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: ffaf36d39efa35e4fb314182e944c65b, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: ffaf36d39efa35e4fb314182e944c65b, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: ffaf36d39efa35e4fb314182e944c65b, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -67,6 +67,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 000000000300000004000000050000000600000008000000
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -76,19 +77,23 @@ MonoBehaviour:
     lodKeepFractions:
     - 1
     - 1
-    - 1
-    - 1
+    - 0.55
+    - 0.325
+    - 0.325
+    - 0.325
     lodWidthMultipliers:
     - 1
     - 1
-    - 1
-    - 1
-    lodInstanceCapacityOverride: 0100000000200000b0260000c03000000040000070110100
+    - 1.348
+    - 1.754
+    - 1.754
+    - 1.754
+    lodInstanceCapacityOverride: 0100000000200000b0260000c03000000040000050420100
   - name: Tree02Rework
     unityTerrainPrototypeIndex: 1
     lodMeshes:
     - {fileID: -8135553595718028330, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
-    - {fileID: -8135553595718028330, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
+    - {fileID: 5885204079855296585, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
     - {fileID: -1887199746687701926, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
     - {fileID: -3201062465679285610, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
     - {fileID: 8100791097369614745, guid: d4a8ad8b955ab604c9b48644a415d2a9, type: 3}
@@ -138,6 +143,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 000000000300000004000000050000000800000010000000
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -147,14 +153,18 @@ MonoBehaviour:
     lodKeepFractions:
     - 1
     - 1
-    - 1
-    - 1
+    - 0.325
+    - 0.325
+    - 0.325
+    - 0.325
     lodWidthMultipliers:
     - 1
     - 1
+    - 1.35
+    - 1.35
     - 1
-    - 1
-    lodInstanceCapacityOverride: 010000002e110000001c0000002000000030000000680000
+    - 1.1
+    lodInstanceCapacityOverride: 010000002e110000001c0000002000004437000038200100
   - name: Tree03Rework
     unityTerrainPrototypeIndex: 2
     lodMeshes:
@@ -209,6 +219,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -218,14 +229,18 @@ MonoBehaviour:
     lodKeepFractions:
     - 1
     - 1
-    - 1
-    - 1
+    - 0.55
+    - 0.55
+    - 0.325
+    - 0.325
     lodWidthMultipliers:
     - 1
     - 1
-    - 1
-    - 1
-    lodInstanceCapacityOverride: 01000000000c000000100000001400000018000000600000
+    - 1.348
+    - 1.551
+    - 1.754
+    - 1.754
+    lodInstanceCapacityOverride: 01000000000c000000100000001400000018000049920000
   - name: Tree01Rework
     unityTerrainPrototypeIndex: 3
     lodMeshes:
@@ -277,6 +292,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -345,6 +361,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -413,6 +430,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -478,6 +496,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -564,6 +583,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 20
@@ -581,8 +601,8 @@ MonoBehaviour:
     - 1
     - 1
     lodInstanceCapacityOverride: 000000000002000000020000000300000004000000040000000a0000
-  - name: Grass02
-    unityTerrainPrototypeIndex: 8
+  - name: Grass02 representing potato
+    unityTerrainPrototypeIndex: 27
     lodMeshes:
     - {fileID: 7855247728046881105, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     - {fileID: -5887197880629875785, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
@@ -591,22 +611,28 @@ MonoBehaviour:
     - {fileID: 7731215442789207376, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     - {fileID: -1300123225995191822, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
     - submeshMaterials:
-      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 759710daeb4938d4a9734967d63956f7, type: 2}
     baseWidth: 1
     baseHeight: 1
     heightOffset: 0
@@ -638,16 +664,21 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
-    - 15
-    - 25
-    - 45
-    - 60
-    - 100
+    - 5.625
+    - 9.375
+    - 16.875
+    - 22.5
+    - 37.5
+    - 56.25
+    - 75
     - 150
-    - 200
+    - 300
     lodKeepFractions:
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -663,7 +694,9 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    lodInstanceCapacityOverride: 44160000b8250000b8880000409c0000a0860100befe010070d30200
+    - 1
+    - 1
+    lodInstanceCapacityOverride: 44160000b8250000b8880000409c0000a0860100befe010070d3020070d3020050a50500
   - name: Grass003
     unityTerrainPrototypeIndex: 9
     lodMeshes:
@@ -673,8 +706,11 @@ MonoBehaviour:
     - {fileID: 959071007824930055, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
     - {fileID: -5630491982682799407, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
     - {fileID: -6662511636155612916, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
+    - {fileID: 6583166193162609492, guid: eb2f91ba60bdd0246ad6837ff78162ac, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 5d9a278adea359f4eb36e865e8f62aaa, type: 2}
     - submeshMaterials:
       - {fileID: 2100000, guid: 5d9a278adea359f4eb36e865e8f62aaa, type: 2}
     - submeshMaterials:
@@ -718,6 +754,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 60, z: 180, w: 540}
     lodDistancesVariable:
     - 4
@@ -726,7 +763,10 @@ MonoBehaviour:
     - 16
     - 20
     - 24
+    - 30
     lodKeepFractions:
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -739,7 +779,8 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    lodInstanceCapacityOverride: 4f0600001b130000931b00001527000084340000cf410000
+    - 1
+    lodInstanceCapacityOverride: 4f0600001b130000931b00001527000084340000cf4100009e830000
   - name: WoodFence01
     unityTerrainPrototypeIndex: -1
     lodMeshes:
@@ -788,6 +829,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -864,6 +906,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -951,6 +994,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1033,6 +1077,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1115,6 +1160,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1197,6 +1243,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1279,6 +1326,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1361,6 +1409,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1443,6 +1492,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1525,6 +1575,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1607,6 +1658,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1688,6 +1740,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1767,6 +1820,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1846,6 +1900,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -1925,6 +1980,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 5
@@ -2001,15 +2057,16 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
-    - 5
-    - 7.5
-    - 15
-    - 20
-    - 25
-    - 40
-    - 100
+    - 2.8125
+    - 4.21875
+    - 8.4375
+    - 11.25
+    - 14.0625
+    - 22.5
+    - 56.25
     lodKeepFractions:
     - 1
     - 1
@@ -2017,8 +2074,11 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    - 0.15
+    - 1
     lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -2087,6 +2147,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 3
@@ -2170,16 +2231,17 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
+    - 3.75
+    - 5
     - 7.5
-    - 10
+    - 9
+    - 12
     - 15
-    - 18
-    - 24
-    - 30
-    - 35
-    - 40
+    - 17.5
+    - 20
     lodKeepFractions:
     - 1
     - 1
@@ -2187,8 +2249,13 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    - 0.15
+    - 1
+    - 1
     lodWidthMultipliers:
+    - 1
+    - 1
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -2265,6 +2332,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
@@ -2299,8 +2367,14 @@ MonoBehaviour:
     - {fileID: 7731215442789207376, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     - {fileID: -1300123225995191822, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
+    - {fileID: -6528009378711253735, guid: 34dd5e3c4cfbdba479f80f3db1501ff9, type: 3}
     lodGameObjects: []
     submeshMaterialsPerLOD:
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
+    - submeshMaterials:
+      - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     - submeshMaterials:
       - {fileID: 2100000, guid: 0c154f321b15add46aa1c49ecfaafd17, type: 2}
     - submeshMaterials:
@@ -2346,16 +2420,21 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
-    - 15
-    - 25
-    - 45
-    - 60
-    - 100
+    - 5.625
+    - 9.375
+    - 16.875
+    - 22.5
+    - 37.5
+    - 56.25
+    - 75
     - 150
-    - 200
+    - 300
     lodKeepFractions:
+    - 1
+    - 1
     - 1
     - 1
     - 1
@@ -2371,7 +2450,9 @@ MonoBehaviour:
     - 1
     - 1
     - 1
-    lodInstanceCapacityOverride: 44160000b8250000b8880000409c0000a0860100befe010070d30200
+    - 1
+    - 1
+    lodInstanceCapacityOverride: 44160000b8250000b8880000409c0000a0860100befe010070d3020070d3020050a50500
   - name: Tree_Apple
     unityTerrainPrototypeIndex: 28
     lodMeshes:
@@ -2439,6 +2520,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
@@ -2525,6 +2607,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 6
@@ -2621,6 +2704,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 1
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
@@ -2704,6 +2788,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
@@ -2774,6 +2859,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5
@@ -2842,6 +2928,7 @@ MonoBehaviour:
     densityFadeEnabled: 0
     densityFadeStart: 0
     useDistanceLOD: 0
+    chunkRingsPerLOD: 
     lodDistances: {x: 20, y: 40, z: 80, w: 120}
     lodDistancesVariable:
     - 7.5

@@ -388,6 +388,21 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         [Header("Use screen space LOD instead of per-chunk LOD")]
         public bool useDistanceLOD = false;
 
+        [Tooltip("Chunk-LOD mode only (useDistanceLOD = false). Per-prototype LOD by CHUNK RING " +
+               "distance from the centre chunk (the same Chebyshev BFS depth the terrain uses for " +
+               "its own chunk LOD), instead of copying the chunk's LOD 1:1.\n\n" +
+               "Index = mesh LOD, value = first ring at which that LOD starts. Element 0 is always " +
+               "treated as 0. Example {0, 2, 4, 7}: rings 0-1 -> LOD0, rings 2-3 -> LOD1, " +
+               "rings 4-6 -> LOD2, rings 7+ -> LOD3. Values must be non-decreasing. LODs past the " +
+               "array's end are never selected; LODs past the mesh count clamp to the last mesh.\n\n" +
+               "Leave EMPTY to keep the old behaviour (mesh LOD = chunk LOD). This table does NOT " +
+               "follow later changes to the terrain's chunkDistanceByLOD — retune it if you change those.\n\n" +
+               "Chunk LOD still governs everything that describes the TERRAIN chunk (height " +
+               "sampling, density multiplier, prefab spawning at chunk LOD0, the LOD0 conflict grid). " +
+               "If this table puts mesh LOD0 on a chunk whose chunk LOD is >= 1, those instances " +
+               "skip conflict-grid deduplication (the grid only exists for chunk-LOD0 chunks).")]
+        public int[] chunkRingsPerLOD = new int[0];
+
         [Tooltip("LEGACY. Kept for migration; the variable array below is what the GPU reads.")]
         public Vector4 lodDistances = new Vector4(20f, 40f, 80f, 120f);
 

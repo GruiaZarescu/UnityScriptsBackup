@@ -2274,6 +2274,13 @@ if (TreeRenderer.HasActiveSystem &&
             byte correctLOD = isCollision ? (byte)0 : 
                 STPTMEUtils.LODFromDistance(distFromCenter, chunkDistanceByLOD, maxLOD);
 
+            // Ring distance for chunk-LOD-mode prototypes that have a chunkRingsPerLOD table.
+            // Same value that drives correctLOD above, so prototype ring thresholds read on the
+            // same scale as chunkDistanceByLOD. Updated for every BFS-visited chunk each cycle
+            // (ring distance changes whenever the centre moves, even when chunk LOD does not).
+            if (ImpostorRenderer.Instance != null)
+                ImpostorRenderer.Instance.SetChunkRing(pairStorageIdx, distFromCenter);
+
             if (treeActive)
             {
                 bool isInPriorityRing = ringFlags[flatIdx];

@@ -1,5 +1,6 @@
 using KinematicCharacterController;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public struct PlayerInputs
 {
@@ -35,6 +36,24 @@ public class PlayerController : MonoBehaviour, ICharacterController
     private bool _jumpRequested;
     private bool _sprinting;
 
+    // ── DEV FLY MODE (temporary utility) ─────────────────────────────────────
+    // F toggles. While flying: WASD moves along the CAMERA's full direction (pitch included),
+    // Space = up, Left Shift = down (along the sphere normal), hold Left Ctrl = fast.
+    // No gravity, no ground snapping and (by default) no collisions, so fences/trees/terrain
+    // are flown straight through. Only active in the Editor and Development builds.
+    [Header("Dev Fly Mode (Editor / Development builds only)")]
+    [SerializeField] private bool _flyEnabledAtStart = false;
+    [SerializeField] private Key _flyToggleKey = Key.F;
+    [SerializeField] private float _flySpeed = 20f;
+    [SerializeField] private float _flyFastMultiplier = 5f;
+    [SerializeField] private float _flySharpness = 10f;
+    [Tooltip("Fly through everything. Turn off to keep capsule collisions while flying.")]
+    [SerializeField] private bool _flyNoClip = true;
+
+    private bool _flying;
+    private Vector3 _flyVelocityTarget;
+    public bool IsFlying => _flying;
+
     private const float MinUpMagnitude = 1e-6f;
 
     private void Start()
@@ -44,6 +63,56 @@ public class PlayerController : MonoBehaviour, ICharacterController
 
         if (_animationController == null)
             _animationController = GetComponent<PigAnimationController>();
+
+        if (_flyEnabledAtStart) SetFlying(true);
+    }
+
+    private static bool FlyModeAllowed =>
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        true;
+#else
+        false;
+#endif
+
+    private void SetFlying(bool flying)
+    {
+        if (!FlyModeAllowed) flying = false;
+        _flying = flying;
+
+        bool collide = !flying || !_flyNoClip;
+        _motor.SetCapsuleCollisionsActivation(collide);
+        _motor.SetMovementCollisionsSolvingActivation(collide);
+        _motor.SetGroundSolvingActivation(!flying);   // no ground snapping while flying
+        if (flying) _motor.ForceUnground();
+
+        _jumpRequested = false;
+        _animationController?.SetJumping(false);
+        Debug.Log($"[PlayerController] Dev fly mode {(flying ? "ON" : "OFF")}");
+    }
+
+    /// <summary>Reads fly controls straight from the keyboard (no InputActions asset changes),
+    /// returns the desired fly velocity built from the camera's full orientation.</summary>
+    private Vector3 ComputeFlyVelocity(ref PlayerInputs inputs)
+    {
+        var kb = Keyboard.current;
+        float vertical = 0f;
+        bool fast = false;
+        if (kb != null)
+        {
+            if (kb.spaceKey.isPressed)     vertical += 1f;
+            if (kb.leftShiftKey.isPressed) vertical -= 1f;
+            fast = kb.leftCtrlKey.isPressed;
+        }
+
+        Vector3 camForward = inputs.CameraRotation * Vector3.forward;   // includes pitch: look down + W = dive
+        Vector3 camRight   = inputs.CameraRotation * Vector3.right;
+        Vector3 dir = camForward * inputs.MoveAxisForward
+                    + camRight   * inputs.MoveAxisRight
+                    + _newUpVector * vertical;                          // up = away from the planet centre
+        dir = Vector3.ClampMagnitude(dir, 1f);
+
+        float speed = _flySpeed * (fast ? _flyFastMultiplier : 1f);
+        return dir * speed;
     }
 
     private void RefreshCharacterUp()
@@ -73,6 +142,22 @@ public class PlayerController : MonoBehaviour, ICharacterController
     public void SetInputs(ref PlayerInputs inputs)
     {
         RefreshCharacterUp();
+
+        var kbToggle = Keyboard.current;
+        if (FlyModeAllowed && kbToggle != null && kbToggle[_flyToggleKey].wasPressedThisFrame)
+            SetFlying(!_flying);
+
+        if (_flying)
+        {
+            _flyVelocityTarget = ComputeFlyVelocity(ref inputs);
+            // Face the horizontal part of the travel direction so the pig stays upright.
+            Vector3 planar = Vector3.ProjectOnPlane(_flyVelocityTarget, _newUpVector);
+            _lookInputVector = planar.sqrMagnitude > 1e-4f ? planar.normalized : Vector3.zero;
+            _moveInputVector = Vector3.zero;
+            _jumpRequested = false;
+            _animationController?.SetLocomotionState(false, false);
+            return;
+        }
 
 
         Vector3 moveInputVector = Vector3.ClampMagnitude(new Vector3(inputs.MoveAxisRight, 0f, inputs.MoveAxisForward), 1f);
@@ -118,6 +203,13 @@ public class PlayerController : MonoBehaviour, ICharacterController
 
     public void UpdateVelocity(ref Vector3 currentVelocity, float deltaTime)
     {
+        if (_flying)
+        {
+            currentVelocity = Vector3.Lerp(currentVelocity, _flyVelocityTarget,
+                1f - Mathf.Exp(-_flySharpness * deltaTime));
+            return;
+        }
+
         Vector3 characterUp = _motor.CharacterUp;
         Vector3 _gravity;
         if (_motor.GroundingStatus.IsStableOnGround)
@@ -183,7 +275,7 @@ public class PlayerController : MonoBehaviour, ICharacterController
 
     public bool IsColliderValidForCollisions(Collider coll)
     {
-        return true;
+        return !(_flying && _flyNoClip);
     }
 
     public void OnDiscreteCollisionDetected(Collider hitCollider)

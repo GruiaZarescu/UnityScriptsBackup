@@ -83,6 +83,11 @@ StructuredBuffer<BlotchRange> _BlotchOffsetBuffer;
 
 RWStructuredBuffer<uint> _VisibleChunkList;
 StructuredBuffer<uint> _GlobalChunkLODBuffer;
+// Per storage slot: Chebyshev BFS ring distance from the centre chunk (255 = unknown/far).
+StructuredBuffer<uint> _GlobalChunkRingBuffer;
+// Per prototype, MAX_BUCKET_LODS entries: first ring of each mesh LOD. Entry 0 == 0xFFFFFFFF
+// means the prototype has no chunkRingsPerLOD table -> mesh LOD = chunk LOD (legacy 1:1).
+StructuredBuffer<uint> _ProtoLODRings;
 RWStructuredBuffer<uint> _ConflictGridArena;
 StructuredBuffer<uint> _BucketMap;
 
@@ -632,11 +637,36 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
             uint ic = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
 
-            uint selectedLOD = min(chunkLOD, _ProtoMaxLODs[protoIdx]);
+            // Mesh LOD: per-prototype ring table if present, otherwise chunk LOD 1:1.
+            // Everything describing the terrain chunk (height sampling, dm above, the
+            // conflict grid below) keeps using the real chunkLOD.
+            uint maxProtoLOD = _ProtoMaxLODs[protoIdx];
+            uint ringBase    = protoIdx * MAX_BUCKET_LODS;
+            uint meshLOD     = chunkLOD;
+            if (_ProtoLODRings[ringBase] != 0xFFFFFFFFu)
+            {
+                uint ring = _GlobalChunkRingBuffer[storageSlot];
+                meshLOD = 0;
+                // Table is non-decreasing (validated on the CPU); unused tail entries are
+                // 0xFFFFFFFF and never match, so the scan stops at the table's real length.
+                [loop] for (uint li = 1; li <= maxProtoLOD && li < MAX_BUCKET_LODS; li++)
+                {
+                    if (ring >= _ProtoLODRings[ringBase + li]) meshLOD = li;
+                    else break;
+                }
+            }
+            uint selectedLOD = min(meshLOD, maxProtoLOD);
 
             [loop] for (uint inst = 0; inst < ic; inst++)
             {
                 uint hi = (seed << 16) | (inst & 0xFFFFu);
+
+                // Per-LOD density pruning (lodKeepFractions). Same stable hash as the distance
+                // path, so thinning is nested: a tree kept at 0.5 is also kept at 0.7, and
+                // nothing flickers as chunks change LOD.
+                float keep = KeepFractionForLOD(protoIdx, selectedLOD);
+                if (keep < 0.999 && (pcg_hash(hi + 0xBEEFu) / 4294967296.0) > keep) continue;
+
                 uint h1 = pcg_hash(hi); uint h2 = pcg_hash(h1 + 1);
                 float ang = (h1 / 4294967296.0) * 6.283185;
                 float dst = radius < 0.001 ? 0.0 : sqrt(h2 / 4294967296.0) * radius;
@@ -654,7 +684,10 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
                                             chunkLOD, storageSlot, protoIdx, bl.chunkPacked);
 
                 bool wonClaim = true;
-                if (selectedLOD == 0 && radius >= 0.001)
+                // The conflict-grid slab is only allocated for chunk-LOD0 chunks, so the claim must be
+                // gated on the CHUNK's LOD as well — a ring table can put mesh LOD0 on a chunk-LOD1+
+                // chunk, which has no slab (those instances simply skip deduplication).
+                if (selectedLOD == 0 && chunkLOD == 0 && radius >= 0.001)
                 {
                     float chunkWorldSize = _HalfChunkLinearSize * 2.0;
                     float scatterUVx = cos(ang) * dst / chunkWorldSize;
