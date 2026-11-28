@@ -230,8 +230,6 @@ public static class BlotchBaker
                         $"— baking as (radius=0, density=0). Set a default in BlotchOverrideDatabase.");
             }
 
-            bool cullLODOverride = proto.cullLOD != 255;
-            bool instanceAlways = proto.instanceAlways;
 
                 var blotch = new BlotchData(
                 chunkPacked: cellPacked,

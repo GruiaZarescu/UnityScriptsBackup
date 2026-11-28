@@ -222,10 +222,31 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                + "LOD0+ meshes are used by GPU instancing for LOD1+ chunks.")]
         public Mesh[] lodMeshes;
 
-        [Tooltip("Optional per-LOD GameObjects for spawning at any LOD. "
-               + "LOD0 always spawns from sourcePrefab (or lodGameObjects[0] if set). "
-               + "When shouldInstance=false, LOD1+ also uses these GameObjects instead of instancing.")]
-        public GameObject[] lodGameObjects;
+        [Tooltip("First LOD index rendered as a camera-facing (cylindrical) billboard. Every LOD " +
+                 "from this index up is billboarded; everything below it renders as a normal 3D mesh.\n\n" +
+                 "-1 (default) = only the LAST LOD is a billboard — the old implicit behaviour, " +
+                 "unchanged for every existing prototype.\n" +
+                 "0..lodMeshes.Length-1 = explicit start. Use this for multiple billboard tiers, e.g. " +
+                 "LOD6/7/8 sharing one billboard mesh with growing lodWidthMultipliers and shrinking " +
+                 "lodKeepFractions.\n" +
+                 ">= lodMeshes.Length = never billboard (every LOD stays a 3D mesh).\n\n" +
+                 "Billboarding is decided per mesh LOD in ImpostorInstanced.shader, so it works the same " +
+                 "for 1-triangle cards and multi-triangle billboard meshes.")]
+        public int billboardStartLOD = -1;
+
+        /// <summary>Resolved first billboard LOD. Returns int.MaxValue when no LOD is a billboard.
+        /// The single place billboardStartLOD's -1 / out-of-range conventions are interpreted —
+        /// everything else (GPU buffer upload, IsBillboardLOD) goes through this.</summary>
+        public int GetBillboardStartLOD()
+        {
+            int meshCount = lodMeshes != null ? lodMeshes.Length : 0;
+            if (billboardStartLOD < 0) return Mathf.Max(meshCount - 1, 0);   // legacy: last LOD
+            if (billboardStartLOD >= meshCount) return int.MaxValue;          // explicit: never
+            return billboardStartLOD;
+        }
+
+        /// <summary>True if the given mesh LOD renders as a camera-facing billboard.</summary>
+        public bool IsBillboardLOD(int lod) => lod >= GetBillboardStartLOD();
 
         [Tooltip("Materials for each LOD's submeshes, index-aligned with lodMeshes (element i " +
                  "describes lodMeshes[i]'s submeshes, in submesh order).\n\n" +
@@ -258,12 +279,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
             var entry = submeshMaterialsPerLOD[lod];
             return (entry?.submeshMaterials != null) ? entry.submeshMaterials.Length : 0;
         }
-
-        [Tooltip("Base width in world units (scale=1.0). Instance's widthScale multiplies this.")]
-        public float baseWidth = 1f;
-
-        [Tooltip("Base height in world units (scale=1.0). Instance's heightScale multiplies this.")]
-        public float baseHeight = 1f;
 
         [Tooltip("A global offset applied to each instance's height.")]
         public float heightOffset = 0f;
@@ -300,29 +315,14 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         /// tool places instances at when hasConnectors is true.</summary>
         public float ConnectorSpacing => hasConnectors ? Vector3.Distance(connectorStartLocal, connectorEndLocal) : 0f;
 
-        // ALL prototypes have blotch parameters, even non-instanced ones.
-        // For single trees: radius=0, density=1. For grass clumps: radius>0, density>1.
-        // These are baked into BlotchData by MeshSaver for the procedural pipeline.
+        // Blotch radius/density live per-instance in BlotchOverrideDatabase (prototype defaults
+        // included) and are baked into BlotchData by BlotchBaker — they are NOT per-prototype here.
 
-        [Header("Blotch Parameters (all prototypes), radius and density are deprecated in favor of BlotchOverrideDatabase")]
-        [Tooltip("Blotch radius in meters. 0 = single-instance (exact position). "
-               + ">0 = procedural cluster around center.")]
-        public float blotchRadius = 0f;
-
-        [Tooltip("Blotch density in instances per square meter. "
-               + "For single trees: 1. For grass: 10-50. "
-               + "Multiplied by per-LOD density multiplier at runtime for pruning.")]
-        public float blotchDensity = 1f;
-
+        [Header("Blotch Conflict")]
         [Tooltip("Conflict category for the grid competition system. "
                + "1 = Grass, 2 = Canopy, 4 = Trunk. "
                + "Grass allows canopies on top, trunks block everything.")]
         public byte conflictCategory = 4; // Default to Trunk (blocks all)
-
-        [Tooltip("Override LOD at which this prototype is culled (hidden). "
-               + "255 = use the global cull LOD from BlotchExpansionDefines. "
-               + "e.g. cullLOD=2 means this prototype is hidden from LOD3 onward.")]
-        public byte cullLOD = 255;
 
         // ── Size variability ────────────────────────────────────────────────
         [Header("Size Variability")]
@@ -379,12 +379,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
             new CanopyMaskSettings { enabled = true,  maskSize = 8  },  // LOD 7
         };
 
-        [Header("Density Gradient Across Blotch Radius")]
-        [Tooltip("Enable density gradient across the blotch radius.")]
-        public bool densityFadeEnabled = false;
-        [Range(0f, 1f), Tooltip("Density fade start radius (0 = center of blotch).")]
-        public float densityFadeStart = 0f;
-        
         [Header("Use screen space LOD instead of per-chunk LOD")]
         public bool useDistanceLOD = false;
 
@@ -403,10 +397,7 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                "skip conflict-grid deduplication (the grid only exists for chunk-LOD0 chunks).")]
         public int[] chunkRingsPerLOD = new int[0];
 
-        [Tooltip("LEGACY. Kept for migration; the variable array below is what the GPU reads.")]
-        public Vector4 lodDistances = new Vector4(20f, 40f, 80f, 120f);
-
-        [Tooltip("Variable-length LOD distance thresholds (replaces the Vector4 limit). "
+        [Tooltip("Variable-length LOD distance thresholds. "
             + "Element i = max screen-space distance for LOD i. The last element is the cull distance. "
             + "Length is unbounded — add as many LODs as the mesh array supports.")]
         public float[] lodDistancesVariable = new float[] { 20f, 40f, 80f, 120f };
@@ -458,82 +449,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         }
 
 
-        // ---- Cached mesh geometry (populated by CacheMeshData) ----
-        [NonSerialized] public bool meshDataCached;
-        [NonSerialized] public bool cachedIsZOriented;
-        [NonSerialized] public float cachedInvMeshHeight;
-        [NonSerialized] public float cachedInvMeshWidth;
-        [NonSerialized] public Vector3 cachedMeshBaseAnchor;
-        [NonSerialized] public float cachedBillboardInvWidth;
-        [NonSerialized] public float cachedBillboardInvHeight;
-        [NonSerialized] public Vector3 cachedBillboardBaseAnchor;
-
-        /// <summary>
-        /// Pre-compute per-prototype mesh geometry constants.
-        /// </summary>
-        public void CacheMeshData()
-        {
-            Mesh mesh = GetMeshForLOD(0);
-            Vector3 boundsSize = mesh != null ? mesh.bounds.size : Vector3.one;
-
-            cachedIsZOriented = boundsSize.z > boundsSize.y * 1.5f;
-
-            float meshHeight = cachedIsZOriented ? boundsSize.z : boundsSize.y;
-            float meshWidth = Mathf.Max(boundsSize.x, cachedIsZOriented ? boundsSize.y : boundsSize.z);
-            meshHeight = Mathf.Max(meshHeight, 0.01f);
-            meshWidth = Mathf.Max(meshWidth, 0.01f);
-            cachedInvMeshHeight = 1f / meshHeight;
-            cachedInvMeshWidth = 1f / meshWidth;
-
-            if (mesh != null)
-            {
-                Bounds bounds = mesh.bounds;
-                Vector3 center = bounds.center;
-                if (cachedIsZOriented)
-                {
-                    float baseZ = center.z <= 0f ? bounds.max.z : bounds.min.z;
-                    cachedMeshBaseAnchor = new Vector3(center.x, center.y, baseZ);
-                }
-                else
-                {
-                    cachedMeshBaseAnchor = new Vector3(center.x, bounds.min.y, center.z);
-                }
-            }
-            else
-            {
-                cachedMeshBaseAnchor = Vector3.zero;
-            }
-
-            // Cache billboard-specific bounds (last lodMesh = implicit billboard when >= 2 LODs).
-            if (lodMeshes.Length >= 2)
-            {
-                Mesh bbMesh = lodMeshes[lodMeshes.Length - 1];
-                if (bbMesh != null)
-                {
-                    Bounds b = bbMesh.bounds;
-                    float bbW = Mathf.Max(Mathf.Max(b.size.x, b.size.z), 0.01f);
-                    float bbH = Mathf.Max(b.size.y, 0.01f);
-                    cachedBillboardInvWidth  = 1f / bbW;
-                    cachedBillboardInvHeight = 1f / bbH;
-                    cachedBillboardBaseAnchor = new Vector3(b.center.x, b.min.y, b.center.z);
-                }
-                else
-                {
-                    cachedBillboardInvWidth  = cachedInvMeshWidth;
-                    cachedBillboardInvHeight = cachedInvMeshHeight;
-                    cachedBillboardBaseAnchor = cachedMeshBaseAnchor;
-                }
-            }
-            else
-            {
-                cachedBillboardInvWidth  = cachedInvMeshWidth;
-                cachedBillboardInvHeight = cachedInvMeshHeight;
-                cachedBillboardBaseAnchor = cachedMeshBaseAnchor;
-            }
-
-            meshDataCached = true;
-        }
-
         public bool ShouldSpawnAsPrefabAtLOD(int chunkLOD)
         {
             // Case 1: Never instance. Always spawn prefab at all LODs.
@@ -559,9 +474,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         /// <summary>Returns true if this entry has valid render data (LOD0 mesh + LOD0's submesh 0 material).</summary>
         public bool IsValid => lodMeshes != null && lodMeshes.Length > 0 && lodMeshes[0] != null
             && GetSubmeshMaterial(0, 0) != null;
-
-        /// <summary>True when the prototype has >= 2 LODs so the last entry is used as a billboard.</summary>
-        public bool HasBillboardLOD => lodMeshes != null && lodMeshes.Length >= 2;
 
         /// <summary>Returns true if this entry should use GPU instancing for LOD1+.</summary>
         /// LOD0 always uses GameObjects for non-always-instanced prototypes.
@@ -674,13 +586,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
 #endif
 
 
-    // ── LOD pruning density ──────────────────────────────────────────────
-    [Tooltip("Percentage of instances kept for each mesh LOD. Index 0 = keep percentage for LOD1, "
-           + "index 1 = LOD2, etc. LOD0 is always kept at 100%. "
-           + "The solve loop simply multiplies blotch density by this fraction. "
-           + "If a LOD exceeds this array, the last available element is reused.")]
-    public int[] densityPerLOD = new int[] { 100, 90, 80, 75, 70 };
-
     // ── Far-LOD canopy colour palette ────────────────────────────────────
     [Header("Far-LOD Canopy Palette")]
     [ColorUsage(showAlpha: false),
@@ -709,21 +614,6 @@ public class MapObjectPrototypeRegistry : ScriptableObject
         if (entries == null || prototypeIndex < 0 || prototypeIndex >= entries.Length)
             return null;
         return entries[prototypeIndex];
-    }
-
-    // ── Density / width helpers ──────────────────────────────────────────
-
-    /// <summary>
-    /// Returns the percentage of instances to keep for a given mesh LOD.
-    /// LOD0 always returns 100% (never reduced).
-    /// LOD1+ indices into densityPerLOD array with offset: array[LOD-1].
-    /// </summary>
-    public int GetDensityPercentForLOD(int lod)
-    {
-        if (lod == 0) return 100;
-        if (densityPerLOD == null || densityPerLOD.Length == 0) return 100;
-        int index = Mathf.Clamp(lod - 1, 0, densityPerLOD.Length - 1);
-        return Mathf.Clamp(densityPerLOD[index], 0, 100);
     }
 
     // ── Validation ───────────────────────────────────────────────────────
@@ -786,7 +676,10 @@ public class MapObjectPrototypeRegistry : ScriptableObject
                     + $"Entries [{p.lodMeshes.Length}..{p.canopyMaskByLOD.Length - 1}] will be ignored; "
                     + $"entry [{p.lodMeshes.Length - 1}] is used for all further LODs.");
 
-            p.CacheMeshData();
+            if (p.lodMeshes != null && p.billboardStartLOD >= p.lodMeshes.Length)
+                Debug.Log($"[MapObjectPrototypeRegistry] {name}: Entry[{i}] '{p.name}' billboardStartLOD="
+                    + $"{p.billboardStartLOD} >= lodMeshes.Length ({p.lodMeshes.Length}) — no LOD is billboarded. "
+                    + "Intended if this prototype has no billboard; otherwise set it to the first billboard LOD (or -1 for the last LOD).");
         }
     }
 

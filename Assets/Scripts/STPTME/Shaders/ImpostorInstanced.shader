@@ -16,6 +16,10 @@ Shader "Custom/ImpostorInstanced_URP"
         _Color_Variation_Scale ("Color Variation Scale", Float) = 0.01
         _Color_Variation ("Color Variation", Color) = (0.539, 0.575, 0.236, 1)
         _BillboardNormalUp ("Billboard Normal Up", Range(0, 4)) = 1
+        // Blends EVERY LOD's lighting normal toward the ground normal. 0 = mesh normals (old
+        // behaviour). 0.6-1 makes grass shade the same at every LOD regardless of how each LOD
+        // mesh's normals were authored, and matches the terrain underneath.
+        _NormalUp ("Normal Up Blend (all LODs)", Range(0, 1)) = 0
 
         [Header(Grass Color Toggle)]
         [Toggle(_USEGRASSCOLOR_ON)] _UseGrassColor ("Use Grass Color Effects", Float) = 0
@@ -84,6 +88,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 float  windMask    : TEXCOORD3; // pre-baked wind intensity → fragment color tint
                 float2 worldPosXZ  : TEXCOORD4; // world XZ for variation texture UV
                 float  fogFactor   : TEXCOORD6; // URP fog — prefabs (URP Lit) get it, so this must too
+                float3 upWS        : TEXCOORD7; // ground (sphere) normal at the instance base, for _NormalUp
             };
 
             // ── Textures ─────────────────────────────────────────────────────
@@ -124,6 +129,10 @@ Shader "Custom/ImpostorInstanced_URP"
                 // row: camera pos + pad
                 float3 _CameraPos;
                 float  _BillboardNormalUp;   // was _CBPad
+
+                // row: all-LOD normal-up blend + pad (must match the shadow pass CBUFFER)
+                float  _NormalUp;
+                float3 _CBPad2;
             CBUFFER_END
 
             // ── Instance buffer & per-proto buffers ───────────────────────────
@@ -139,7 +148,7 @@ Shader "Custom/ImpostorInstanced_URP"
             };
             StructuredBuffer<InstanceData> _InstanceOutputBuffer;
             StructuredBuffer<float3>       _PrototypeScales;
-            StructuredBuffer<uint>         _ProtoMaxLODs;
+            StructuredBuffer<uint>         _ProtoBillboardStartLODs;   // first billboard mesh LOD per prototype (0xFFFFFFFF = none)
             StructuredBuffer<float4>       _ProtoColorParamsBuffer;
 
             // Set as a global (Shader.SetGlobalVector) — not a material property
@@ -192,9 +201,9 @@ Shader "Custom/ImpostorInstanced_URP"
                 // ── Billboard vs. 3-D mesh ──
                 float3 worldOffset;
                 float3 finalNormal;
-                uint   maxLod = _ProtoMaxLODs[protoIdx];
+                uint   billboardStart = _ProtoBillboardStartLODs[protoIdx];
 
-                if (chunkLOD >= maxLod)
+                if (chunkLOD >= billboardStart)   // chunkLOD here = the instance's selected MESH LOD
                 {
                     // Cylindrical billboard — forward faces camera, up = sphere normal
                     float3 forward     = normalize(_CameraPos - inst.worldPos);
@@ -255,6 +264,7 @@ Shader "Custom/ImpostorInstanced_URP"
                 OUT.fogFactor   = ComputeFogFactor(OUT.positionHCS.z);
                 OUT.uv          = TRANSFORM_TEX(IN.uv, _MainTex);
                 OUT.worldNormal = finalNormal;
+                OUT.upWS        = dir;
                 OUT.protoIdx    = protoIdx;
                 OUT.worldPosXZ  = worldPos.xz;
 
@@ -299,6 +309,13 @@ Shader "Custom/ImpostorInstanced_URP"
 
                 // ── Lighting ──────────────────────────────────────────────────
                 float3 normalWS  = normalize(IN.worldNormal);
+                // LOD0 is double-sided: a back face must be lit with the flipped normal, or every
+                // blade seen from behind is shaded as if lit from the other side (LOD1+ discards
+                // back faces above, so this only ever changes LOD0 — one source of the LOD0 ring).
+                if (!isFront) normalWS = -normalWS;
+                // Pull every LOD toward the ground normal so per-LOD mesh-normal differences stop
+                // showing up as brightness rings.
+                normalWS = normalize(lerp(normalWS, normalize(IN.upWS), _NormalUp));
                 Light  mainLight = GetMainLight();
                 float  NdotL     = saturate(dot(normalWS, mainLight.direction));
                 float3 ambient   = SampleSH(normalWS);
@@ -384,6 +401,9 @@ Shader "Custom/ImpostorInstanced_URP"
 
                 float3 _CameraPos;
                 float  _BillboardNormalUp;
+
+                float  _NormalUp;
+                float3 _CBPad2;
             CBUFFER_END
 
             struct InstanceData
@@ -397,7 +417,7 @@ Shader "Custom/ImpostorInstanced_URP"
             };
             StructuredBuffer<InstanceData> _InstanceOutputBuffer;
             StructuredBuffer<float3>       _PrototypeScales;
-            StructuredBuffer<uint>         _ProtoMaxLODs;
+            StructuredBuffer<uint>         _ProtoBillboardStartLODs;   // first billboard mesh LOD per prototype (0xFFFFFFFF = none)
 
             float3 _SphereCenter;
 
@@ -442,9 +462,9 @@ Shader "Custom/ImpostorInstanced_URP"
 
                 float3 worldOffset;
                 float3 finalNormal;
-                uint   maxLod = _ProtoMaxLODs[protoIdx];
+                uint   billboardStart = _ProtoBillboardStartLODs[protoIdx];
 
-                if (chunkLOD >= maxLod)
+                if (chunkLOD >= billboardStart)   // chunkLOD here = the instance's selected MESH LOD
                 {
                     float3 forward     = normalize(_CameraPos - inst.worldPos);
                     float3 forwardProj = normalize(forward - dir * dot(forward, dir));

@@ -173,7 +173,6 @@ SamplerState sampler_ActiveLOD0HeightmapArray;
 StructuredBuffer<uint> _ActiveLOD0SliceMap;
 StructuredBuffer<uint2> _ActiveLOD0ResolutionMap;
 StructuredBuffer<float2> _ProtoHeightOffsetBuffer;
-StructuredBuffer<float4> _ProtoBlotchParamsBuffer;
 StructuredBuffer<float4> _ProtoColorParamsBuffer;
 StructuredBuffer<uint>   _ProtoLODModeBuffer;
 
@@ -252,6 +251,45 @@ float KeepFractionForLOD(uint protoIdx, uint lod)
     uint2 info = _ProtoLODInfo[protoIdx];
     if (lod >= info.y) return 1.0;
     return _ProtoKeepFractions[info.x + lod];
+}
+
+// Highest keep fraction of any distance band overlapping [dMin, dMax]. Used by the count kernel
+// to size a blotch's batches for what can actually survive pruning, instead of full density.
+float MaxKeepFractionInRange(uint protoIdx, float dMin, float dMax)
+{
+    uint2 info = _ProtoLODInfo[protoIdx];
+    float m = 0.0;
+    float lo = 0.0;
+    [loop] for (uint i = 0; i < info.y; i++)
+    {
+        float hi = _ProtoLODDistancesFlat[info.x + i];
+        if (hi > dMin && lo <= dMax) m = max(m, _ProtoKeepFractions[info.x + i]);
+        lo = hi;
+    }
+    return m;
+}
+
+// Full-density instance count of a blotch. MUST be identical in the count and generate kernels.
+uint BlotchFullInstanceCount(float radius, float density)
+{
+    float dm = _DensityMultiplierPerLOD[0];
+    float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
+    return radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
+}
+
+// Nested, index-based density pruning: instance i survives keep k iff i < icFull*k (the
+// fractional last slot decided by a stable hash, so small blotches aren't biased upward).
+// Instance positions are hash-random per index, so the first N indices are a uniform random
+// subset — same look as the old per-instance hash test, but it lets the count kernel skip
+// generating (and batching) instances that could never survive.
+bool KeepInstanceByIndex(uint inst, uint icFull, float keep, uint hi)
+{
+    if (keep >= 0.999) return true;
+    float target = icFull * keep;
+    uint whole = (uint)target;
+    if (inst < whole) return true;
+    if (inst > whole) return false;
+    return (pcg_hash(hi + 0xBEEFu) / 4294967296.0) < (target - whole);
 }
 
 bool TestChunkHorizon(ChunkVisibilityData c, float3 pn, float cosP, float sinP)
@@ -629,7 +667,6 @@ void CSExpandBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
             float dm = _DensityMultiplierPerLOD[min(chunkLOD, 7)];
 
-            float4 params = _ProtoBlotchParamsBuffer[protoIdx];
             float radius   = UnpackBlotchRadius(bl.seedAndDensity);   // per-blotch, no longer per-prototype
             float density  = UnpackBlotchDensity(bl.seedAndDensity);  // per-blotch, no longer per-prototype
             uint conflict = UnpackConflict(bl.packedMeta);
@@ -797,7 +834,6 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
         float base_lx = (bl.packedPos & 0xFFFFu) / 65535.0;
         float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
-        float4 params = _ProtoBlotchParamsBuffer[protoIdx];
         float radius = UnpackBlotchRadius(bl.seedAndDensity);
         float density = UnpackBlotchDensity(bl.seedAndDensity);
 
@@ -848,10 +884,16 @@ void CSCountDistanceBlotches(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThread
 
         if (!blotchInRange) continue;
 
-        // Full-density upper bound: stable, no per-frame cliff.
-        float dm = _DensityMultiplierPerLOD[0];
-        float area = radius > 0.001 ? 3.14159 * radius * radius : 1.0;
-        uint icMax = radius < 0.001 ? 1 : min((uint)ceil(density * dm * area), MAX_BLOTCH_INST);
+        // Upper bound on survivors: full density scaled by the highest keep fraction of any
+        // distance band this blotch can touch. Previously this was always full density, so with
+        // far bands at keep < 1 most batches only produced instances that were then pruned —
+        // and the batch list (MAX_DISTANCE_BATCHES) overflowed SILENTLY, dropping whole blotches
+        // in dispatch order: grass appearing as isolated circular clumps.
+        uint icFull = BlotchFullInstanceCount(radius, density);
+        float slack = radius + vis.boundHalfH + 1.0;
+        float maxKeep = MaxKeepFractionInRange(protoIdx, max(centerDist - slack, 0.0), centerDist + slack);
+        uint icMax = maxKeep >= 0.999 ? icFull : min(icFull, (uint)ceil(icFull * maxKeep));
+        if (icMax == 0) continue;
 
         uint numBatches = (icMax + BATCH_SIZE - 1) / BATCH_SIZE;
         uint batchStart;
@@ -909,8 +951,8 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     float base_lx = (bl.packedPos & 0xFFFFu) / 65535.0;
     float base_lz = ((bl.packedPos >> 16) & 0xFFFFu) / 65535.0;
 
-    float4 params = _ProtoBlotchParamsBuffer[protoIdx];
     float radius    = UnpackBlotchRadius(bl.seedAndDensity);
+    float density   = UnpackBlotchDensity(bl.seedAndDensity);
     uint seed = bl.seedAndDensity & 0xFFFFu;
 
     uint hi = (seed << 16) | (inst & 0xFFFFu);
@@ -958,12 +1000,9 @@ void CSGenerateDistanceInstances(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupTh
     if (!survived) return; // beyond max -> cull
 
     // Density pruning keyed to the distance band (thins far grass even if it reuses a mesh).
+    // Index-based so it agrees with the count kernel's reduced icMax (see KeepInstanceByIndex).
     float keep = KeepFractionForLOD(protoIdx, distBandLOD);
-    if (keep < 0.999)
-    {
-        uint keepHash = pcg_hash(hi + 0xBEEFu);
-        if ((keepHash / 4294967296.0) > keep) return;
-    }
+    if (!KeepInstanceByIndex(inst, BlotchFullInstanceCount(radius, density), keep, hi)) return;
 
     // Mesh LOD clamped to available meshes: bands past the last mesh become the billboard,
     // instead of silently vanishing (this is the "only LOD0 grass" fix).

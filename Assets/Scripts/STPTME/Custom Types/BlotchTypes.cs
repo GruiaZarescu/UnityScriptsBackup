@@ -42,7 +42,7 @@ namespace CustomTypes
         //   bits  0-7:  face            (FaceId: 0=Up, 1=Down, 2=Left, 3=Right, 4=Forward, 5=Back)
         //   bits  8-15: prototypeIndex  (index into TreePrototypeRegistry.prototypes)
         //   bits 16-23: conflictCategory (see ConflictCategory constants below)
-        //   bits 24-31: flags           (bit 24: cullLODOverride; bit 25: instanceAlways; bits 26-31: reserved)
+        //   bits 24-31: reserved        (never written; instanceAlways comes from _ProtoFlags, per-prototype cullLOD was removed)
         public uint packedMeta;
 
         // Bit layout:
